@@ -1,0 +1,12 @@
+# Override: swap the real (privileged, Docker-Hub-pulled) qduoj sandbox for the
+# protocol-faithful Python mock. Use offline, in CI, or on hosts that disallow privileged.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --build
+#
+# Only image/build/privileged change; TOKEN / SERVICE_URL / BACKEND_URL are inherited
+# from the base service (map-form environment merges across override files).
+services:
+  judge-server:
+    image: mock-judge-server
+    build: ../mock-judge-server
+    privileged: false
