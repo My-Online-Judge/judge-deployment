@@ -17,11 +17,15 @@ services:
       POSTGRES_USER: ${DATABASE_USERNAME}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
       POSTGRES_DB: ${DATABASE_NAME}
-    ports:
-      - "5433:5432"
+    # Host publish disabled: the app reaches Postgres over the internal network (db:5432),
+    # so exposing 5433 is only for external debug tools. Left off to avoid a stale
+    # docker-proxy squatting on host :5433. Re-enable if you need a host-side psql.
+    # ports:
+    #   - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ../judge-api/initdb.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Schema is now owned by Flyway (judge-api runs V1 baseline + V2 seed on boot, ddl-auto=validate).
+      # The old initdb.sql bootstrap is retired — a fresh volume is built entirely by Flyway.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
@@ -30,7 +34,9 @@ services:
     networks: [oj-net]
 
   kafka:
-    image: apache/kafka:3.9.0
+    # 3.9.0's image ships a broken /bin/bash (readline relocation errors) that makes the
+    # entrypoint exit 127 on this host. 3.8.1 has a working bash and identical env convention.
+    image: apache/kafka:3.8.1
     container_name: oj-kafka
     restart: unless-stopped
     # Host publish of the EXTERNAL listener is intentionally disabled: all services reach
@@ -73,6 +79,8 @@ services:
     env_file:
       - .env
     ports:
+      # Canonical port. (8010 was a temporary detour when 8000 was squatted; 8000 is free again,
+      # and 8010 is now held by Docker Desktop's backend — so we stay on 8000 and avoid Desktop.)
       - "8000:8000"
     networks: [oj-net]
 
