@@ -79,14 +79,18 @@ services:
     env_file:
       - .env
     ports:
-      # Canonical port. (8010 was a temporary detour when 8000 was squatted; 8000 is free again,
-      # and 8010 is now held by Docker Desktop's backend — so we stay on 8000 and avoid Desktop.)
-      - "8000:8000"
+      # Canonical is 8000, but host :8000 is squatted by an orphaned docker-proxy that can't be
+      # cleared without a reboot on this host (AppArmor blocks `kill`, and snap docker's
+      # live-restore keeps it alive across `snap restart docker`). Running on 8010 until a reboot
+      # frees 8000; then revert to "8000:8000" and set judge-portal/.env VITE_API_BASE_URL to :8000.
+      - "8010:8000"
     networks: [oj-net]
 
   judge-worker:
     build: ../judge-worker
-    container_name: oj-judge-worker
+    # No fixed container_name: judge-workers form a Kafka consumer group (group_id=judge-workers)
+    # and are meant to scale horizontally — `docker compose up -d --scale judge-worker=3` spreads
+    # the 6 submission.requested partitions across the instances. A fixed name would block scaling.
     restart: unless-stopped
     depends_on:
       kafka:
