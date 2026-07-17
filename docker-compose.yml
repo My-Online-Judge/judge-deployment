@@ -66,6 +66,18 @@ services:
       start_period: 20s
     networks: [oj-net]
 
+  redis:
+    # Verdict SSE fan-out across judge-api instances (pub/sub on channel oj.verdicts).
+    image: redis:7-alpine
+    container_name: oj-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [oj-net]
+
   # ---- application services -------------------------------------------------
   judge-api:
     build: ../judge-api
@@ -75,6 +87,8 @@ services:
       db:
         condition: service_healthy
       kafka:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     env_file:
       - .env
