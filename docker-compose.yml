@@ -66,6 +66,18 @@ services:
       start_period: 20s
     networks: [oj-net]
 
+  redis:
+    # Verdict SSE fan-out across judge-api instances (pub/sub on channel oj.verdicts).
+    image: redis:7-alpine
+    container_name: oj-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [oj-net]
+
   # ---- application services -------------------------------------------------
   judge-api:
     build: ../judge-api
@@ -76,14 +88,15 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     ports:
-      # Canonical is 8000, but host :8000 is squatted by an orphaned docker-proxy that can't be
-      # cleared without a reboot on this host (AppArmor blocks `kill`, and snap docker's
-      # live-restore keeps it alive across `snap restart docker`). Running on 8010 until a reboot
-      # frees 8000; then revert to "8000:8000" and set judge-portal/.env VITE_API_BASE_URL to :8000.
-      - "8010:8000"
+      # Must stay 8000: judge-portal is built against VITE_API_BASE_URL=http://localhost:8000/api/v1.
+      # (The old 8010 workaround is retired — the squatter was Docker Desktop's proxy, not an
+      # orphan needing a reboot; stopping Docker Desktop frees this port.)
+      - "8000:8000"
     networks: [oj-net]
 
   judge-worker:
