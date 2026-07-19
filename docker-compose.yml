@@ -121,6 +121,23 @@ services:
       start_period: 5s
     networks: [oj-net]
 
+  prometheus:
+    # Scrapes judge-api /actuator/prometheus. Pinned for reproducibility.
+    image: prom/prometheus:v3.1.0
+    container_name: oj-prometheus
+    restart: unless-stopped
+    environment: *tz-env
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"   # ops UI, loopback only
+    depends_on:
+      judge-api:
+        condition: service_started
+    networks: [oj-net]
+
   # ---- application services -------------------------------------------------
   judge-api:
     build: ../judge-api
@@ -226,3 +243,4 @@ volumes:
   js2log:
   miniodata:
   test_case_cache:
+  promdata:
