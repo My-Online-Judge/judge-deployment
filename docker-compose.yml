@@ -7,13 +7,26 @@
 #
 # Config is centralized in ./.env (loaded automatically by Compose).
 
+# Vietnam time (GMT+7) for every service's logs and DB now()/timestamps, aliased into each service
+# below. Sandboxes (judge-server, judge-server-2) are intentionally excluded — they run untrusted
+# submissions and their wall-clock is irrelevant. NOTE: judge-api also pins the JVM zone in code
+# (BackendServiceApplication.main) — that is what fixes its stored LocalDateTime timestamps; the TZ
+# here only aligns its logs. TZ is best-effort on images without OS tzdata (alpine) — harmless if unset.
+x-tz-env: &tz-env
+  TZ: Asia/Ho_Chi_Minh
+
 services:
   # ---- infrastructure ------------------------------------------------------
   db:
     image: postgres:16
     container_name: oj-db
     restart: unless-stopped
+    # The `timezone` GUC is baked into the cluster at initdb, so the TZ env alone won't move an
+    # already-initialised volume off UTC — set it (and log_timezone) explicitly. The app writes naive
+    # LocalDateTime, so this only affects now()/CURRENT_TIMESTAMP and server logs, not stored audit times.
+    command: ["postgres", "-c", "timezone=Asia/Ho_Chi_Minh", "-c", "log_timezone=Asia/Ho_Chi_Minh"]
     environment:
+      <<: *tz-env
       POSTGRES_USER: ${DATABASE_USERNAME}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
       POSTGRES_DB: ${DATABASE_NAME}
@@ -45,6 +58,7 @@ services:
     # ports:
     #   - "9092:9092"
     environment:
+      <<: *tz-env
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENERS: INTERNAL://:29092,CONTROLLER://:9093,EXTERNAL://:9092
@@ -75,6 +89,7 @@ services:
     image: redis:7-alpine
     container_name: oj-redis
     restart: unless-stopped
+    environment: *tz-env
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -92,6 +107,7 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
+      <<: *tz-env
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
@@ -118,6 +134,7 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    environment: *tz-env
     env_file:
       - .env
     ports:
@@ -144,6 +161,7 @@ services:
         condition: service_started
       minio:
         condition: service_healthy
+    environment: *tz-env
     env_file:
       - .env
     networks: [oj-net]
@@ -190,6 +208,7 @@ services:
     build: ../judge-portal
     container_name: oj-judge-portal
     restart: unless-stopped
+    environment: *tz-env
     depends_on:
       judge-api:
         condition: service_started
