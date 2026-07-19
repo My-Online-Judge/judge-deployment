@@ -99,7 +99,8 @@ services:
 
   minio:
     # S3-compatible object storage: single source of truth for problem test cases (T3-8).
-    image: minio/minio
+    # Pinned for reproducibility — this is the release the T3-8 stack was verified against.
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: oj-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
