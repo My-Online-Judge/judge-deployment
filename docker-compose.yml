@@ -78,6 +78,25 @@ services:
       retries: 10
     networks: [oj-net]
 
+  minio:
+    # S3-compatible object storage: single source of truth for problem test cases (T3-8).
+    image: minio/minio
+    container_name: oj-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    networks: [oj-net]
+
   # ---- application services -------------------------------------------------
   judge-api:
     build: ../judge-api
@@ -89,6 +108,8 @@ services:
       kafka:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     env_file:
       - .env
@@ -105,11 +126,17 @@ services:
     # and are meant to scale horizontally — `docker compose up -d --scale judge-worker=3` spreads
     # the 6 submission.requested partitions across the instances. A fixed name would block scaling.
     restart: unless-stopped
+    volumes:
+      - test_case_cache:/test_case
     depends_on:
       kafka:
         condition: service_healthy
       judge-server:
         condition: service_started
+      judge-server-2:
+        condition: service_started
+      minio:
+        condition: service_healthy
     env_file:
       - .env
     networks: [oj-net]
@@ -130,8 +157,26 @@ services:
       SERVICE_URL: http://judge-server:8080
       BACKEND_URL: http://judge-api:8000/api/judge_server_heartbeat/
     volumes:
-      - ../judge-api/src/main/resources/test_cases:/test_case:ro
+      - test_case_cache:/test_case:ro
       - ../judge-server/log:/log
+    networks: [oj-net]
+
+  judge-server-2:
+    # Second QingdaoU sandbox. The worker round-robins across the JUDGE_SERVER_URL comma-list with
+    # failover (T1-3), so a second sandbox adds judging throughput and survives one sandbox dying.
+    # Each sandbox needs its OWN writable /log (they can't share one), hence a dedicated volume.
+    image: qduoj/judge-server
+    container_name: oj-judge-server-2
+    restart: always
+    privileged: true
+    shm_size: 256m
+    environment:
+      TOKEN: ${JUDGE_SERVER_TOKEN}
+      SERVICE_URL: http://judge-server-2:8080
+      BACKEND_URL: http://judge-api:8000/api/judge_server_heartbeat/
+    volumes:
+      - test_case_cache:/test_case:ro
+      - js2log:/log
     networks: [oj-net]
 
   judge-portal:
@@ -151,3 +196,6 @@ networks:
 
 volumes:
   pgdata:
+  js2log:
+  miniodata:
+  test_case_cache:
