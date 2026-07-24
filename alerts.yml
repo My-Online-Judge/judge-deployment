@@ -1,0 +1,84 @@
+# Alert rules for the Online Judge stack.
+#
+# There is no Alertmanager in this deployment yet, so a firing rule shows up in the Prometheus UI
+# (http://127.0.0.1:9090/alerts) and nowhere else. That is deliberate: rules encode "what counts as
+# broken" and are worth having before the paging plumbing exists — wiring Alertmanager later needs
+# no change here.
+#
+# Every oj_* series referenced below is pre-registered at 0 on judge-api boot (see OjMetrics and the
+# rate limiters). Without that, `absent()`-free rules on a never-incremented counter would evaluate
+# to no-data forever, which reads as silence rather than as health.
+
+groups:
+  - name: judge-availability
+    rules:
+      - alert: JudgeApiDown
+        # The scrape itself failing covers every way judge-api can die — crash, OOM, hung thread
+        # pool — without needing a metric from inside the process that just stopped producing them.
+        expr: up{job="judge-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "judge-api is not being scraped"
+          description: "Prometheus has failed to scrape judge-api for over a minute. Submissions are not being accepted."
+
+  - name: judge-pipeline
+    rules:
+      - alert: JudgeSystemErrors
+        # SYSTEM_ERROR is never the submitter's fault: it means the sandbox, the worker, or the
+        # test-case bundle broke. One is a bug; a rate above zero is an outage in progress.
+        expr: rate(oj_verdict_total{status="SYSTEM_ERROR"}[10m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Submissions are returning SYSTEM_ERROR"
+          description: "The judging pipeline is failing internally — check the sandboxes and judge-worker logs, not the submitted code."
+
+      - alert: JudgeQueueStalled
+        # Distinct from "busy": a queue that is non-empty AND not draining means nothing is being
+        # judged at all. Pairs with JudgeQueueBacklog (see the TODO below), which catches the
+        # opposite failure — draining, but far too slowly for the offered load.
+        expr: oj_queue_depth > 0 and rate(oj_verdict_total[15m]) == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Submissions are queued but no verdicts are being produced"
+          description: "oj_queue_depth has been above zero for 15m with zero verdicts in the same window — the worker or both sandboxes are down."
+
+  - name: judge-abuse
+    rules:
+      - alert: LoginLockoutSpike
+        # Spec C locks an account/ip/device after repeated failures. A handful of lockouts an hour is
+        # users fat-fingering passwords; a sustained rate is a credential-stuffing run worth looking at.
+        expr: increase(oj_login_rate_limited_total[15m]) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Login lockouts are firing repeatedly"
+          description: "More than 20 login attempts were refused by the rate limiter in 15 minutes — check /admin/security for the offending ip or device."
+
+      - alert: BannedRequestFlood
+        # A ban already blocks these requests, so this is not an availability alert — it is the signal
+        # that a banned actor is still hammering, which is what justifies escalating beyond the app.
+        expr: increase(oj_request_banned_total[15m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A banned ip or device is still sending heavy traffic"
+          description: "Over 100 requests were refused by the access-ban filter in 15 minutes — consider blocking upstream of the app."
+
+  # TODO(tuan): two load-shaped rules are missing, and their thresholds are a judgment call about
+  # this deployment rather than something derivable from the code:
+  #
+  #   - JudgeQueueBacklog: oj_queue_depth stays above N for M minutes.
+  #       N depends on how many submissions you expect at peak (a class of 40 all submitting at the
+  #       bell is normal; 200 pending is not) and on the 2-sandbox throughput.
+  #
+  #   - JudgeLatencyHigh: histogram_quantile(0.95, sum(rate(oj_judge_latency_seconds_bucket[10m])) by (le)) > S
+  #       S is a submit-to-verdict SLO. Anchor it to the worst-case problem: time limit x test count
+  #       x safety factor, not to the A+B measurement of ~20ms.

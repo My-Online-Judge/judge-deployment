@@ -1,12 +1,39 @@
-# Override: swap the real (privileged, Docker-Hub-pulled) qduoj sandbox for the
+# Override: swap the real (privileged, Docker-Hub-pulled) qduoj sandboxes for the
 # protocol-faithful Python mock. Use offline, in CI, or on hosts that disallow privileged.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --build
 #
-# Only image/build/privileged change; TOKEN / SERVICE_URL / BACKEND_URL are inherited
-# from the base service (map-form environment merges across override files).
+# Only image/build/privileged/healthcheck change; TOKEN / SERVICE_URL / BACKEND_URL are inherited
+# from the base services (map-form environment merges across override files).
+#
+# BOTH sandboxes are overridden: .env sets JUDGE_SERVER_URL to the two-entry comma list, so the
+# worker round-robins across judge-server AND judge-server-2. Mocking only the first left every
+# other submission going to a real privileged sandbox — which is exactly what this file exists
+# to avoid on hosts that cannot run one.
+
+# The base healthcheck calls /ping, which the mock does not implement (it speaks only /judge).
+# A POST /judge would run a fake submission every 15s, so check the cheapest honest thing
+# instead: the listener is accepting connections.
+x-mock-health: &mock-health
+  test:
+    - CMD
+    - python3
+    - -c
+    - 'import socket; socket.create_connection(("localhost", 8080), 3).close()'
+  interval: 15s
+  timeout: 5s
+  retries: 3
+  start_period: 10s
+
 services:
   judge-server:
     image: mock-judge-server
     build: ../mock-judge-server
     privileged: false
+    healthcheck: *mock-health
+
+  judge-server-2:
+    image: mock-judge-server
+    build: ../mock-judge-server
+    privileged: false
+    healthcheck: *mock-health
