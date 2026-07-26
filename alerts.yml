@@ -5,9 +5,14 @@
 # broken" and are worth having before the paging plumbing exists — wiring Alertmanager later needs
 # no change here.
 #
-# Every oj_* series referenced below is pre-registered at 0 on judge-api boot (see OjMetrics and the
-# rate limiters). Without that, `absent()`-free rules on a never-incremented counter would evaluate
-# to no-data forever, which reads as silence rather than as health.
+# ABSENT-SAFE BY DESIGN. Every counter-based rule wraps its query in `... or vector(0)` so an oj_*
+# series that does not exist yet evaluates to 0, not to no-data. This matters because in this stack
+# (Spring Boot 3.4 / Micrometer 1.14 / prometheus-metrics-core) an oj_* counter sitting idle at 0 is
+# dropped from the live scrape and only reappears once it increments — pre-registering it at 0 in the
+# app did NOT keep it visible (see the ops memory for the full investigation). The threshold rules
+# below would still behave correctly on an absent series (empty result → inactive), but JudgeQueueStalled
+# genuinely needs the guard: its `and rate(oj_verdict_total…) == 0` arm silently matches nothing when
+# the series is absent, so a stalled queue with no verdicts ever recorded would never fire without it.
 
 groups:
   - name: judge-availability
@@ -28,7 +33,7 @@ groups:
       - alert: JudgeSystemErrors
         # SYSTEM_ERROR is never the submitter's fault: it means the sandbox, the worker, or the
         # test-case bundle broke. One is a bug; a rate above zero is an outage in progress.
-        expr: rate(oj_verdict_total{status="SYSTEM_ERROR"}[10m]) > 0
+        expr: (sum(rate(oj_verdict_total{status="SYSTEM_ERROR"}[10m])) or vector(0)) > 0
         for: 5m
         labels:
           severity: critical
@@ -38,9 +43,12 @@ groups:
 
       - alert: JudgeQueueStalled
         # Distinct from "busy": a queue that is non-empty AND not draining means nothing is being
-        # judged at all. Pairs with JudgeQueueBacklog (see the TODO below), which catches the
-        # opposite failure — draining, but far too slowly for the offered load.
-        expr: oj_queue_depth > 0 and rate(oj_verdict_total[15m]) == 0
+        # judged at all. The verdict arm is absent-safe: without `or vector(0)`, a queue that stalls
+        # before ANY verdict has ever been recorded leaves oj_verdict_total absent, the `== 0` arm
+        # matches nothing, and this rule never fires — the exact outage it exists to catch.
+        # `and on()`: the right arm is aggregated to a label-less scalar-like vector, so it must be
+        # joined on the empty label set or it would never match oj_queue_depth's {job,instance} labels.
+        expr: oj_queue_depth > 0 and on() (sum(rate(oj_verdict_total[15m])) or vector(0)) == 0
         for: 15m
         labels:
           severity: critical
@@ -53,7 +61,7 @@ groups:
       - alert: LoginLockoutSpike
         # Spec C locks an account/ip/device after repeated failures. A handful of lockouts an hour is
         # users fat-fingering passwords; a sustained rate is a credential-stuffing run worth looking at.
-        expr: increase(oj_login_rate_limited_total[15m]) > 20
+        expr: (sum(increase(oj_login_rate_limited_total[15m])) or vector(0)) > 20
         for: 5m
         labels:
           severity: warning
@@ -64,7 +72,7 @@ groups:
       - alert: BannedRequestFlood
         # A ban already blocks these requests, so this is not an availability alert — it is the signal
         # that a banned actor is still hammering, which is what justifies escalating beyond the app.
-        expr: increase(oj_request_banned_total[15m]) > 100
+        expr: (sum(increase(oj_request_banned_total[15m])) or vector(0)) > 100
         for: 5m
         labels:
           severity: warning
