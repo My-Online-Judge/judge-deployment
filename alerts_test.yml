@@ -1,0 +1,93 @@
+# promtool test rules for alerts.yml — run with: promtool test rules alerts_test.yml
+#
+# These exist to lock in the absent-safe behaviour: the whole point of the rewrite is that a rule
+# still evaluates correctly when its oj_* counter series does not exist yet (the live scrape drops
+# idle zero counters — see the ops memory). Each case that references an oj_* counter deliberately
+# omits that series to prove the `or vector(0)` guard holds.
+
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # JudgeQueueStalled is the rule that genuinely breaks without the guard: a queue that stalls before
+  # any verdict was ever recorded leaves oj_verdict_total absent. Without `or vector(0)` the `and` arm
+  # matches nothing and the rule never fires. Here oj_verdict_total is intentionally ABSENT.
+  - interval: 1m
+    input_series:
+      - series: 'oj_queue_depth{job="judge-api", instance="judge-api:8000"}'
+        values: '5x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: JudgeQueueStalled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: judge-api
+              instance: judge-api:8000
+            exp_annotations:
+              summary: "Submissions are queued but no verdicts are being produced"
+              description: "oj_queue_depth has been above zero for 15m with zero verdicts in the same window — the worker or both sandboxes are down."
+
+  # Healthy pipeline: queue is draining (verdicts flowing) -> JudgeQueueStalled must stay silent.
+  - interval: 1m
+    input_series:
+      - series: 'oj_queue_depth{job="judge-api", instance="judge-api:8000"}'
+        values: '5x20'
+      - series: 'oj_verdict_total{status="ACCEPTED", job="judge-api", instance="judge-api:8000"}'
+        values: '0+3x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: JudgeQueueStalled
+        exp_alerts: []
+
+  # JudgeSystemErrors: absent oj_verdict_total{SYSTEM_ERROR} must read as 0, not fire, not no-data.
+  - interval: 1m
+    input_series:
+      - series: 'oj_queue_depth{job="judge-api", instance="judge-api:8000"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: JudgeSystemErrors
+        exp_alerts: []
+
+  # JudgeSystemErrors fires once SYSTEM_ERROR verdicts actually start accumulating.
+  - interval: 1m
+    input_series:
+      - series: 'oj_verdict_total{status="SYSTEM_ERROR", job="judge-api", instance="judge-api:8000"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: JudgeSystemErrors
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Submissions are returning SYSTEM_ERROR"
+              description: "The judging pipeline is failing internally — check the sandboxes and judge-worker logs, not the submitted code."
+
+  # LoginLockoutSpike: absent counter must not fire (and must not error on no-data).
+  - interval: 1m
+    input_series:
+      - series: 'up{job="judge-api"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: LoginLockoutSpike
+        exp_alerts: []
+
+  # LoginLockoutSpike fires on a real lockout spike (>20 in 15m).
+  - interval: 1m
+    input_series:
+      - series: 'oj_login_rate_limited_total{job="judge-api", instance="judge-api:8000"}'
+        values: '0+5x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: LoginLockoutSpike
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Login lockouts are firing repeatedly"
+              description: "More than 20 login attempts were refused by the rate limiter in 15 minutes — check /admin/security for the offending ip or device."

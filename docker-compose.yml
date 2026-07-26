@@ -15,6 +15,26 @@
 x-tz-env: &tz-env
   TZ: Asia/Ho_Chi_Minh
 
+# Liveness for the QingdaoU sandboxes, shared by both instances.
+#
+# The image ships `python3 /code/service.py` as its HEALTHCHECK — QingdaoU's heartbeat, which POSTs
+# to BACKEND_URL /api/judge_server_heartbeat/. This stack dispatches over Kafka and never implements
+# that endpoint, so both sandboxes reported (unhealthy) forever while judging perfectly: a permanently
+# red signal that trains you to ignore it. Ask the sandbox itself instead — /ping is its own liveness
+# endpoint and returns live cpu/memory/judger_version. Auth is sha256(TOKEN) in X-Judge-Server-Token,
+# computed inline because the sandbox stores the digest, not the raw token.
+# Overridden in docker-compose.mock.yml: the mock only implements /judge.
+x-sandbox-health: &sandbox-health
+  test:
+    - CMD
+    - python3
+    - -c
+    - 'import hashlib,os,urllib.request as u; t=hashlib.sha256(os.environ["TOKEN"].encode()).hexdigest(); u.urlopen(u.Request("http://localhost:8080/ping",data=b"{}",headers={"X-Judge-Server-Token":t,"Content-Type":"application/json"}),timeout=3)'
+  interval: 15s
+  timeout: 5s
+  retries: 3
+  start_period: 20s
+
 services:
   # ---- infrastructure ------------------------------------------------------
   db:
@@ -130,6 +150,7 @@ services:
     command: ["--config.file=/etc/prometheus/prometheus.yml"]
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
       - promdata:/prometheus
     ports:
       - "127.0.0.1:9090:9090"   # ops UI, loopback only
@@ -173,10 +194,12 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      # Now that the sandbox healthcheck reflects reality (see x-sandbox-health), wait for it:
+      # a worker that starts first burns its retries dispatching to a sandbox still booting.
       judge-server:
-        condition: service_started
+        condition: service_healthy
       judge-server-2:
-        condition: service_started
+        condition: service_healthy
       minio:
         condition: service_healthy
     environment: *tz-env
@@ -202,6 +225,7 @@ services:
     volumes:
       - test_case_cache:/test_case:ro
       - ../judge-server/log:/log
+    healthcheck: *sandbox-health
     networks: [oj-net]
 
   judge-server-2:
@@ -220,6 +244,7 @@ services:
     volumes:
       - test_case_cache:/test_case:ro
       - js2log:/log
+    healthcheck: *sandbox-health
     networks: [oj-net]
 
   judge-portal:
