@@ -169,7 +169,10 @@ services:
 
   # ---- application services -------------------------------------------------
   judge-api:
-    build: ../judge-api
+    build:
+      context: ../judge-api
+      additional_contexts:
+        oj-common: ../oj-common
     container_name: oj-judge-api
     restart: unless-stopped
     depends_on:
@@ -198,11 +201,16 @@ services:
     networks: [oj-net]
 
   api-gateway:
-    build: ../oj-api-gateway
+    build:
+      context: ../oj-api-gateway
+      additional_contexts:
+        oj-common: ../oj-common
     container_name: oj-api-gateway
     restart: unless-stopped
     depends_on:
       judge-api:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     # Only what the gateway needs — deliberately NOT env_file .env, which carries DB, JWT and OAuth secrets.
     environment:
@@ -211,6 +219,8 @@ services:
       MONOLITH_URI: http://judge-api:8000
       OTEL_SERVICE_NAME: api-gateway
       JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
     ports:
       # The only public API port; actuator (8081) stays inside oj-net. Must stay 8000: judge-portal
       # is built against VITE_API_BASE_URL=http://localhost:8000/api/v1.

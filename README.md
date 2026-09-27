@@ -2,7 +2,7 @@
 
 **Single source of truth** for running the whole Online Judge system with Docker Compose.
 Every service is containerized; all configuration lives in this directory. Build contexts
-reference the sibling repos (`../judge-api`, `../oj-api-gateway`, `../judge-portal`,
+reference the sibling repos (`../judge-api`, `../oj-api-gateway`, `../oj-common`, `../judge-portal`,
 `../judge-worker`, `../mock-judge-server`) — no source is copied here.
 
 > This directory supersedes the scattered compose files
@@ -89,6 +89,13 @@ no CORS headers and publishes no host port, so it only works behind `api-gateway
 Rollback: check out the previous commit of this repo and of `judge-api`, then
 `docker compose up -d --build` — judge-api publishes :8000 again and answers CORS itself. No data
 changes are involved.
+
+## Self-contained tokens (sub-project 1a)
+
+`oj-common` (shared library) must be cloned beside the other repos; the judge-api and api-gateway
+images compile it from there (`additional_contexts`). Deploy judge-api and api-gateway **together**:
+judge-api no longer checks bans or revoked tokens — the gateway does, against Redis.
+`JWT_SECRET_KEY` is no longer read and can be removed from `.env`.
 
 ## Configuration
 
