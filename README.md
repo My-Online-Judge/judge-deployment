@@ -2,8 +2,8 @@
 
 **Single source of truth** for running the whole Online Judge system with Docker Compose.
 Every service is containerized; all configuration lives in this directory. Build contexts
-reference the sibling repos (`../judge-api`, `../judge-portal`, `../judge-worker`,
-`../mock-judge-server`) — no source is copied here.
+reference the sibling repos (`../judge-api`, `../oj-api-gateway`, `../judge-portal`,
+`../judge-worker`, `../mock-judge-server`) — no source is copied here.
 
 > This directory supersedes the scattered compose files
 > (`../docker-compose.integration.yml`, `../docker-compose.mock.yml`,
@@ -72,6 +72,23 @@ docker compose down -v
 | Jaeger UI   | http://127.0.0.1:16686           |
 | Kafka       | localhost:9092                   |
 | Postgres    | localhost:5433 (user `postgres`) |
+
+## Upgrading to the gateway (sub-project 0)
+
+The api-gateway change spans four repos and must land **together**: the new judge-api image emits
+no CORS headers and publishes no host port, so it only works behind `api-gateway`.
+
+1. Clone the new repo beside the others:
+   `git clone git@github.com:My-Online-Judge/oj-api-gateway.git ../oj-api-gateway`
+   (without it, `docker compose up --build` fails with "path ../oj-api-gateway not found").
+2. Pull `main` of `judge-api`, `judge-worker`, `oj-api-gateway` and this repo.
+3. Deploy everything in one step: `docker compose up -d --build`.
+4. Check: `curl http://localhost:8000/api/v1/languages` → 200 through the gateway, and
+   `docker compose ps` shows `oj-api-gateway` and `oj-judge-api` healthy.
+
+Rollback: check out the previous commit of this repo and of `judge-api`, then
+`docker compose up -d --build` — judge-api publishes :8000 again and answers CORS itself. No data
+changes are involved.
 
 ## Configuration
 
