@@ -28,6 +28,17 @@ groups:
           summary: "judge-api is not being scraped"
           description: "Prometheus has failed to scrape judge-api for over a minute. Submissions are not being accepted."
 
+      - alert: ApiGatewayDown
+        # The gateway is the only public entry point: while it is down the portal reaches no API at
+        # all, even with every service behind it healthy.
+        expr: up{job="api-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "api-gateway is not being scraped"
+          description: "Prometheus has failed to scrape api-gateway for over a minute. The API is unreachable from the browser."
+
   - name: judge-pipeline
     rules:
       - alert: JudgeSystemErrors

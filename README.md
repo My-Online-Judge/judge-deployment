@@ -15,15 +15,17 @@ reference the sibling repos (`../judge-api`, `../judge-portal`, `../judge-worker
 ```
 Browser
   ├─ http://localhost        → judge-portal   (nginx:80, static Vue 3 build)
-  └─ http://localhost:8000   → judge-api      (Spring Boot, profile=dev, base /api/v1)
-                                   ├── db      (Postgres 16, my_oj)
-                                   └── kafka  ──produce→ submission.requested
-                                              ←consume── submission.judged
-                                                    │
-                                              judge-worker (Python, kafka-python)
-                                                    │  HTTP POST /judge
-                                                    └→ judge-server (qduoj sandbox, privileged)
-                                                          └─ heartbeat → judge-api:8000 /api/judge_server_heartbeat/
+  └─ http://localhost:8000   → api-gateway    (Spring Cloud Gateway: CORS, client-IP boundary)
+                                   └─ /api/v1/** → judge-api (Spring Boot, internal :8000 only)
+                                                     ├── db      (Postgres 16, my_oj)
+                                                     └── kafka  ──produce→ submission.requested
+                                                                ←consume── submission.judged
+                                                                      │
+                                                                judge-worker (Python, kafka-python)
+                                                                      │  HTTP POST /judge
+                                                                      └→ judge-server ×2 (qduoj sandbox, privileged)
+                                                                            └─ heartbeat → judge-api:8000 /api/judge_server_heartbeat/
+Traces: api-gateway, judge-api, judge-worker ──OTLP──→ jaeger (UI http://127.0.0.1:16686)
 ```
 
 ## Services
@@ -32,7 +34,9 @@ Browser
 |----------------|--------------------------|-----------|----------------------------------|
 | `db`           | `postgres:16`            | 5433      | Application database (`my_oj`)   |
 | `kafka`        | `apache/kafka:3.9.0`     | 9092      | Submission event bus (KRaft)     |
-| `judge-api`    | build `../judge-api`     | 8000      | Spring Boot backend (dev profile)|
+| `api-gateway`  | build `../oj-api-gateway`| 8000      | Public API entry (CORS, client IP)|
+| `judge-api`    | build `../judge-api`     | — (internal) | Spring Boot backend           |
+| `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI + OTLP collector |
 | `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge      |
 | `judge-server` | `qduoj/judge-server`     | —         | Privileged code sandbox          |
 | `judge-portal` | build `../judge-portal`  | 80        | Vue 3 frontend (nginx)           |
@@ -64,7 +68,8 @@ docker compose down -v
 |-------------|----------------------------------|
 | Portal      | http://localhost                 |
 | API         | http://localhost:8000/api/v1     |
-| Swagger UI  | http://localhost:8000            |
+| Swagger UI  | http://localhost:8000/swagger-ui/index.html (dev profile only) |
+| Jaeger UI   | http://127.0.0.1:16686           |
 | Kafka       | localhost:9092                   |
 | Postgres    | localhost:5433 (user `postgres`) |
 
@@ -75,6 +80,9 @@ via `env_file`; `db` and `judge-server` read individual vars via `${VAR}` interp
 Copy `.env.example` → `.env` to start from a clean template.
 
 Notes:
+- `api-gateway` does **not** load `.env`; compose passes it only `MONOLITH_URI`, the profile and
+  the OpenTelemetry settings. judge-api is no longer published on the host — everything goes
+  through the gateway on :8000.
 - `.env` holds **container-network** addresses (`db`, `kafka:29092`, `judge-server`) — it is
   intentionally separate from `judge-api/.env` (bare-metal `localhost`).
 - One `JUDGE_SERVER_TOKEN` is shared by api, worker, and judge-server.

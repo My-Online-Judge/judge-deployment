@@ -15,6 +15,14 @@
 x-tz-env: &tz-env
   TZ: Asia/Ho_Chi_Minh
 
+# OpenTelemetry export for every traced service (Java agent + judge-worker SDK). Jaeger is optional:
+# exporters drop spans when it is unreachable, they never block a request or a judge.
+x-otel-env: &otel-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_METRICS_EXPORTER: none
+  OTEL_LOGS_EXPORTER: none
+
 # Liveness for the QingdaoU sandboxes, shared by both instances.
 #
 # The image ships `python3 /code/service.py` as its HEALTHCHECK — QingdaoU's heartbeat, which POSTs
@@ -173,14 +181,57 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    environment: *tz-env
+    environment:
+      <<: [*tz-env, *otel-env]
+      OTEL_SERVICE_NAME: judge-api
+      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar
     env_file:
       - .env
+    # No host port: the API is public only through api-gateway. Sandboxes still reach
+    # judge-api:8000 for heartbeats inside oj-net.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    networks: [oj-net]
+
+  api-gateway:
+    build: ../oj-api-gateway
+    container_name: oj-api-gateway
+    restart: unless-stopped
+    depends_on:
+      judge-api:
+        condition: service_healthy
+    # Only what the gateway needs — deliberately NOT env_file .env, which carries DB, JWT and OAuth secrets.
+    environment:
+      <<: [*tz-env, *otel-env]
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
+      MONOLITH_URI: http://judge-api:8000
+      OTEL_SERVICE_NAME: api-gateway
+      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar
     ports:
-      # Must stay 8000: judge-portal is built against VITE_API_BASE_URL=http://localhost:8000/api/v1.
-      # (The old 8010 workaround is retired — the squatter was Docker Desktop's proxy, not an
-      # orphan needing a reboot; stopping Docker Desktop frees this port.)
+      # The only public API port; actuator (8081) stays inside oj-net. Must stay 8000: judge-portal
+      # is built against VITE_API_BASE_URL=http://localhost:8000/api/v1.
       - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    networks: [oj-net]
+
+  jaeger:
+    image: jaegertracing/jaeger:2.21.0
+    container_name: oj-jaeger
+    restart: unless-stopped
+    environment: *tz-env
+    # OTLP receivers (4317 gRPC, 4318 HTTP) stay inside oj-net. 16686 = UI + query API (/api/v3),
+    # loopback only; storage is in-memory, so traces are lost on restart.
+    ports:
+      - "127.0.0.1:16686:16686"
     networks: [oj-net]
 
   judge-worker:
@@ -202,7 +253,9 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    environment: *tz-env
+    environment:
+      <<: [*tz-env, *otel-env]
+      OTEL_SERVICE_NAME: judge-worker
     env_file:
       - .env
     networks: [oj-net]
@@ -253,7 +306,7 @@ services:
     restart: unless-stopped
     environment: *tz-env
     depends_on:
-      judge-api:
+      api-gateway:
         condition: service_started
     ports:
       - "80:80"

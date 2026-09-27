@@ -91,3 +91,30 @@ tests:
             exp_annotations:
               summary: "Login lockouts are firing repeatedly"
               description: "More than 20 login attempts were refused by the rate limiter in 15 minutes — check /admin/security for the offending ip or device."
+
+  # ApiGatewayDown: a gateway that cannot be scraped for over a minute must fire...
+  - interval: 1m
+    input_series:
+      - series: 'up{job="api-gateway", instance="api-gateway:8081"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ApiGatewayDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: api-gateway
+              instance: api-gateway:8081
+            exp_annotations:
+              summary: "api-gateway is not being scraped"
+              description: "Prometheus has failed to scrape api-gateway for over a minute. The API is unreachable from the browser."
+
+  # ...and a healthy gateway must stay silent.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="api-gateway", instance="api-gateway:8081"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ApiGatewayDown
+        exp_alerts: []
