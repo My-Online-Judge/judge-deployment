@@ -100,6 +100,12 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Kafka keeps no volume, so every fresh broker starts empty and whoever touches a topic first
+      # creates it. judge-worker usually subscribes before judge-api creates its 6-partition topics,
+      # which auto-created submission.requested with 1 partition; judge-api then grew it, and the
+      # worker's client only noticed the new partitions after its 5-minute metadata refresh — until
+      # then most submissions sat PENDING. Auto-created topics now get judge-api's partition count.
+      KAFKA_NUM_PARTITIONS: ${KAFKA_PARTITIONS:-6}
     healthcheck:
       test:
         [
