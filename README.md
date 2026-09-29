@@ -2,7 +2,7 @@
 
 **Single source of truth** for running the whole Online Judge system with Docker Compose.
 Every service is containerized; all configuration lives in this directory. Build contexts
-reference the sibling repos (`../judge-api`, `../oj-api-gateway`, `../oj-common`, `../judge-portal`,
+reference the sibling repos (`../judge-api`, `../oj-identity-service`, `../oj-api-gateway`, `../oj-common`, `../judge-portal`,
 `../judge-worker`, `../mock-judge-server`) — no source is copied here.
 
 > This directory supersedes the scattered compose files
@@ -35,7 +35,9 @@ Traces: api-gateway, judge-api, judge-worker ──OTLP──→ jaeger (UI http
 | `db`           | `postgres:16`            | 5433      | Application database (`my_oj`)   |
 | `kafka`        | `apache/kafka:3.9.0`     | 9092      | Submission event bus (KRaft)     |
 | `api-gateway`  | build `../oj-api-gateway`| 8000      | Public API entry (CORS, client IP)|
-| `judge-api`    | build `../judge-api`     | — (internal) | Spring Boot backend           |
+| `judge-api`    | build `../judge-api`     | — (internal) | Problems, submissions, judging |
+| `identity-service` | build `../oj-identity-service` | — (internal) | Login, users, roles, bans; issues the tokens |
+| `identity-db`  | `postgres:16`            | — (internal) | identity-service's database (`identity`) |
 | `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI + OTLP collector |
 | `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge      |
 | `judge-server` | `qduoj/judge-server`     | —         | Privileged code sandbox          |
@@ -96,6 +98,32 @@ changes are involved.
 images compile it from there (`additional_contexts`). Deploy judge-api and api-gateway **together**:
 judge-api no longer checks bans or revoked tokens — the gateway does, against Redis.
 `JWT_SECRET_KEY` is no longer read and can be removed from `.env`.
+
+## Extracting identity-service (sub-project 1b)
+
+identity-service takes over `/api/v1/{auth,users,roles,permissions,security}/**` with its own
+database. `oj-identity-service` must be cloned beside the other repos. Its secrets live in
+`.env.identity`, read only by `identity-db` and `identity-service`: `.env` keeps no signing key and
+no Google secret. The same RSA key pair moves across, so sessions survive the cutover.
+
+Cutover runbook (all from `judge-deployment/`):
+
+1. **Prepare, no traffic yet.** `migrations/split-env-sp1b.sh create` writes `.env.identity`
+   (fresh identity-db password + a copy of the JWT and Google settings). Then
+   `docker compose up -d --build identity-db identity-service` — Flyway builds the schema
+   (V1) and seeds it (V2); the gateway does not route to it yet.
+2. **Rehearse.** `migrations/rehearse-sp1-identity.sh` copies a restored dump of `oj-db` into a
+   throwaway identity-db twice; every table must report `match`.
+3. **Maintenance window.** `docker compose stop api-gateway judge-api`, then
+   `migrations/run-sp1-identity.sh` — the eight identity tables are copied in one transaction and
+   verified row by row; it exits non-zero on any mismatch.
+4. **Switch.** `migrations/split-env-sp1b.sh strip` (removes the moved settings from `.env`;
+   backup `.env.pre-sp1b`), then `docker compose up -d --build`: judge-api (Flyway V15 drops the
+   `t_submissions → t_users` foreign key) and the gateway with the identity routes.
+5. **Smoke test**, then re-open traffic. **Re-opening traffic is the point of no return.** Before
+   it, rollback = `cp .env.pre-sp1b .env`, check out the previous commit of this repo, judge-api
+   and oj-api-gateway, `docker compose up -d --build --remove-orphans` — the identity tables in `oj-db` were never
+   modified. After it, identity-db holds the only up-to-date users.
 
 ## Configuration
 
