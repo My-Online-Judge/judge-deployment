@@ -1,4 +1,7 @@
 .superpowers/
 *.log
 .env
+.env.*
+!.env.example
+!.env.identity.example
 docker-compose.override.yml

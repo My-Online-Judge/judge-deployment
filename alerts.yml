@@ -39,6 +39,17 @@ groups:
           summary: "api-gateway is not being scraped"
           description: "Prometheus has failed to scrape api-gateway for over a minute. The API is unreachable from the browser."
 
+      - alert: IdentityServiceDown
+        # Login, refresh and every admin screen for users, roles and bans go through identity-service;
+        # judge-api also fetches its token-signing key from it.
+        expr: up{job="identity-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "identity-service is not being scraped"
+          description: "Prometheus has failed to scrape identity-service for over a minute. Nobody can log in or refresh a session."
+
   - name: judge-pipeline
     rules:
       - alert: JudgeSystemErrors

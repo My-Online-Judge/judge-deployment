@@ -118,3 +118,30 @@ tests:
       - eval_time: 5m
         alertname: ApiGatewayDown
         exp_alerts: []
+
+  # IdentityServiceDown: an identity-service that cannot be scraped for over a minute must fire...
+  - interval: 1m
+    input_series:
+      - series: 'up{job="identity-service", instance="identity-service:8081"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: IdentityServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: identity-service
+              instance: identity-service:8081
+            exp_annotations:
+              summary: "identity-service is not being scraped"
+              description: "Prometheus has failed to scrape identity-service for over a minute. Nobody can log in or refresh a session."
+
+  # ...and a healthy identity-service must stay silent.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="identity-service", instance="identity-service:8081"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: IdentityServiceDown
+        exp_alerts: []

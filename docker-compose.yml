@@ -5,7 +5,8 @@
 #   docker compose up -d --build                                          # real qduoj sandbox
 #   docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d # mock sandbox
 #
-# Config is centralized in ./.env (loaded automatically by Compose).
+# Config is centralized in ./.env (loaded automatically by Compose); identity-db and identity-service
+# read ./.env.identity instead, which alone holds the JWT signing keys and the Google OAuth secret.
 
 # Vietnam time (GMT+7) for every service's logs and DB now()/timestamps, aliased into each service
 # below. Sandboxes (judge-server, judge-server-2) are intentionally excluded — they run untrusted
@@ -67,6 +68,26 @@ services:
       - pgdata:/var/lib/postgresql/data
       # Schema is now owned by Flyway (judge-api runs V1 baseline + V2 seed on boot, ddl-auto=validate).
       # The old initdb.sql bootstrap is retired — a fresh volume is built entirely by Flyway.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [oj-net]
+
+  identity-db:
+    image: postgres:16
+    container_name: oj-identity-db
+    restart: unless-stopped
+    command: ["postgres", "-c", "timezone=Asia/Ho_Chi_Minh", "-c", "log_timezone=Asia/Ho_Chi_Minh"]
+    environment:
+      <<: *tz-env
+    # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD. Nothing outside the identity containers reads it.
+    env_file:
+      - .env.identity
+    # No host port. Schema: identity-service's Flyway (V1 schema, V2 seed) on first boot.
+    volumes:
+      - identitydata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
@@ -193,13 +214,44 @@ services:
     environment:
       <<: [*tz-env, *otel-env]
       OTEL_SERVICE_NAME: judge-api
-      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar
+      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
     env_file:
       - .env
+    mem_limit: 1g
     # No host port: the API is public only through api-gateway. Sandboxes still reach
     # judge-api:8000 for heartbeats inside oj-net.
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    networks: [oj-net]
+
+  identity-service:
+    build:
+      context: ../oj-identity-service
+      additional_contexts:
+        oj-common: ../oj-common
+    container_name: oj-identity-service
+    restart: unless-stopped
+    depends_on:
+      identity-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: [*tz-env, *otel-env]
+      OTEL_SERVICE_NAME: identity-service
+      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
+    # JWT signing keys, Google OAuth, identity-db credentials — only the identity containers read it.
+    env_file:
+      - .env.identity
+    mem_limit: 768m
+    # No host port: public only through api-gateway (/api/v1/{auth,users,roles,permissions,security}/**).
+    # judge-api fetches the token-signing key from identity-service:8000/.well-known/jwks.json.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -216,6 +268,8 @@ services:
     depends_on:
       judge-api:
         condition: service_healthy
+      identity-service:
+        condition: service_healthy
       redis:
         condition: service_healthy
     # Only what the gateway needs — deliberately NOT env_file .env, which carries DB, JWT and OAuth secrets.
@@ -223,10 +277,12 @@ services:
       <<: [*tz-env, *otel-env]
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
       MONOLITH_URI: http://judge-api:8000
+      IDENTITY_URI: http://identity-service:8000
       OTEL_SERVICE_NAME: api-gateway
-      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar
+      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+    mem_limit: 512m
     ports:
       # The only public API port; actuator (8081) stays inside oj-net. Must stay 8000: judge-portal
       # is built against VITE_API_BASE_URL=http://localhost:8000/api/v1.
@@ -334,6 +390,7 @@ networks:
 
 volumes:
   pgdata:
+  identitydata:
   js2log:
   miniodata:
   test_case_cache:
