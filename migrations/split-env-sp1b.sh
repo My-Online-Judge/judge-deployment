@@ -36,7 +36,8 @@ case "${1:-}" in
         ;;
     strip)
         [ -e .env.identity ] || { echo "run '$0 create' first" >&2; exit 1; }
-        cp -p .env .env.pre-sp1b
+        # The backup still holds the signing key: owner-only, whatever mode .env has.
+        install -m 600 .env .env.pre-sp1b
         sed -i -E -e "/$MOVED/d" -e "/$RETIRED/d" .env
         echo "removed $(grep -cE "$MOVED|$RETIRED" .env.pre-sp1b) settings from .env (backup: .env.pre-sp1b)"
         ;;

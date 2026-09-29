@@ -123,7 +123,8 @@ Cutover runbook (all from `judge-deployment/`):
 5. **Smoke test**, then re-open traffic. **Re-opening traffic is the point of no return.** Before
    it, rollback = `cp .env.pre-sp1b .env`, check out the previous commit of this repo, judge-api
    and oj-api-gateway, `docker compose up -d --build --remove-orphans` — the identity tables in `oj-db` were never
-   modified. After it, identity-db holds the only up-to-date users.
+   modified. After it, identity-db holds the only up-to-date users. Once you are sure you will not
+   roll back, `shred -u .env.pre-sp1b` — the backup still holds the signing key and the Google secret.
 
 ## Configuration
 
