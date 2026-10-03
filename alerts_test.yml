@@ -145,3 +145,30 @@ tests:
       - eval_time: 5m
         alertname: IdentityServiceDown
         exp_alerts: []
+
+  # OutboxBacklogStale: rows stuck in the outbox for over a minute (Kafka down) must fire...
+  - interval: 1m
+    input_series:
+      - series: 'oj_outbox_oldest_age_seconds{job="judge-api", instance="judge-api:8000"}'
+        values: '30 90 150 210 270 330'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: OutboxBacklogStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: judge-api
+              instance: judge-api:8000
+            exp_annotations:
+              summary: "judge-api's outbox is not reaching Kafka"
+              description: "The oldest unsent outbox row has waited over a minute — check Kafka and the OutboxRelay lines in the judge-api log."
+
+  # ...while a relay that keeps up (rows leave within seconds) stays silent.
+  - interval: 1m
+    input_series:
+      - series: 'oj_outbox_oldest_age_seconds{job="judge-api", instance="judge-api:8000"}'
+        values: '0 2 0 1 0 3'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: OutboxBacklogStale
+        exp_alerts: []

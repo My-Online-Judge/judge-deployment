@@ -126,6 +126,27 @@ Cutover runbook (all from `judge-deployment/`):
    modified. After it, identity-db holds the only up-to-date users. Once you are sure you will not
    roll back, `shred -u .env.pre-sp1b` — the backup still holds the signing key and the Google secret.
 
+## Test cases on MinIO, the outbox (sub-project 2a)
+
+judge-api keeps test-case files in MinIO (`sources/<slug>/<n>.in|out` in the `test-cases` bucket)
+instead of on the container's disk, which lost the ones added through the API on every recreate.
+Judge requests and verdict events leave judge-api through an outbox table and are sent right after
+their commit (alert `OutboxBacklogStale`). Only judge-api changes; rollback = the previous judge-api
+image, which runs on the V16/V17 schema unchanged.
+
+Rollout (all from `judge-deployment/`):
+
+1. **Record** the bundles judged today: `migrations/sp2a-bundle-hashes.sh > /tmp/sp2a-before.txt`.
+2. **Deploy**: `docker compose up -d --build --no-deps judge-api`. On start, a one-time backfill copies
+   every test-case file into MinIO — from the problem's current bundle, else from the copy in the
+   jar — and logs `Test-case backfill done: uploaded=… orphans=[…] mismatched=[…] failed=[…]`.
+3. **Orphans** are rows whose files exist nowhere; they are not judged today. `migrations/sp2a-orphans.sh`
+   lists them; after checking, `migrations/sp2a-orphans.sh delete <id>…` deletes exactly those rows.
+   Then `docker compose restart judge-api`.
+4. **Verify**: the last backfill line reads `orphans=[] mismatched=[] failed=[]`, and
+   `migrations/sp2a-bundle-hashes.sh | diff /tmp/sp2a-before.txt -` prints nothing: every problem is
+   judged against exactly the bundle it was before.
+
 ## Configuration
 
 All knobs live in **`.env`** (committed dev values). `judge-api` and `judge-worker` load it

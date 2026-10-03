@@ -78,6 +78,18 @@ groups:
           summary: "Submissions are queued but no verdicts are being produced"
           description: "oj_queue_depth has been above zero for 15m with zero verdicts in the same window — the worker or both sandboxes are down."
 
+      - alert: OutboxBacklogStale
+        # Every judge request (submission.requested) and verdict event leaves judge-api through its
+        # outbox. A row is normally sent within a second of its commit; one older than a minute means
+        # Kafka is unreachable or the relay is stuck — submissions are accepted but nobody judges them.
+        expr: oj_outbox_oldest_age_seconds > 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "judge-api's outbox is not reaching Kafka"
+          description: "The oldest unsent outbox row has waited over a minute — check Kafka and the OutboxRelay lines in the judge-api log."
+
   - name: judge-abuse
     rules:
       - alert: LoginLockoutSpike
