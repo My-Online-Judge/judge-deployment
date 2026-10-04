@@ -3,7 +3,8 @@
 # the shared error infrastructure into oj-common can be compared before and after the deploy:
 #   migrations/sp3a-error-responses.sh > /tmp/sp3a-before.txt   ... deploy ...
 #   migrations/sp3a-error-responses.sh | diff /tmp/sp3a-before.txt -
-# One line per case: status, Retry-After (dynamic values shown as "set"), and the body without its timestamp.
+# One line per case: status, Retry-After (dynamic values shown as "set"), and the body without its timestamp. Two
+# success cases ride along, for the envelope that moved too: a list and an (empty) page with its pagination block.
 # Needs an existing USER account: PROBE_USERNAME / PROBE_PASSWORD. The login-lock case sets a lock in Redis for
 # a username that does not exist (no IP counter is touched) and removes it again. Prints no credentials.
 set -euo pipefail
@@ -33,6 +34,9 @@ show "401 no token"               -H 'Content-Type: application/json' -d '{}' "$
 show "403 user deletes problem"   -b "$JAR" -X DELETE "$API/problems/sp3a-no-such-problem"
 show "403 user lists users"       -b "$JAR" "$API/users"
 show "400 malformed json"         -b "$JAR" -H 'Content-Type: application/json' -d '{' "$API/submissions"
+show "400 validation error"       -H 'Content-Type: application/json' -d '{}' "$API/auth/login"
+show "200 language list"          "$API/languages"
+show "200 empty problem page"     "$API/problems?page=0&size=1&search=sp3a-matches-nothing"
 SUBMIT='{"sourceCode":"print(3)","languageIdentifier":"python3","problemSlug":"simple-a-plus-b"}'
 curl -s -o /dev/null -b "$JAR" -H 'Content-Type: application/json' -d "$SUBMIT" "$API/submissions"
 show "cooldown 429"               -b "$JAR" -H 'Content-Type: application/json' -d "$SUBMIT" "$API/submissions"

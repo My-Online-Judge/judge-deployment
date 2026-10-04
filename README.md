@@ -219,9 +219,12 @@ Rollout (all from `judge-deployment/`):
    api-gateway judge-server judge-server-2 prometheus` — `oj-judge-api` is removed, `oj-submission-service`
    takes its place; submissions pause for those seconds.
 4. **Compare**: `migrations/sp3a-error-responses.sh | diff /tmp/sp3a-before.txt -` shows only the unclaimed
-   path, now `404` from the gateway instead of `401` from judge-api.
+   path, now `404` from the gateway instead of `401` from judge-api (the language list differs too if a language
+   was edited in between).
 5. **Rollback**: re-tag the `:pre-sp3a` images to `:latest` under their old names (`judge-api` for
-   submission-service), check out the previous commit of this repo, `docker compose up -d --no-build --remove-orphans`.
+   submission-service), check out the previous commit of this repo, rename `submission-service:` back to
+   `judge-api:` in your `docker-compose.override.yml` (Compose refuses an override entry for a service the file
+   does not define), then `docker compose up -d --no-build --remove-orphans`.
 
 ## Configuration
 
@@ -266,7 +269,7 @@ some local quirks worth recording:
 - **`oj-judge-server` shows `unhealthy` — this is cosmetic.** The `qduoj/judge-server`
   image's built-in healthcheck (`python3 /code/service.py`) exits 1 on this setup (the
   legacy judge-server behaves identically). The server is functional: it heartbeats to
-  `judge-api:8000` and registers in `t_judge_servers`. Nothing depends on its health
+  `submission-service:8000` and registers in `t_judge_servers`. Nothing depends on its health
   (`judge-worker` waits on `service_started`).
 - **Legacy stacks may still be running** on the snap daemon (`judge-server` and `my-oj`
   compose projects — the scattered files this directory replaces). They coexist with this
