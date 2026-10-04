@@ -48,35 +48,6 @@ x-sandbox-health: &sandbox-health
 
 services:
   # ---- infrastructure ------------------------------------------------------
-  db:
-    image: postgres:16
-    container_name: oj-db
-    restart: unless-stopped
-    # The `timezone` GUC is baked into the cluster at initdb, so the TZ env alone won't move an
-    # already-initialised volume off UTC — set it (and log_timezone) explicitly. The app writes naive
-    # LocalDateTime, so this only affects now()/CURRENT_TIMESTAMP and server logs, not stored audit times.
-    command: ["postgres", "-c", "timezone=Asia/Ho_Chi_Minh", "-c", "log_timezone=Asia/Ho_Chi_Minh"]
-    environment:
-      <<: *tz-env
-      POSTGRES_USER: ${DATABASE_USERNAME}
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
-      POSTGRES_DB: ${DATABASE_NAME}
-    # Host publish disabled: the app reaches Postgres over the internal network (db:5432),
-    # so exposing 5433 is only for external debug tools. Left off to avoid a stale
-    # docker-proxy squatting on host :5433. Re-enable if you need a host-side psql.
-    # ports:
-    #   - "5433:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      # Schema is now owned by Flyway (judge-api runs V1 baseline + V2 seed on boot, ddl-auto=validate).
-      # The old initdb.sql bootstrap is retired — a fresh volume is built entirely by Flyway.
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 3s
-      timeout: 3s
-      retries: 30
-    networks: [oj-net]
-
   identity-db:
     image: postgres:16
     container_name: oj-identity-db
@@ -332,7 +303,7 @@ services:
         condition: service_healthy
       # Not identity-service: the token-signing key is fetched lazily, on the first request with a token.
     # problem-db credentials from .env.problem; from the shared .env only what problem-service needs —
-    # deliberately not env_file .env, which carries oj-db's credentials and the judge-server token.
+    # deliberately not env_file .env, which carries the judge-server token and the other services' settings.
     env_file:
       - .env.problem
     environment:
@@ -492,6 +463,8 @@ networks:
     name: oj-net
 
 volumes:
+  # The retired oj-db's data (sub-project 3b). No service mounts it any more; it is kept until you delete it by
+  # hand (docker volume rm judge-deployment_pgdata) — the final backup is in backups/.
   pgdata:
   identitydata:
   problemdata:

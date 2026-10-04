@@ -21,7 +21,7 @@ Browser
                                    │                              ↑ gRPC :9090 (GetJudgeSpec, GetSampleTestCases)
                                    ├─ /api/v1/{submissions,languages,judge-servers}/** → submission-service ──┘
                                    └─ any other path → 404 from the gateway
-                                                     ├── db      (Postgres 16, my_oj)
+                                                     ├── submission-db (Postgres 16)
                                                      └── kafka  ──produce→ submission.requested, oj.submission.events
                                                                 ←consume── submission.judged
                                                                       │            └→ problem-service (statistics)
@@ -36,10 +36,10 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 
 | Service        | Image / Build            | Host port | Purpose                          |
 |----------------|--------------------------|-----------|----------------------------------|
-| `db`           | `postgres:16`            | 5433      | Application database (`my_oj`)   |
 | `kafka`        | `apache/kafka:3.9.0`     | 9092      | Submission event bus (KRaft)     |
 | `api-gateway`  | build `../oj-api-gateway`| 8000      | Public API entry (CORS, client IP)|
-| `submission-service` | build `../judge-api` | — (internal) | Submissions, judging, languages, judge servers |
+| `submission-service` | build `../oj-submission-service` | — (internal) | Submissions, judging, languages, judge servers |
+| `submission-db` | `postgres:16`           | — (internal) | submission-service's database (`submission`) |
 | `identity-service` | build `../oj-identity-service` | — (internal) | Login, users, roles, bans; issues the tokens |
 | `identity-db`  | `postgres:16`            | — (internal) | identity-service's database (`identity`) |
 | `problem-service` | build `../oj-problem-service` | — (internal) | Problems, test cases, statistics; gRPC API for submission-service |
@@ -275,25 +275,43 @@ Cutover runbook (all from `judge-deployment/`):
    smoke submission is lost). After it, submission-db holds the only up-to-date submissions — never run
    `migrations/run-sp3-submission.sh` again (it refuses once submission-db holds anything oj-db does not;
    `FORCE=1` would replace it with stale data).
-7. **Retire oj-db**: see "Retiring oj-db" below.
+7. **Retire oj-db**: see "Retiring oj-db" below. Steps 1–6 run with the compose file of the commit that adds
+   submission-db (oj-db still defined); the retirement moves to the next commit.
+
+## Retiring oj-db (sub-project 3b, after the point of no return)
+
+Nothing reads oj-db once submission-service runs on submission-db. Retire it in this order:
+
+1. **Back it up**: `migrations/sp3-backup-oj-db.sh` writes `backups/oj-db-final-<date>.dump` (owner-only; it
+   also holds the stale identity tables' password hashes, so it is gitignored and never pushed) and checks that
+   `pg_restore --list` reads it back.
+2. **Check out this commit** (the compose file without the `db` service), drop the `db:` entry from your local
+   `docker-compose.override.yml` (Compose refuses an override for a service the file no longer defines), then
+   `docker compose up -d --remove-orphans` — `oj-db` is stopped and removed.
+3. **Strip** its credentials from `.env`: `migrations/sp3-env.sh strip` (backup `.env.pre-sp3b`, owner-only;
+   `shred -u` it once you are sure).
+4. The volume `judge-deployment_pgdata` is kept. Deleting it is irreversible and up to you:
+   `docker volume rm judge-deployment_pgdata`.
+5. **Archive** the judge-api repository on GitHub; its history lives on in `oj-submission-service`.
 
 ## Configuration
 
-All knobs live in **`.env`** (committed dev values). `submission-service` and `judge-worker` load it
-via `env_file`; `db` and `judge-server` read individual vars via `${VAR}` interpolation.
+Shared knobs live in **`.env`**. `judge-worker` loads it via `env_file`; every other service gets only the
+variables it needs through `${VAR}` interpolation, and its database settings from its own file (`.env.identity`,
+`.env.problem`, `.env.submission`).
 Copy `.env.example` → `.env` to start from a clean template.
 
 Notes:
 - `api-gateway` does **not** load `.env`; compose passes it only the service URIs, the profile and
   the OpenTelemetry settings. submission-service is not published on the host — everything goes
   through the gateway on :8000.
-- `.env` holds **container-network** addresses (`db`, `kafka:29092`, `judge-server`) — it is
-  intentionally separate from `judge-api/.env` (bare-metal `localhost`).
+- `.env` holds **container-network** addresses (`kafka:29092`, `judge-server`).
 - One `JUDGE_SERVER_TOKEN` is shared by api, worker, and judge-server.
 - `problem-service` does not load `.env` either: it reads `.env.problem` (its database) and compose
-  passes it MinIO, Kafka, the JWKS URI and `PROBLEM_RPC_TOKEN`, which submission-service reads from `.env`.
-- `submission-service` runs the **dev** profile (Postgres-backed) — this is baked into its image via
-  `pom.xml` (`activeByDefault`), which also fixes the port to **8000**.
+  passes it MinIO, Kafka, the JWKS URI and `PROBLEM_RPC_TOKEN`; submission-service likewise reads
+  `.env.submission` plus Kafka, Redis, the judge-server token and `PROBLEM_RPC_TOKEN`.
+- `submission-service` runs the profile in `.env.submission` (the image's default is **dev**, baked in via
+  `pom.xml`); both serve the API on **8000** and actuator on **8081**.
 - `GOOGLE_REDIRECT_URI` must match the Google console. It points at the Vite dev origin
   (`:5173`); if you drive OAuth through the containerized portal (`http://localhost`), update
   both the `.env` value and the console.

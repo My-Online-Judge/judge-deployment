@@ -7,3 +7,5 @@
 !.env.problem.example
 !.env.submission.example
 docker-compose.override.yml
+# Database backups (the final oj-db dump holds password hashes)
+backups/
