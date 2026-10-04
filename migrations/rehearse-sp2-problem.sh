@@ -2,7 +2,8 @@
 # Cutover runbook: rehearse the problem copy against a restored dump of the live oj-db, leaving the live
 # databases untouched. Two throwaway Postgres containers stand in for oj-db and problem-db (the latter built
 # from oj-problem-service's Flyway scripts). The copy runs twice to prove it is re-runnable; then two
-# tampered values (a test case's sample flag, a statistics count) must each make the verification fail.
+# tampered values (a test case's sample flag, a statistics count) must each make the verification fail,
+# and a problem-db that has moved on (as after the go-live) must make a new copy refuse unless FORCE=1.
 # Needs .env, .env.problem (migrations/sp2-env.sh) and the sibling ../oj-problem-service.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -45,7 +46,7 @@ for f in $(ls ../oj-problem-service/src/main/resources/db/migration/V*.sql | sor
     docker exec -i oj-rehearse-dst psql -q -v ON_ERROR_STOP=1 -U "$DST_USER" -d "$DST_DB" < "$f"
 done
 
-run() { NETWORK="$NET" SRC_HOST=oj-rehearse-src DST_HOST=oj-rehearse-dst migrations/run-sp2-problem.sh "$@"; }
+run() { FORCE="${FORCE:-}" NETWORK="$NET" SRC_HOST=oj-rehearse-src DST_HOST=oj-rehearse-dst migrations/run-sp2-problem.sh "$@"; }
 for n in 1 2; do
     echo "== copy, run $n"
     run copy
@@ -71,4 +72,16 @@ tamper "one statistics count" \
 
 echo "== after restoring both values"
 run verify
+
+echo "== problem-db holds a verdict oj-db does not (as after the go-live): a copy must refuse"
+dst_sql "INSERT INTO t_processed_verdicts (submission_id, processed_at) VALUES ('$(cat /proc/sys/kernel/random/uuid)', now())"
+before=$(dst_sql "SELECT count(*) FROM t_processed_verdicts")
+if run copy; then
+    echo "REHEARSAL FAILED: a copy replaced a problem-db that had moved on" >&2
+    exit 1
+fi
+[ "$(dst_sql "SELECT count(*) FROM t_processed_verdicts")" = "$before" ] \
+    || { echo "REHEARSAL FAILED: the refused copy changed problem-db" >&2; exit 1; }
+echo "-- refused, problem-db untouched; FORCE=1 overrides"
+FORCE=1 run copy
 echo "REHEARSAL OK"

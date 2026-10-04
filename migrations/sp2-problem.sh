@@ -6,8 +6,10 @@
 #   SRC  libpq connection string for oj-db
 #   DST  libpq connection string for problem-db (schema already created by problem-service's Flyway)
 # Modes: copy (default) = load in one transaction, then verify; verify = only compare.
-# Re-runnable: the target tables are emptied first and the whole load is one transaction, so a failed run
-# leaves problem-db exactly as it was. Exits non-zero on any count or checksum mismatch.
+# Re-runnable before the go-live: the target tables are emptied first and the whole load is one
+# transaction, so a failed run leaves problem-db exactly as it was. After the go-live oj-db's problem tables
+# are stale, so copy refuses when problem-db holds a problem, test case or counted verdict that oj-db does
+# not (FORCE=1 overrides). Exits non-zero on any count or checksum mismatch.
 set -euo pipefail
 : "${SRC:?SRC connection string is required}" "${DST:?DST connection string is required}"
 MODE=${1:-copy}
@@ -55,8 +57,36 @@ for t in "${TABLES[@]}"; do
     [ -n "${COLS[$t]}" ] || { echo "problem-db has no table $t — did problem-service's Flyway run?" >&2; exit 2; }
 done
 
+# How far problem-db is ahead of oj-db: "<problems> <test cases> <verdicts>" it holds that oj-db does not.
+ahead_of_source() {
+    local work=$1
+    psql "$DST" -Xqc "\\copy (SELECT id FROM public.t_problems) TO '$work/dst-problems.copy'"
+    psql "$DST" -Xqc "\\copy (SELECT id FROM public.t_test_cases) TO '$work/dst-test-cases.copy'"
+    psql "$DST" -Xqc "\\copy (SELECT submission_id FROM public.t_processed_verdicts) TO '$work/dst-processed.copy'"
+    psql "$SRC" -XqAt -v ON_ERROR_STOP=1 <<SQL
+CREATE TEMP TABLE dst_problems (id uuid);
+\\copy dst_problems FROM '$work/dst-problems.copy'
+CREATE TEMP TABLE dst_test_cases (id uuid);
+\\copy dst_test_cases FROM '$work/dst-test-cases.copy'
+CREATE TEMP TABLE dst_processed (id uuid);
+\\copy dst_processed FROM '$work/dst-processed.copy'
+SELECT (SELECT count(*) FROM dst_problems d WHERE NOT EXISTS (SELECT 1 FROM public.t_problems s WHERE s.id = d.id))
+       || ' ' || (SELECT count(*) FROM dst_test_cases d WHERE NOT EXISTS (SELECT 1 FROM public.t_test_cases s WHERE s.id = d.id))
+       || ' ' || (SELECT count(*) FROM dst_processed d WHERE NOT EXISTS (SELECT 1 FROM ($SRC_PROCESSED) s WHERE s.submission_id = d.id));
+SQL
+}
+
 if [ "$MODE" = copy ]; then
     work=$(mktemp -d)
+    if [ "${FORCE:-}" != 1 ]; then
+        read -r new_problems new_cases new_verdicts <<< "$(ahead_of_source "$work")"
+        if [ "$new_problems" != 0 ] || [ "$new_cases" != 0 ] || [ "$new_verdicts" != 0 ]; then
+            echo "REFUSED: problem-db holds $new_problems problems, $new_cases test cases and $new_verdicts counted verdicts" \
+                 "that oj-db does not — it has moved on since the cutover, and a copy would replace them with" \
+                 "oj-db's stale tables. Nothing was changed. FORCE=1 overrides." >&2
+            exit 3
+        fi
+    fi
     load=$work/load.sql
     {
         echo '\set ON_ERROR_STOP on'
