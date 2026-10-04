@@ -233,3 +233,30 @@ tests:
       - eval_time: 5m
         alertname: ProblemServiceCircuitOpen
         exp_alerts: []
+
+  # ProblemStatsDeadLettered: the statistics consumer gave up on a record — a count is missing until the
+  # dead letters are replayed. A brand-new counter series starts at its first value (1), so the rule reads
+  # the counter itself, not increase().
+  - interval: 1m
+    input_series:
+      - series: 'oj_stats_dead_lettered_total{job="problem-service", instance="problem-service:8081"}'
+        values: '_ _ 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ProblemStatsDeadLettered
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "problem-service dead-lettered verdict events; statistics are missing counts"
+              description: "Records on oj.submission.events.dlq were not counted. Fix the cause in the problem-service log, then replay them (oj-problem-service README); the alert clears when problem-service restarts."
+
+  # ...and no dead letter (the counter absent, as in a fresh scrape) stays silent.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="problem-service", instance="problem-service:8081"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ProblemStatsDeadLettered
+        exp_alerts: []

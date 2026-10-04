@@ -113,6 +113,18 @@ groups:
           summary: "judge-api's outbox is not reaching Kafka"
           description: "The oldest unsent outbox row has waited over a minute — check Kafka and the OutboxRelay lines in the judge-api log."
 
+      - alert: ProblemStatsDeadLettered
+        # problem-service's statistics consumer gave up on a record of oj.submission.events: unreadable at
+        # once, anything else after ~5.5 minutes of retries. Its count is missing until the dead letters are
+        # replayed (safe: a submission is counted once). The counter itself, not increase(): a new series
+        # starts at 1, and increase() over its first sample is 0.
+        expr: max(oj_stats_dead_lettered_total) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "problem-service dead-lettered verdict events; statistics are missing counts"
+          description: "Records on oj.submission.events.dlq were not counted. Fix the cause in the problem-service log, then replay them (oj-problem-service README); the alert clears when problem-service restarts."
+
   - name: judge-abuse
     rules:
       - alert: LoginLockoutSpike
