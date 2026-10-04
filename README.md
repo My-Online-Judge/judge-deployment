@@ -16,16 +16,19 @@ reference the sibling repos (`../judge-api`, `../oj-identity-service`, `../oj-ap
 Browser
   ├─ http://localhost        → judge-portal   (nginx:80, static Vue 3 build)
   └─ http://localhost:8000   → api-gateway    (Spring Cloud Gateway: CORS, client-IP boundary)
-                                   └─ /api/v1/** → judge-api (Spring Boot, internal :8000 only)
+                                   ├─ /api/v1/{auth,users,roles,permissions,security}/** → identity-service ── identity-db
+                                   ├─ /api/v1/problems/** → problem-service ── problem-db, MinIO (test cases)
+                                   │                              ↑ gRPC :9090 (GetJudgeSpec, GetSampleTestCases)
+                                   └─ /api/v1/** → judge-api (submissions, judging) ──┘
                                                      ├── db      (Postgres 16, my_oj)
-                                                     └── kafka  ──produce→ submission.requested
+                                                     └── kafka  ──produce→ submission.requested, oj.submission.events
                                                                 ←consume── submission.judged
-                                                                      │
+                                                                      │            └→ problem-service (statistics)
                                                                 judge-worker (Python, kafka-python)
                                                                       │  HTTP POST /judge
                                                                       └→ judge-server ×2 (qduoj sandbox, privileged)
                                                                             └─ heartbeat → judge-api:8000 /api/judge_server_heartbeat/
-Traces: api-gateway, judge-api, judge-worker ──OTLP──→ jaeger (UI http://127.0.0.1:16686)
+Traces: api-gateway, judge-api, identity-service, problem-service, judge-worker ──OTLP──→ jaeger (UI http://127.0.0.1:16686)
 ```
 
 ## Services
@@ -35,9 +38,11 @@ Traces: api-gateway, judge-api, judge-worker ──OTLP──→ jaeger (UI http
 | `db`           | `postgres:16`            | 5433      | Application database (`my_oj`)   |
 | `kafka`        | `apache/kafka:3.9.0`     | 9092      | Submission event bus (KRaft)     |
 | `api-gateway`  | build `../oj-api-gateway`| 8000      | Public API entry (CORS, client IP)|
-| `judge-api`    | build `../judge-api`     | — (internal) | Problems, submissions, judging |
+| `judge-api`    | build `../judge-api`     | — (internal) | Submissions, judging, languages, judge servers |
 | `identity-service` | build `../oj-identity-service` | — (internal) | Login, users, roles, bans; issues the tokens |
 | `identity-db`  | `postgres:16`            | — (internal) | identity-service's database (`identity`) |
+| `problem-service` | build `../oj-problem-service` | — (internal) | Problems, test cases, statistics; gRPC API for judge-api |
+| `problem-db`   | `postgres:16`            | — (internal) | problem-service's database (`problem`) |
 | `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI + OTLP collector |
 | `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge      |
 | `judge-server` | `qduoj/judge-server`     | —         | Privileged code sandbox          |
@@ -147,6 +152,38 @@ Rollout (all from `judge-deployment/`):
    `migrations/sp2a-bundle-hashes.sh | diff /tmp/sp2a-before.txt -` prints nothing: every problem is
    judged against exactly the bundle it was before.
 
+## Extracting problem-service (sub-project 2b)
+
+problem-service takes over `/api/v1/problems/**` with its own database; judge-api asks it for each
+submission's limits and test-case version over gRPC (`problem-service:9090`, service token
+`PROBLEM_RPC_TOKEN`), behind a circuit breaker: while it is away submissions get 503 (alerts
+`ProblemServiceDown`, `ProblemServiceCircuitOpen`). Statistics move into problem-db and are kept from
+`oj.submission.events`. `oj-problem-service` must be cloned beside the other repos. MinIO is shared: the
+test-case files written in 2a stay where they are.
+
+Cutover runbook (all from `judge-deployment/`):
+
+1. **Prepare, no traffic yet.** `migrations/sp2-env.sh` writes `.env.problem` (problem-db credentials,
+   generated password) and adds `PROBLEM_RPC_TOKEN` to `.env`. Build every image first:
+   `docker compose build problem-service judge-api api-gateway`. Then `docker compose up -d problem-db
+   problem-service` — Flyway builds the schema (V1 the problem tables, V2 statistics) — and
+   `docker compose stop problem-service`, so its statistics consumer is not running during the copy.
+2. **Rehearse.** `migrations/rehearse-sp2-problem.sh` copies a restored dump of `oj-db` into a throwaway
+   problem-db twice, then checks that two tampered values make the verification fail; it ends with
+   `REHEARSAL OK`.
+3. **Maintenance window.** `docker compose stop api-gateway judge-api` (verdicts wait in Kafka), then
+   `migrations/run-sp2-problem.sh` — the problem tables are copied and the statistics seeded from the
+   terminal submissions in one transaction, then verified; it exits non-zero on any mismatch.
+4. **Switch.** `docker compose up -d problem-service judge-api api-gateway`: judge-api (Flyway V18 makes
+   `t_submissions.problem_slug` required) and the gateway with the problem routes.
+5. **Smoke test** without changing any problem: the list and a problem page load, a submission is
+   judged and its problem's accepted count goes up.
+6. **Re-open traffic: the point of no return.** Before it, rollback = check out the previous commit of
+   this repo, judge-api and oj-api-gateway, `docker compose up -d --build --remove-orphans` — the problem
+   tables in `oj-db` were never modified (problem-db stays aside, unused). After it, problem-db holds the
+   only up-to-date problems.
+7. **Smoke test the writes**: create a problem, delete it, create it again with the same slug — rejected.
+
 ## Configuration
 
 All knobs live in **`.env`** (committed dev values). `judge-api` and `judge-worker` load it
@@ -160,6 +197,8 @@ Notes:
 - `.env` holds **container-network** addresses (`db`, `kafka:29092`, `judge-server`) — it is
   intentionally separate from `judge-api/.env` (bare-metal `localhost`).
 - One `JUDGE_SERVER_TOKEN` is shared by api, worker, and judge-server.
+- `problem-service` does not load `.env` either: it reads `.env.problem` (its database) and compose
+  passes it MinIO, Kafka, the JWKS URI and `PROBLEM_RPC_TOKEN`, which judge-api reads from `.env`.
 - `judge-api` runs the **dev** profile (Postgres-backed) — this is baked into its image via
   `pom.xml` (`activeByDefault`), which also fixes the port to **8000**.
 - `GOOGLE_REDIRECT_URI` must match the Google console. It points at the Vite dev origin

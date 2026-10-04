@@ -50,6 +50,29 @@ groups:
           summary: "identity-service is not being scraped"
           description: "Prometheus has failed to scrape identity-service for over a minute. Nobody can log in or refresh a session."
 
+      - alert: ProblemServiceDown
+        # Problem lists and pages, test-case editing and the statistics consumer live in problem-service;
+        # judge-api asks it for every submission's limits and test-case version.
+        expr: up{job="problem-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "problem-service is not being scraped"
+          description: "Prometheus has failed to scrape problem-service for over a minute. Problem pages fail and submissions are refused with 503."
+
+      - alert: ProblemServiceCircuitOpen
+        # judge-api's breaker around problem-service (GrpcProblemCatalog). While it is OPEN, and in the
+        # HALF_OPEN probes in between, submissions get 503 without problem-service being asked. It can
+        # open while problem-service still answers its scrape — slow or failing calls are enough.
+        expr: max(resilience4j_circuitbreaker_state{name="problem-service", state=~"open|half_open"}) == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "judge-api has stopped calling problem-service (circuit breaker open)"
+          description: "Submissions are refused with 503 without trying problem-service. Check ProblemServiceDown and the GrpcProblemCatalog lines in the judge-api log."
+
   - name: judge-pipeline
     rules:
       - alert: JudgeSystemErrors

@@ -22,3 +22,8 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ['api-gateway:8081']
+
+  - job_name: problem-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['problem-service:8081']
