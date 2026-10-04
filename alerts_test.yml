@@ -16,7 +16,7 @@ tests:
   # matches nothing and the rule never fires. Here oj_verdict_total is intentionally ABSENT.
   - interval: 1m
     input_series:
-      - series: 'oj_queue_depth{job="judge-api", instance="judge-api:8000"}'
+      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8000"}'
         values: '5x20'
     alert_rule_test:
       - eval_time: 16m
@@ -24,8 +24,8 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: critical
-              job: judge-api
-              instance: judge-api:8000
+              job: submission-service
+              instance: submission-service:8000
             exp_annotations:
               summary: "Submissions are queued but no verdicts are being produced"
               description: "oj_queue_depth has been above zero for 15m with zero verdicts in the same window — the worker or both sandboxes are down."
@@ -33,9 +33,9 @@ tests:
   # Healthy pipeline: queue is draining (verdicts flowing) -> JudgeQueueStalled must stay silent.
   - interval: 1m
     input_series:
-      - series: 'oj_queue_depth{job="judge-api", instance="judge-api:8000"}'
+      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8000"}'
         values: '5x20'
-      - series: 'oj_verdict_total{status="ACCEPTED", job="judge-api", instance="judge-api:8000"}'
+      - series: 'oj_verdict_total{status="ACCEPTED", job="submission-service", instance="submission-service:8000"}'
         values: '0+3x20'
     alert_rule_test:
       - eval_time: 16m
@@ -45,7 +45,7 @@ tests:
   # JudgeSystemErrors: absent oj_verdict_total{SYSTEM_ERROR} must read as 0, not fire, not no-data.
   - interval: 1m
     input_series:
-      - series: 'oj_queue_depth{job="judge-api", instance="judge-api:8000"}'
+      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8000"}'
         values: '0x20'
     alert_rule_test:
       - eval_time: 16m
@@ -55,7 +55,7 @@ tests:
   # JudgeSystemErrors fires once SYSTEM_ERROR verdicts actually start accumulating.
   - interval: 1m
     input_series:
-      - series: 'oj_verdict_total{status="SYSTEM_ERROR", job="judge-api", instance="judge-api:8000"}'
+      - series: 'oj_verdict_total{status="SYSTEM_ERROR", job="submission-service", instance="submission-service:8000"}'
         values: '0+1x20'
     alert_rule_test:
       - eval_time: 16m
@@ -70,7 +70,7 @@ tests:
   # LoginLockoutSpike: absent counter must not fire (and must not error on no-data).
   - interval: 1m
     input_series:
-      - series: 'up{job="judge-api"}'
+      - series: 'up{job="identity-service"}'
         values: '1x20'
     alert_rule_test:
       - eval_time: 16m
@@ -80,7 +80,7 @@ tests:
   # LoginLockoutSpike fires on a real lockout spike (>20 in 15m).
   - interval: 1m
     input_series:
-      - series: 'oj_login_rate_limited_total{job="judge-api", instance="judge-api:8000"}'
+      - series: 'oj_login_rate_limited_total{job="identity-service", instance="identity-service:8081"}'
         values: '0+5x20'
     alert_rule_test:
       - eval_time: 16m
@@ -91,6 +91,33 @@ tests:
             exp_annotations:
               summary: "Login lockouts are firing repeatedly"
               description: "More than 20 login attempts were refused by the rate limiter in 15 minutes — check /admin/security for the offending ip or device."
+
+  # SubmissionServiceDown: a submission-service that cannot be scraped for over a minute must fire...
+  - interval: 1m
+    input_series:
+      - series: 'up{job="submission-service", instance="submission-service:8000"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: SubmissionServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: submission-service
+              instance: submission-service:8000
+            exp_annotations:
+              summary: "submission-service is not being scraped"
+              description: "Prometheus has failed to scrape submission-service for over a minute. Submissions are not being accepted."
+
+  # ...and a healthy submission-service must stay silent.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="submission-service", instance="submission-service:8000"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SubmissionServiceDown
+        exp_alerts: []
 
   # ApiGatewayDown: a gateway that cannot be scraped for over a minute must fire...
   - interval: 1m
@@ -149,7 +176,7 @@ tests:
   # OutboxBacklogStale: rows stuck in the outbox for over a minute (Kafka down) must fire...
   - interval: 1m
     input_series:
-      - series: 'oj_outbox_oldest_age_seconds{job="judge-api", instance="judge-api:8000"}'
+      - series: 'oj_outbox_oldest_age_seconds{job="submission-service", instance="submission-service:8000"}'
         values: '30 90 150 210 270 330'
     alert_rule_test:
       - eval_time: 4m
@@ -157,16 +184,16 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: critical
-              job: judge-api
-              instance: judge-api:8000
+              job: submission-service
+              instance: submission-service:8000
             exp_annotations:
-              summary: "judge-api's outbox is not reaching Kafka"
-              description: "The oldest unsent outbox row has waited over a minute — check Kafka and the OutboxRelay lines in the judge-api log."
+              summary: "submission-service's outbox is not reaching Kafka"
+              description: "The oldest unsent outbox row has waited over a minute — check Kafka and the OutboxRelay lines in the submission-service log."
 
   # ...while a relay that keeps up (rows leave within seconds) stays silent.
   - interval: 1m
     input_series:
-      - series: 'oj_outbox_oldest_age_seconds{job="judge-api", instance="judge-api:8000"}'
+      - series: 'oj_outbox_oldest_age_seconds{job="submission-service", instance="submission-service:8000"}'
         values: '0 2 0 1 0 3'
     alert_rule_test:
       - eval_time: 5m
@@ -200,16 +227,16 @@ tests:
         alertname: ProblemServiceDown
         exp_alerts: []
 
-  # ProblemServiceCircuitOpen: judge-api's breaker keeps refusing calls. While problem-service is down and
+  # ProblemServiceCircuitOpen: submission-service's breaker keeps refusing calls. While problem-service is down and
   # users submit, the breaker cycles OPEN (10 s) -> HALF_OPEN (three probes fail) -> OPEN; the window bridges
   # the HALF_OPEN moments.
   - interval: 1m
     input_series:
-      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="open"}'
         values: '0 1 0 1 1 0 1'
-      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="half_open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="half_open"}'
         values: '0 0 1 0 0 1 0'
-      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="closed"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="closed"}'
         values: '1 0 0 0 0 0 0'
     alert_rule_test:
       - eval_time: 4m
@@ -218,18 +245,18 @@ tests:
           - exp_labels:
               severity: critical
             exp_annotations:
-              summary: "judge-api has stopped calling problem-service (circuit breaker open)"
-              description: "Submissions are refused with 503 without trying problem-service. Check ProblemServiceDown and the GrpcProblemCatalog lines in the judge-api log."
+              summary: "submission-service has stopped calling problem-service (circuit breaker open)"
+              description: "Submissions are refused with 503 without trying problem-service. Check ProblemServiceDown and the GrpcProblemCatalog lines in the submission-service log."
 
   # ...but HALF_OPEN alone is not refusing anything: after a recovery on a quiet site the breaker can wait
   # there for its probe calls, and that must not keep the alert firing.
   - interval: 1m
     input_series:
-      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="open"}'
         values: '1 0 0 0 0 0 0'
-      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="half_open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="half_open"}'
         values: '0 1 1 1 1 1 1'
-      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="closed"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="closed"}'
         values: '0 0 0 0 0 0 0'
     alert_rule_test:
       - eval_time: 6m
@@ -239,11 +266,11 @@ tests:
   # ...and a closed breaker must stay silent.
   - interval: 1m
     input_series:
-      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="open"}'
         values: '0x5'
-      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="half_open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="half_open"}'
         values: '0x5'
-      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="closed"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="closed"}'
         values: '1x5'
     alert_rule_test:
       - eval_time: 5m

@@ -161,7 +161,7 @@ services:
     networks: [oj-net]
 
   redis:
-    # Verdict SSE fan-out across judge-api instances (pub/sub on channel oj.verdicts).
+    # Verdict SSE fan-out across submission-service instances (pub/sub on channel oj.verdicts).
     image: redis:7-alpine
     container_name: oj-redis
     restart: unless-stopped
@@ -213,17 +213,19 @@ services:
     ports:
       - "127.0.0.1:9090:9090"   # ops UI, loopback only
     depends_on:
-      judge-api:
+      submission-service:
         condition: service_started
     networks: [oj-net]
 
   # ---- application services -------------------------------------------------
-  judge-api:
+  # Submissions, judging, languages and judge servers: the remainder of the judge-api monolith, renamed in
+  # sub-project 3a. Its code still lives in the judge-api repo until 3b moves it to oj-submission-service.
+  submission-service:
     build:
       context: ../judge-api
       additional_contexts:
         oj-common: ../oj-common
-    container_name: oj-judge-api
+    container_name: oj-submission-service
     restart: unless-stopped
     depends_on:
       db:
@@ -232,11 +234,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      # Deliberately not problem-service: judge-api starts without it, answers 503 for submissions while
+      # Deliberately not problem-service: submission-service starts without it, answers 503 for submissions while
       # it is away (circuit breaker), and keeps judging what is already queued.
     environment:
       <<: [*tz-env, *otel-env]
-      OTEL_SERVICE_NAME: judge-api
+      OTEL_SERVICE_NAME: submission-service
       JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
       # problem-service's internal gRPC API; the service token (PROBLEM_RPC_TOKEN) comes from .env.
       PROBLEM_GRPC_ADDRESS: static://problem-service:9090
@@ -244,7 +246,7 @@ services:
       - .env
     mem_limit: 1g
     # No host port: the API is public only through api-gateway. Sandboxes still reach
-    # judge-api:8000 for heartbeats inside oj-net.
+    # submission-service:8000 for heartbeats inside oj-net.
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/actuator/health | grep -q UP"]
       interval: 10s
@@ -274,7 +276,7 @@ services:
       - .env.identity
     mem_limit: 768m
     # No host port: public only through api-gateway (/api/v1/{auth,users,roles,permissions,security}/**).
-    # judge-api fetches the token-signing key from identity-service:8000/.well-known/jwks.json.
+    # The other services fetch the token-signing key from identity-service:8000/.well-known/jwks.json.
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP"]
       interval: 10s
@@ -315,7 +317,7 @@ services:
       # Checked on every internal gRPC call; the service refuses to start without it (32+ characters).
       PROBLEM_RPC_TOKEN: ${PROBLEM_RPC_TOKEN:-}
     mem_limit: 768m
-    # No host port: the API is public only through api-gateway (/api/v1/problems/**); judge-api calls the
+    # No host port: the API is public only through api-gateway (/api/v1/problems/**); submission-service calls the
     # internal gRPC API on problem-service:9090; Prometheus scrapes the actuator on 8081.
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP"]
@@ -333,7 +335,7 @@ services:
     container_name: oj-api-gateway
     restart: unless-stopped
     depends_on:
-      judge-api:
+      submission-service:
         condition: service_healthy
       identity-service:
         condition: service_healthy
@@ -345,7 +347,7 @@ services:
     environment:
       <<: [*tz-env, *otel-env]
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
-      MONOLITH_URI: http://judge-api:8000
+      SUBMISSION_URI: http://submission-service:8000
       IDENTITY_URI: http://identity-service:8000
       PROBLEM_URI: http://problem-service:8000
       OTEL_SERVICE_NAME: api-gateway
@@ -416,7 +418,7 @@ services:
     environment:
       TOKEN: ${JUDGE_SERVER_TOKEN}
       SERVICE_URL: http://judge-server:8080
-      BACKEND_URL: http://judge-api:8000/api/judge_server_heartbeat/
+      BACKEND_URL: http://submission-service:8000/api/judge_server_heartbeat/
     volumes:
       - test_case_cache:/test_case:ro
       - ../judge-server/log:/log
@@ -435,7 +437,7 @@ services:
     environment:
       TOKEN: ${JUDGE_SERVER_TOKEN}
       SERVICE_URL: http://judge-server-2:8080
-      BACKEND_URL: http://judge-api:8000/api/judge_server_heartbeat/
+      BACKEND_URL: http://submission-service:8000/api/judge_server_heartbeat/
     volumes:
       - test_case_cache:/test_case:ro
       - js2log:/log

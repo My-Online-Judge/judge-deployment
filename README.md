@@ -19,7 +19,8 @@ Browser
                                    ├─ /api/v1/{auth,users,roles,permissions,security}/** → identity-service ── identity-db
                                    ├─ /api/v1/problems/** → problem-service ── problem-db, MinIO (test cases)
                                    │                              ↑ gRPC :9090 (GetJudgeSpec, GetSampleTestCases)
-                                   └─ /api/v1/** → judge-api (submissions, judging) ──┘
+                                   ├─ /api/v1/{submissions,languages,judge-servers}/** → submission-service ──┘
+                                   └─ any other path → 404 from the gateway
                                                      ├── db      (Postgres 16, my_oj)
                                                      └── kafka  ──produce→ submission.requested, oj.submission.events
                                                                 ←consume── submission.judged
@@ -27,8 +28,8 @@ Browser
                                                                 judge-worker (Python, kafka-python)
                                                                       │  HTTP POST /judge
                                                                       └→ judge-server ×2 (qduoj sandbox, privileged)
-                                                                            └─ heartbeat → judge-api:8000 /api/judge_server_heartbeat/
-Traces: api-gateway, judge-api, identity-service, problem-service, judge-worker ──OTLP──→ jaeger (UI http://127.0.0.1:16686)
+                                                                            └─ heartbeat → submission-service:8000 /api/judge_server_heartbeat/
+Traces: api-gateway, submission-service, identity-service, problem-service, judge-worker ──OTLP──→ jaeger (UI http://127.0.0.1:16686)
 ```
 
 ## Services
@@ -38,10 +39,10 @@ Traces: api-gateway, judge-api, identity-service, problem-service, judge-worker 
 | `db`           | `postgres:16`            | 5433      | Application database (`my_oj`)   |
 | `kafka`        | `apache/kafka:3.9.0`     | 9092      | Submission event bus (KRaft)     |
 | `api-gateway`  | build `../oj-api-gateway`| 8000      | Public API entry (CORS, client IP)|
-| `judge-api`    | build `../judge-api`     | — (internal) | Submissions, judging, languages, judge servers |
+| `submission-service` | build `../judge-api` | — (internal) | Submissions, judging, languages, judge servers |
 | `identity-service` | build `../oj-identity-service` | — (internal) | Login, users, roles, bans; issues the tokens |
 | `identity-db`  | `postgres:16`            | — (internal) | identity-service's database (`identity`) |
-| `problem-service` | build `../oj-problem-service` | — (internal) | Problems, test cases, statistics; gRPC API for judge-api |
+| `problem-service` | build `../oj-problem-service` | — (internal) | Problems, test cases, statistics; gRPC API for submission-service |
 | `problem-db`   | `postgres:16`            | — (internal) | problem-service's database (`problem`) |
 | `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI + OTLP collector |
 | `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge      |
@@ -60,7 +61,7 @@ docker compose up -d --build
 docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --build
 
 # logs
-docker compose logs -f judge-api judge-worker
+docker compose logs -f submission-service judge-worker
 
 # stop (keep Postgres data)
 docker compose down
@@ -197,22 +198,47 @@ Cutover runbook (all from `judge-deployment/`):
    anything oj-db does not (`FORCE=1` would replace it with the stale data).
 7. **Smoke test the writes**: create a problem, delete it, create it again with the same slug — rejected.
 
+## Renaming judge-api to submission-service (sub-project 3a)
+
+What is left of the monolith is the submission side, and 3a gives it that name everywhere it runs: compose
+service and container `submission-service`, its OpenTelemetry and Prometheus names (alert
+`SubmissionServiceDown`), the sandboxes' `BACKEND_URL`. Its code still builds from `../judge-api` until 3b
+moves it to `oj-submission-service`; the Kafka consumer group stays `judge-api-results`. The gateway now
+routes `/api/v1/{submissions,languages,judge-servers}/**` to it explicitly (`SUBMISSION_URI`) and answers any
+unclaimed `/api/v1/**` path with its own 404. All Java services share oj-common 0.3.0's error responses.
+The runbooks above name the service `judge-api`, its name at the time.
+
+Rollout (all from `judge-deployment/`):
+
+1. **Record** the error responses: `PROBE_USERNAME=… PROBE_PASSWORD=… migrations/sp3a-error-responses.sh >
+   /tmp/sp3a-before.txt` (an existing USER account; the script prints no credentials).
+2. **Keep** the running images for a rollback:
+   `for s in judge-api api-gateway identity-service problem-service; do docker tag judge-deployment-$s:latest judge-deployment-$s:pre-sp3a; done`.
+3. **Rename** the service in your local `docker-compose.override.yml` too (`judge-api:` → `submission-service:`),
+   then `docker compose up -d --build --remove-orphans submission-service identity-service problem-service
+   api-gateway judge-server judge-server-2 prometheus` — `oj-judge-api` is removed, `oj-submission-service`
+   takes its place; submissions pause for those seconds.
+4. **Compare**: `migrations/sp3a-error-responses.sh | diff /tmp/sp3a-before.txt -` shows only the unclaimed
+   path, now `404` from the gateway instead of `401` from judge-api.
+5. **Rollback**: re-tag the `:pre-sp3a` images to `:latest` under their old names (`judge-api` for
+   submission-service), check out the previous commit of this repo, `docker compose up -d --no-build --remove-orphans`.
+
 ## Configuration
 
-All knobs live in **`.env`** (committed dev values). `judge-api` and `judge-worker` load it
+All knobs live in **`.env`** (committed dev values). `submission-service` and `judge-worker` load it
 via `env_file`; `db` and `judge-server` read individual vars via `${VAR}` interpolation.
 Copy `.env.example` → `.env` to start from a clean template.
 
 Notes:
-- `api-gateway` does **not** load `.env`; compose passes it only `MONOLITH_URI`, the profile and
-  the OpenTelemetry settings. judge-api is no longer published on the host — everything goes
+- `api-gateway` does **not** load `.env`; compose passes it only the service URIs, the profile and
+  the OpenTelemetry settings. submission-service is not published on the host — everything goes
   through the gateway on :8000.
 - `.env` holds **container-network** addresses (`db`, `kafka:29092`, `judge-server`) — it is
   intentionally separate from `judge-api/.env` (bare-metal `localhost`).
 - One `JUDGE_SERVER_TOKEN` is shared by api, worker, and judge-server.
 - `problem-service` does not load `.env` either: it reads `.env.problem` (its database) and compose
-  passes it MinIO, Kafka, the JWKS URI and `PROBLEM_RPC_TOKEN`, which judge-api reads from `.env`.
-- `judge-api` runs the **dev** profile (Postgres-backed) — this is baked into its image via
+  passes it MinIO, Kafka, the JWKS URI and `PROBLEM_RPC_TOKEN`, which submission-service reads from `.env`.
+- `submission-service` runs the **dev** profile (Postgres-backed) — this is baked into its image via
   `pom.xml` (`activeByDefault`), which also fixes the port to **8000**.
 - `GOOGLE_REDIRECT_URI` must match the Google console. It points at the Vite dev origin
   (`:5173`); if you drive OAuth through the containerized portal (`http://localhost`), update

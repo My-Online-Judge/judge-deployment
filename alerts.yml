@@ -17,16 +17,16 @@
 groups:
   - name: judge-availability
     rules:
-      - alert: JudgeApiDown
-        # The scrape itself failing covers every way judge-api can die — crash, OOM, hung thread
+      - alert: SubmissionServiceDown
+        # The scrape itself failing covers every way submission-service can die — crash, OOM, hung thread
         # pool — without needing a metric from inside the process that just stopped producing them.
-        expr: up{job="judge-api"} == 0
+        expr: up{job="submission-service"} == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "judge-api is not being scraped"
-          description: "Prometheus has failed to scrape judge-api for over a minute. Submissions are not being accepted."
+          summary: "submission-service is not being scraped"
+          description: "Prometheus has failed to scrape submission-service for over a minute. Submissions are not being accepted."
 
       - alert: ApiGatewayDown
         # The gateway is the only public entry point: while it is down the portal reaches no API at
@@ -41,7 +41,7 @@ groups:
 
       - alert: IdentityServiceDown
         # Login, refresh and every admin screen for users, roles and bans go through identity-service;
-        # judge-api also fetches its token-signing key from it.
+        # submission-service and problem-service also fetch their token-signing key from it.
         expr: up{job="identity-service"} == 0
         for: 1m
         labels:
@@ -52,7 +52,7 @@ groups:
 
       - alert: ProblemServiceDown
         # Problem lists and pages, test-case editing and the statistics consumer live in problem-service;
-        # judge-api asks it for every submission's limits and test-case version.
+        # submission-service asks it for every submission's limits and test-case version.
         expr: up{job="problem-service"} == 0
         for: 1m
         labels:
@@ -62,7 +62,7 @@ groups:
           description: "Prometheus has failed to scrape problem-service for over a minute. Problem pages fail and submissions are refused with 503."
 
       - alert: ProblemServiceCircuitOpen
-        # judge-api's breaker around problem-service (GrpcProblemCatalog) is refusing calls: submissions get 503
+        # submission-service's breaker around problem-service (GrpcProblemCatalog) is refusing calls: submissions get 503
         # without problem-service being asked. It can open while problem-service still answers its scrape —
         # slow or failing calls are enough. While users keep submitting it cycles OPEN (10 s) -> HALF_OPEN
         # (three probes) -> OPEN, so the rule looks for OPEN anywhere in the last minute. HALF_OPEN alone lets
@@ -72,8 +72,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "judge-api has stopped calling problem-service (circuit breaker open)"
-          description: "Submissions are refused with 503 without trying problem-service. Check ProblemServiceDown and the GrpcProblemCatalog lines in the judge-api log."
+          summary: "submission-service has stopped calling problem-service (circuit breaker open)"
+          description: "Submissions are refused with 503 without trying problem-service. Check ProblemServiceDown and the GrpcProblemCatalog lines in the submission-service log."
 
   - name: judge-pipeline
     rules:
@@ -104,7 +104,7 @@ groups:
           description: "oj_queue_depth has been above zero for 15m with zero verdicts in the same window — the worker or both sandboxes are down."
 
       - alert: OutboxBacklogStale
-        # Every judge request (submission.requested) and verdict event leaves judge-api through its
+        # Every judge request (submission.requested) and verdict event leaves submission-service through its
         # outbox. A row is normally sent within a second of its commit; one older than a minute means
         # Kafka is unreachable or the relay is stuck — submissions are accepted but nobody judges them.
         expr: oj_outbox_oldest_age_seconds > 60
@@ -112,8 +112,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "judge-api's outbox is not reaching Kafka"
-          description: "The oldest unsent outbox row has waited over a minute — check Kafka and the OutboxRelay lines in the judge-api log."
+          summary: "submission-service's outbox is not reaching Kafka"
+          description: "The oldest unsent outbox row has waited over a minute — check Kafka and the OutboxRelay lines in the submission-service log."
 
       - alert: ProblemStatsDeadLettered
         # problem-service's statistics consumer gave up on a record of oj.submission.events: unreadable at
