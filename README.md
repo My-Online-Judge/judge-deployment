@@ -164,24 +164,37 @@ test-case files written in 2a stay where they are.
 Cutover runbook (all from `judge-deployment/`):
 
 1. **Prepare, no traffic yet.** `migrations/sp2-env.sh` writes `.env.problem` (problem-db credentials,
-   generated password) and adds `PROBLEM_RPC_TOKEN` to `.env`. Build every image first:
-   `docker compose build problem-service judge-api api-gateway`. Then `docker compose up -d problem-db
-   problem-service` — Flyway builds the schema (V1 the problem tables, V2 statistics) — and
-   `docker compose stop problem-service`, so its statistics consumer is not running during the copy.
+   generated password) and adds `PROBLEM_RPC_TOKEN` to `.env`. **Keep the running images for a rollback**
+   — once oj-common is 0.2.0 the 2a images cannot be rebuilt (their poms require oj-common 0.1.0):
+   `for s in judge-api api-gateway; do docker tag judge-deployment-$s:latest judge-deployment-$s:pre-sp2b; done`.
+   Then build every image: `docker compose build problem-service judge-api api-gateway`, and
+   `docker compose up -d problem-db problem-service` — Flyway builds the schema (V1 the problem tables, V2
+   statistics) — and `docker compose stop problem-service`, so its statistics consumer is not running
+   during the copy.
 2. **Rehearse.** `migrations/rehearse-sp2-problem.sh` copies a restored dump of `oj-db` into a throwaway
-   problem-db twice, then checks that two tampered values make the verification fail; it ends with
-   `REHEARSAL OK`.
-3. **Maintenance window.** `docker compose stop api-gateway judge-api` (verdicts wait in Kafka), then
-   `migrations/run-sp2-problem.sh` — the problem tables are copied and the statistics seeded from the
-   terminal submissions in one transaction, then verified; it exits non-zero on any mismatch.
+   problem-db twice, checks that two tampered values make the verification fail and that a problem-db
+   that has moved on makes a new copy refuse; it ends with `REHEARSAL OK`.
+3. **Maintenance window.** `docker compose stop api-gateway` (no new submissions), then wait until no
+   submission is waiting for its verdict —
+   `docker exec oj-db psql -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -tAc "SELECT count(*) FROM t_submissions WHERE status IN (6, 7)"`
+   prints `0` (values from `.env`). Otherwise a window longer than `JUDGE_STUCK_TIMEOUT_MIN` (5 minutes)
+   lets judge-api's reconcile job mark them SYSTEM_ERROR before their verdicts are read back. Then
+   `docker compose stop judge-api` and `migrations/run-sp2-problem.sh` — the problem tables are copied and
+   the statistics seeded from the terminal submissions in one transaction, then verified; it exits
+   non-zero on any mismatch.
 4. **Switch.** `docker compose up -d problem-service judge-api api-gateway`: judge-api (Flyway V18 makes
    `t_submissions.problem_slug` required) and the gateway with the problem routes.
 5. **Smoke test** without changing any problem: the list and a problem page load, a submission is
    judged and its problem's accepted count goes up.
-6. **Re-open traffic: the point of no return.** Before it, rollback = check out the previous commit of
-   this repo, judge-api and oj-api-gateway, `docker compose up -d --build --remove-orphans` — the problem
-   tables in `oj-db` were never modified (problem-db stays aside, unused). After it, problem-db holds the
-   only up-to-date problems.
+6. **Re-open traffic: the point of no return.** Before it, rollback = put the kept images back
+   (`for s in judge-api api-gateway; do docker tag judge-deployment-$s:pre-sp2b judge-deployment-$s:latest; done`),
+   check out the previous commit of this repo, and `docker compose up -d --no-build --remove-orphans`.
+   The problem tables in `oj-db` were never modified; problem-db and its volume stay aside, unused;
+   identity-service is not rebuilt in this runbook, so it keeps running as it was. The 2a judge-api runs
+   on the V18 schema (it always writes `problem_slug`; Flyway ignores a migration newer than the image).
+   After it, problem-db holds the only up-to-date problems — never run `migrations/run-sp2-problem.sh`
+   again: oj-db's problem tables are stale from then on, and the copy refuses once problem-db holds
+   anything oj-db does not (`FORCE=1` would replace it with the stale data).
 7. **Smoke test the writes**: create a problem, delete it, create it again with the same slug — rejected.
 
 ## Configuration
