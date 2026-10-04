@@ -226,6 +226,45 @@ Rollout (all from `judge-deployment/`):
    `judge-api:` in your `docker-compose.override.yml` (Compose refuses an override entry for a service the file
    does not define), then `docker compose up -d --no-build --remove-orphans`.
 
+## Extracting submission-service (sub-project 3b)
+
+submission-service moves to its own repo, `oj-submission-service` (judge-api's history carried over), and its own
+database, `submission-db`; oj-db is then retired. `oj-submission-service` must be cloned beside the other repos.
+Its secrets live in `.env.submission`, read only by `submission-db` and `submission-service`, which no longer reads
+the shared `.env`. The gateway and the sandboxes need no change: they have called it `submission-service` since 3a.
+
+**Never start the new submission-service before the copy**: it would join Kafka consumer group
+`judge-api-results` next to the running one and take verdicts for submissions it does not have. Its schema is
+built by `migrations/sp3-flyway.sh`, a one-shot Flyway container on the service's own migrations.
+
+Cutover runbook (all from `judge-deployment/`):
+
+1. **Prepare, no traffic yet.** `migrations/sp3-env.sh create` writes `.env.submission` (generated password).
+   Keep the running image for a rollback:
+   `docker tag judge-deployment-submission-service:latest judge-deployment-submission-service:pre-sp3b`.
+   Build: `docker compose build submission-service`. Then `docker compose up -d --no-deps submission-db` and
+   `migrations/sp3-flyway.sh` (V1 the submission tables, V2 the languages).
+2. **Rehearse.** `migrations/rehearse-sp3-submission.sh` copies a restored dump of oj-db into a throwaway
+   submission-db twice, checks that two tampered values make the verification fail and that a submission-db that
+   has moved on makes a new copy refuse; it ends with `REHEARSAL OK`.
+3. **Maintenance window.** `docker compose stop api-gateway`, then wait until nothing is in flight —
+   `SELECT count(*) FROM t_submissions WHERE status IN (6, 7)` and
+   `SELECT count(*) FROM t_outbox WHERE published_at IS NULL` both `0` on oj-db. Then
+   `docker compose stop submission-service` (the consumer group commits its offsets) and
+   `migrations/run-sp3-submission.sh` — the four tables, every outbox row included, are copied in one transaction
+   and verified; it exits non-zero on any mismatch.
+4. **Switch.** `docker compose up -d submission-service prometheus api-gateway`: the new service resumes
+   `judge-api-results` from the committed offsets; Prometheus scrapes it on 8081.
+5. **Smoke test**: log in, submit; the verdict arrives over SSE through the gateway; the problem's accepted count
+   goes up; old submission histories list completely.
+6. **Re-open traffic: the point of no return.** Before it, rollback =
+   `docker tag judge-deployment-submission-service:pre-sp3b judge-deployment-submission-service:latest`, check out
+   the previous commit of this repo, `docker compose up -d --no-build --remove-orphans` (oj-db untouched; only the
+   smoke submission is lost). After it, submission-db holds the only up-to-date submissions — never run
+   `migrations/run-sp3-submission.sh` again (it refuses once submission-db holds anything oj-db does not;
+   `FORCE=1` would replace it with stale data).
+7. **Retire oj-db**: see "Retiring oj-db" below.
+
 ## Configuration
 
 All knobs live in **`.env`** (committed dev values). `submission-service` and `judge-worker` load it

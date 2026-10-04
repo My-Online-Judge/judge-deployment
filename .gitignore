@@ -5,4 +5,5 @@
 !.env.example
 !.env.identity.example
 !.env.problem.example
+!.env.submission.example
 docker-compose.override.yml

@@ -11,7 +11,7 @@ scrape_configs:
   - job_name: submission-service
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ['submission-service:8000']
+      - targets: ['submission-service:8081']
 
   - job_name: identity-service
     metrics_path: /actuator/prometheus

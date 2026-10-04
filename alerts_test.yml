@@ -16,7 +16,7 @@ tests:
   # matches nothing and the rule never fires. Here oj_verdict_total is intentionally ABSENT.
   - interval: 1m
     input_series:
-      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8000"}'
+      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8081"}'
         values: '5x20'
     alert_rule_test:
       - eval_time: 16m
@@ -25,7 +25,7 @@ tests:
           - exp_labels:
               severity: critical
               job: submission-service
-              instance: submission-service:8000
+              instance: submission-service:8081
             exp_annotations:
               summary: "Submissions are queued but no verdicts are being produced"
               description: "oj_queue_depth has been above zero for 15m with zero verdicts in the same window — the worker or both sandboxes are down."
@@ -33,9 +33,9 @@ tests:
   # Healthy pipeline: queue is draining (verdicts flowing) -> JudgeQueueStalled must stay silent.
   - interval: 1m
     input_series:
-      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8000"}'
+      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8081"}'
         values: '5x20'
-      - series: 'oj_verdict_total{status="ACCEPTED", job="submission-service", instance="submission-service:8000"}'
+      - series: 'oj_verdict_total{status="ACCEPTED", job="submission-service", instance="submission-service:8081"}'
         values: '0+3x20'
     alert_rule_test:
       - eval_time: 16m
@@ -45,7 +45,7 @@ tests:
   # JudgeSystemErrors: absent oj_verdict_total{SYSTEM_ERROR} must read as 0, not fire, not no-data.
   - interval: 1m
     input_series:
-      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8000"}'
+      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8081"}'
         values: '0x20'
     alert_rule_test:
       - eval_time: 16m
@@ -55,7 +55,7 @@ tests:
   # JudgeSystemErrors fires once SYSTEM_ERROR verdicts actually start accumulating.
   - interval: 1m
     input_series:
-      - series: 'oj_verdict_total{status="SYSTEM_ERROR", job="submission-service", instance="submission-service:8000"}'
+      - series: 'oj_verdict_total{status="SYSTEM_ERROR", job="submission-service", instance="submission-service:8081"}'
         values: '0+1x20'
     alert_rule_test:
       - eval_time: 16m
@@ -95,7 +95,7 @@ tests:
   # SubmissionServiceDown: a submission-service that cannot be scraped for over a minute must fire...
   - interval: 1m
     input_series:
-      - series: 'up{job="submission-service", instance="submission-service:8000"}'
+      - series: 'up{job="submission-service", instance="submission-service:8081"}'
         values: '0x5'
     alert_rule_test:
       - eval_time: 2m
@@ -104,7 +104,7 @@ tests:
           - exp_labels:
               severity: critical
               job: submission-service
-              instance: submission-service:8000
+              instance: submission-service:8081
             exp_annotations:
               summary: "submission-service is not being scraped"
               description: "Prometheus has failed to scrape submission-service for over a minute. Submissions are not being accepted."
@@ -112,7 +112,7 @@ tests:
   # ...and a healthy submission-service must stay silent.
   - interval: 1m
     input_series:
-      - series: 'up{job="submission-service", instance="submission-service:8000"}'
+      - series: 'up{job="submission-service", instance="submission-service:8081"}'
         values: '1x5'
     alert_rule_test:
       - eval_time: 5m
@@ -176,7 +176,7 @@ tests:
   # OutboxBacklogStale: rows stuck in the outbox for over a minute (Kafka down) must fire...
   - interval: 1m
     input_series:
-      - series: 'oj_outbox_oldest_age_seconds{job="submission-service", instance="submission-service:8000"}'
+      - series: 'oj_outbox_oldest_age_seconds{job="submission-service", instance="submission-service:8081"}'
         values: '30 90 150 210 270 330'
     alert_rule_test:
       - eval_time: 4m
@@ -185,7 +185,7 @@ tests:
           - exp_labels:
               severity: critical
               job: submission-service
-              instance: submission-service:8000
+              instance: submission-service:8081
             exp_annotations:
               summary: "submission-service's outbox is not reaching Kafka"
               description: "The oldest unsent outbox row has waited over a minute — check Kafka and the OutboxRelay lines in the submission-service log."
@@ -193,7 +193,7 @@ tests:
   # ...while a relay that keeps up (rows leave within seconds) stays silent.
   - interval: 1m
     input_series:
-      - series: 'oj_outbox_oldest_age_seconds{job="submission-service", instance="submission-service:8000"}'
+      - series: 'oj_outbox_oldest_age_seconds{job="submission-service", instance="submission-service:8081"}'
         values: '0 2 0 1 0 3'
     alert_rule_test:
       - eval_time: 5m
@@ -232,11 +232,11 @@ tests:
   # the HALF_OPEN moments.
   - interval: 1m
     input_series:
-      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8081", name="problem-service", state="open"}'
         values: '0 1 0 1 1 0 1'
-      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="half_open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8081", name="problem-service", state="half_open"}'
         values: '0 0 1 0 0 1 0'
-      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="closed"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8081", name="problem-service", state="closed"}'
         values: '1 0 0 0 0 0 0'
     alert_rule_test:
       - eval_time: 4m
@@ -252,11 +252,11 @@ tests:
   # there for its probe calls, and that must not keep the alert firing.
   - interval: 1m
     input_series:
-      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8081", name="problem-service", state="open"}'
         values: '1 0 0 0 0 0 0'
-      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="half_open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8081", name="problem-service", state="half_open"}'
         values: '0 1 1 1 1 1 1'
-      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="closed"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8081", name="problem-service", state="closed"}'
         values: '0 0 0 0 0 0 0'
     alert_rule_test:
       - eval_time: 6m
@@ -266,11 +266,11 @@ tests:
   # ...and a closed breaker must stay silent.
   - interval: 1m
     input_series:
-      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8081", name="problem-service", state="open"}'
         values: '0x5'
-      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="half_open"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8081", name="problem-service", state="half_open"}'
         values: '0x5'
-      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8000", name="problem-service", state="closed"}'
+      - series: 'resilience4j_circuitbreaker_state{job="submission-service", instance="submission-service:8081", name="problem-service", state="closed"}'
         values: '1x5'
     alert_rule_test:
       - eval_time: 5m
