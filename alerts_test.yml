@@ -200,18 +200,19 @@ tests:
         alertname: ProblemServiceDown
         exp_alerts: []
 
-  # ProblemServiceCircuitOpen: judge-api's breaker stays away from CLOSED for over a minute. While
-  # problem-service is down the breaker moves between OPEN and HALF_OPEN; either one counts.
+  # ProblemServiceCircuitOpen: judge-api's breaker keeps refusing calls. While problem-service is down and
+  # users submit, the breaker cycles OPEN (10 s) -> HALF_OPEN (three probes fail) -> OPEN; the window bridges
+  # the HALF_OPEN moments.
   - interval: 1m
     input_series:
       - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="open"}'
-        values: '0 1 0 1 1 0'
+        values: '0 1 0 1 1 0 1'
       - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="half_open"}'
-        values: '0 0 1 0 0 1'
+        values: '0 0 1 0 0 1 0'
       - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="closed"}'
-        values: '1 0 0 0 0 0'
+        values: '1 0 0 0 0 0 0'
     alert_rule_test:
-      - eval_time: 3m
+      - eval_time: 4m
         alertname: ProblemServiceCircuitOpen
         exp_alerts:
           - exp_labels:
@@ -219,6 +220,21 @@ tests:
             exp_annotations:
               summary: "judge-api has stopped calling problem-service (circuit breaker open)"
               description: "Submissions are refused with 503 without trying problem-service. Check ProblemServiceDown and the GrpcProblemCatalog lines in the judge-api log."
+
+  # ...but HALF_OPEN alone is not refusing anything: after a recovery on a quiet site the breaker can wait
+  # there for its probe calls, and that must not keep the alert firing.
+  - interval: 1m
+    input_series:
+      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="open"}'
+        values: '1 0 0 0 0 0 0'
+      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="half_open"}'
+        values: '0 1 1 1 1 1 1'
+      - series: 'resilience4j_circuitbreaker_state{job="judge-api", instance="judge-api:8000", name="problem-service", state="closed"}'
+        values: '0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: ProblemServiceCircuitOpen
+        exp_alerts: []
 
   # ...and a closed breaker must stay silent.
   - interval: 1m

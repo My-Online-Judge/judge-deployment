@@ -62,10 +62,12 @@ groups:
           description: "Prometheus has failed to scrape problem-service for over a minute. Problem pages fail and submissions are refused with 503."
 
       - alert: ProblemServiceCircuitOpen
-        # judge-api's breaker around problem-service (GrpcProblemCatalog). While it is OPEN, and in the
-        # HALF_OPEN probes in between, submissions get 503 without problem-service being asked. It can
-        # open while problem-service still answers its scrape — slow or failing calls are enough.
-        expr: max(resilience4j_circuitbreaker_state{name="problem-service", state=~"open|half_open"}) == 1
+        # judge-api's breaker around problem-service (GrpcProblemCatalog) is refusing calls: submissions get 503
+        # without problem-service being asked. It can open while problem-service still answers its scrape —
+        # slow or failing calls are enough. While users keep submitting it cycles OPEN (10 s) -> HALF_OPEN
+        # (three probes) -> OPEN, so the rule looks for OPEN anywhere in the last minute. HALF_OPEN alone lets
+        # calls through: on a quiet site the breaker can wait there for its probes after a recovery.
+        expr: max(max_over_time(resilience4j_circuitbreaker_state{name="problem-service", state="open"}[1m])) == 1
         for: 1m
         labels:
           severity: critical
