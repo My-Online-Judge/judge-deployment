@@ -1,0 +1,15 @@
+# The benchmark overlay (sub-project 5). Only ever used through bench/lib/common.sh bench_compose:
+#   docker compose -p oj-bench --project-directory <main checkout> -f docker-compose.yml -f bench/compose.bench.yml
+# It differs from production in Prometheus only — k6 writes into it, and it scrapes every 5 s. The built services
+# run the live stack's images (never rebuilt), and the portal is not part of what is measured.
+services:
+  prometheus:
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.enable-remote-write-receiver"]
+    volumes:
+      - ${BENCH_DIR:?run through bench/lib/common.sh}/.gen/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  submission-service: {image: "judge-deployment-submission-service:latest", pull_policy: never}
+  identity-service: {image: "judge-deployment-identity-service:latest", pull_policy: never}
+  problem-service: {image: "judge-deployment-problem-service:latest", pull_policy: never}
+  api-gateway: {image: "judge-deployment-api-gateway:latest", pull_policy: never}
+  judge-worker: {image: "judge-deployment-judge-worker:latest", pull_policy: never}
+  judge-portal: {profiles: ["off"]}
