@@ -127,3 +127,9 @@ export function measureThresholds(routes, phase = 'measure') {
   }
   return t;
 }
+
+// handleSummary's data carries setup()'s return value; ours holds every user's access token.
+export function publicSummary(data) {
+  const { setup_data, ...rest } = data;
+  return rest;
+}

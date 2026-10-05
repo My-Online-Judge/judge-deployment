@@ -3,7 +3,7 @@
 import exec from 'k6/execution';
 import { SUMMARY_TREND_STATS, SYSTEM_TAGS, loadUserIds } from './lib/config.js';
 import { loginAll, read } from './lib/api.js';
-import { READ_ROUTES, USERS, measureThresholds, num, readRouteForIteration } from './lib/pure.js';
+import { READ_ROUTES, USERS, measureThresholds, num, publicSummary, readRouteForIteration } from './lib/pure.js';
 
 const RATE = num(__ENV.RATE, 20);
 const WARMUP_S = num(__ENV.WARMUP_S, 60);
@@ -31,5 +31,5 @@ export default function (data) {
 }
 
 export function handleSummary(data) {
-  return { '/out/summary.json': JSON.stringify(data) };
+  return { '/out/summary.json': JSON.stringify(publicSummary(data)) };
 }

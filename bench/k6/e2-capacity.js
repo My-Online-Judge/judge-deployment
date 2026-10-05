@@ -4,7 +4,7 @@
 import exec from 'k6/execution';
 import { SUMMARY_TREND_STATS, SYSTEM_TAGS } from './lib/config.js';
 import { loginAll, recordSubmit, submit } from './lib/api.js';
-import { SUBMIT_PROBLEM, checkSubmitRate, languageForIteration, num, parseRates, stepStages, stepWindows, userIndexForIteration } from './lib/pure.js';
+import { SUBMIT_PROBLEM, checkSubmitRate, languageForIteration, num, parseRates, publicSummary, stepStages, stepWindows, userIndexForIteration } from './lib/pure.js';
 
 const RATES = parseRates(__ENV.STEPS);
 RATES.forEach(checkSubmitRate);
@@ -35,7 +35,7 @@ export default function (data) {
 
 export function handleSummary(data) {
   return {
-    '/out/summary.json': JSON.stringify(data),
+    '/out/summary.json': JSON.stringify(publicSummary(data)),
     '/out/schedule.json': JSON.stringify({ startMs: data.setup_data.startMs, stepS: STEP_S, warmupS: WARMUP_S, windows: stepWindows(RATES, STEP_S, WARMUP_S) }),
   };
 }

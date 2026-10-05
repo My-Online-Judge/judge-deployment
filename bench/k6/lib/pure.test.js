@@ -113,3 +113,9 @@ test('E3 measured submits start 10 users past the warm-up (k6 runs one more warm
   // after the offset, a user comes back no sooner than (USERS - 10) / rate seconds — above the cooldown up to 18/s
   assert.ok((p.USERS - 10) / p.maxSubmitRate() > p.COOLDOWN_S);
 });
+
+test('the written summary drops setup_data (it holds the users\' access tokens, signed with the live key)', () => {
+  const data = { metrics: { iterations: { values: { count: 3 } } }, setup_data: { users: [{ token: 'eyJx' }], startMs: 1 } };
+  assert.deepEqual(p.publicSummary(data), { metrics: { iterations: { values: { count: 3 } } } });
+  assert.ok('setup_data' in data, 'the input is left intact for the other outputs');
+});

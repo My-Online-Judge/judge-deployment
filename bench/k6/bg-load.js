@@ -3,7 +3,7 @@
 import exec from 'k6/execution';
 import { SUMMARY_TREND_STATS, SYSTEM_TAGS, loadUserIds } from './lib/config.js';
 import { loginAll, read, recordRequest, recordSubmit, submit } from './lib/api.js';
-import { SUBMIT_PROBLEM, USERS, checkSubmitRate, faultTimeline, languageForIteration, num, perMinute, readRouteForIteration, userIndexForIteration } from './lib/pure.js';
+import { SUBMIT_PROBLEM, USERS, checkSubmitRate, faultTimeline, languageForIteration, num, perMinute, publicSummary, readRouteForIteration, userIndexForIteration } from './lib/pure.js';
 
 const READ_RATE = num(__ENV.READ_RATE, 10);
 const SUBMIT_RATE = checkSubmitRate(num(__ENV.SUBMIT_RATE, 0));
@@ -40,5 +40,5 @@ export function submitOne(data) {
 }
 
 export function handleSummary(data) {
-  return { '/out/summary.json': JSON.stringify(data) };
+  return { '/out/summary.json': JSON.stringify(publicSummary(data)) };
 }
