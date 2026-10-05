@@ -36,3 +36,10 @@ def test_lag_threshold_is_twice_the_worst_healthy_lag_and_at_least_10():
     assert stats.lag_threshold([0, 1]) == 10
     assert stats.lag_threshold([]) == 10
     assert stats.lag_threshold([12.5]) == 25
+
+
+def test_a_quantile_is_censored_when_more_than_its_tail_lies_above_the_top_bucket():
+    assert stats.censored(0.06, 0.95) is True
+    assert stats.censored(0.05, 0.95) is False
+    assert stats.censored(0.02, 0.99) is True
+    assert stats.censored(None, 0.95) is False

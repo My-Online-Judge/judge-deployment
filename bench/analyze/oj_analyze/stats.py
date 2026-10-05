@@ -17,6 +17,12 @@ def reportable_p99(p99, n, min_n=500):
     return p99 if p99 is not None and n is not None and n >= min_n else None
 
 
+def censored(share_above_top, q):
+    """A q-quantile is censored when more than its tail (1 - q) of the observations lies above the histogram's top
+    finite bucket: histogram_quantile would return that bucket's bound, not the quantile (review C2)."""
+    return share_above_top is not None and share_above_top > 1 - q + 1e-9
+
+
 def saturated(queue_start, queue_end, arrivals, frac=0.1):
     """A step saturates when its backlog grows by more than frac of what arrived during it."""
     if queue_start is None or queue_end is None or arrivals <= 0:

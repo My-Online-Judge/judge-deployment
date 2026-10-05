@@ -31,6 +31,9 @@ class Prom:
         res = self.fetch("/api/v1/query", {"query": q, "time": at})["data"]["result"]
         return {_key(s["metric"]): _num(s["value"][1]) for s in res}
 
+    def label_values(self, label, match):
+        return self.fetch(f"/api/v1/label/{label}/values", {"match[]": match})["data"]
+
     def range(self, q, start, end, step=5):
         res = self.fetch("/api/v1/query_range", {"query": q, "start": start, "end": end, "step": step})["data"]["result"]
         return {_key(s["metric"]): [(float(t), _num(v)) for t, v in s["values"]] for s in res}

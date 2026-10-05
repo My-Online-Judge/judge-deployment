@@ -35,3 +35,14 @@ def test_range_keys_series_by_labels_and_turns_nan_into_none():
         {"metric": {"route": "history"}, "values": [[1, "0.1"], [6, "NaN"]]},
         {"metric": {}, "values": [[1, "3"]]}]}}})
     assert Prom("http://prom", fetch).range("q", 0, 10) == {"route=history": [(1.0, 0.1), (6.0, None)], "value": [(1.0, 3.0)]}
+
+
+def test_label_values_lists_a_label_of_a_series():
+    calls = []
+
+    def fetch(path, params):
+        calls.append((path, params))
+        return {"data": ["0.5", "30.0", "+Inf"]}
+
+    assert Prom("http://prom", fetch).label_values("le", "oj_judge_latency_seconds_bucket") == ["0.5", "30.0", "+Inf"]
+    assert calls == [("/api/v1/label/le/values", {"match[]": "oj_judge_latency_seconds_bucket"})]

@@ -19,7 +19,8 @@ def test_accepted_ids_come_from_accepted_events_only():
 
 def test_every_accepted_submission_found_and_terminal_is_ok():
     found = [{"id": "a", "status": 0}, {"id": "b", "status": -1}, {"id": "z", "status": 6}]  # z: another run's
-    assert inv.check(["a", "b"], found) == {"accepted": 2, "missing": [], "nonterminal": [], "ok": True}
+    assert inv.check(["a", "b"], found) == {"accepted": 2, "missing": [], "nonterminal": [], "system_error": [],
+                                           "by_status": {"-1": 1, "0": 1}, "ok": True}
 
 
 def test_a_missing_or_pending_submission_fails_the_run():
@@ -29,3 +30,10 @@ def test_a_missing_or_pending_submission_fails_the_run():
 
 def test_a_duplicate_accepted_line_counts_once():
     assert inv.check(["a", "a"], [{"id": "a", "status": 0}])["accepted"] == 1
+
+
+def test_a_system_error_is_terminal_but_listed():
+    # The reconcile job flips a submission queued > 5 min to SYSTEM_ERROR (5): terminal, so the run stays ok (spec),
+    # but the report must show it (review C1/I3).
+    r = inv.check(["a", "b"], [{"id": "a", "status": 5}, {"id": "b", "status": 0}])
+    assert r["ok"] is True and r["system_error"] == ["a"] and r["by_status"] == {"0": 1, "5": 1}

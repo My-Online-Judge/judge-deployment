@@ -5,6 +5,15 @@ def judge_quantile(q, window_s):
     return f"histogram_quantile({q}, sum by (le) (increase(oj_judge_latency_seconds_bucket[{window_s}s])))"
 
 
+JUDGE_BUCKET = "oj_judge_latency_seconds_bucket"
+
+
+def above_bucket(top_le, window_s):
+    """Observations above the top finite bucket (Micrometer's timer histogram stops at 30 s by default)."""
+    return (f'sum(increase({JUDGE_BUCKET}{{le="+Inf"}}[{window_s}s])) - '
+            f'sum(increase({JUDGE_BUCKET}{{le="{top_le}"}}[{window_s}s]))')
+
+
 def verdict_count(window_s):
     # The latency timer records every applied verdict; oj_verdict_total{status} only exists once a status occurred.
     return f"sum(increase(oj_judge_latency_seconds_count[{window_s}s]))"

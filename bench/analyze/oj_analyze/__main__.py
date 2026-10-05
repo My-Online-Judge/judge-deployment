@@ -15,7 +15,8 @@ def cmd_invariant(run_dir):
     result = inv.check(inv.accepted_ids(events), found)
     (run_dir / "invariant.json").write_text(json.dumps(result, indent=1))
     print(f"invariant {'ok' if result['ok'] else 'FAIL'}: {result['accepted']} accepted, "
-          f"{len(result['missing'])} missing, {len(result['nonterminal'])} not terminal")
+          f"{len(result['missing'])} missing, {len(result['nonterminal'])} not terminal, "
+          f"{len(result['system_error'])} SYSTEM_ERROR")
     return 0
 
 

@@ -1,5 +1,6 @@
 """The runs of one experiment → results/summary-<exp>.md: median (min–max) over the runs (spec §3.1).
-Smoke runs and E2 pilots are not measurements and are left out."""
+Smoke runs and E2 pilots are not measurements and are left out. Every percentile has its n beside it; a judge-latency
+quantile the histogram censors prints as "≥ <top>" (review C2); the measured load and SYSTEM_ERRORs are shown (I2/I3)."""
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -29,6 +30,14 @@ def cell(values, scale=1.0, digits=1):
     return f"{f.format(s['median'])} ({f.format(s['min'])}–{f.format(s['max'])})" if s["runs"] > 1 else f.format(s["median"])
 
 
+def qcell(rows, key, digits=2):
+    """A judge-latency quantile over the runs: "≥ <top>" when any run's value lay above the histogram's top bucket."""
+    cut = [r for r in rows if r.get(f"{key}_censored")]
+    if cut:
+        return f"≥ {cut[0].get('histogram_top_s') or 30:g}"
+    return cell([r.get(key) for r in rows], digits=digits)
+
+
 def e1(runs):
     by = defaultdict(list)
     for run, res in runs:
@@ -47,17 +56,23 @@ def e2(runs, out_dir):
     by = defaultdict(list)
     for run, res in runs:
         by[run["args"]["workers"]].append(res)
-    lines = ["| workers | arrivals/s | verdicts/s | p50 s | p95 s | p99 s | saturated runs |", "|---|---|---|---|---|---|---|"]
+    lines = ["| workers | target/s | measured/s | verdicts/s | p50 s | p95 s | p99 s | n | saturated runs |",
+             "|---|---|---|---|---|---|---|---|---|"]
     curves, capacity, unsaturated = {}, {}, {}
     for w in sorted(by):
         rows, calm = [], []
         for rate in sorted({s["rate"] for r in by[w] for s in r["steps"]}):
             steps = [s for r in by[w] for s in r["steps"] if s["rate"] == rate]
             thr, p95 = stats.summarize([s["throughput"] for s in steps]), stats.summarize([s["p95"] for s in steps])
+            measured = stats.summarize([s.get("measured_rate") for s in steps])
             hot = sum(1 for s in steps if s["saturated"])
-            lines.append(f"| {w} | {rate:g} | {cell([s['throughput'] for s in steps], digits=2)} | {cell([s['p50'] for s in steps], digits=2)} | "
-                         f"{cell([s['p95'] for s in steps], digits=2)} | {cell([s['p99'] for s in steps], digits=2)} | {hot}/{len(steps)} |")
-            rows.append({"rate": rate, "throughput": thr and thr["median"], "p95": p95 and p95["median"]})
+            lines.append(f"| {w} | {rate:g} | {cell([s.get('measured_rate') for s in steps], digits=2)} | "
+                         f"{cell([s['throughput'] for s in steps], digits=2)} | {qcell(steps, 'p50')} | {qcell(steps, 'p95')} | "
+                         f"{qcell(steps, 'p99')} | {cell([s.get('n') for s in steps], digits=0)} | {hot}/{len(steps)} |")
+            cut = any(s.get("p95_censored") for s in steps)
+            rows.append({"rate": measured["median"] if measured else rate, "throughput": thr and thr["median"],
+                         "p95": (steps[0].get("histogram_top_s") or 30.0) if cut else (p95 and p95["median"]),
+                         "p95_censored": cut})
             if 2 * hot < len(steps):
                 calm.append(rate)
         curves[w] = rows
@@ -66,22 +81,25 @@ def e2(runs, out_dir):
         unsaturated[w] = max(calm) if calm else None   # spec §3.3: the highest step whose queue does not grow
     charts.capacity_png(Path(out_dir) / "capacity.png", curves)
     (Path(out_dir) / "e2-capacity.json").write_text(json.dumps({str(k): v for k, v in capacity.items()}, indent=1))
-    lines += ["", "| workers | capacity, verdicts/s (median of the runs' best step) | highest unsaturated step, /s |", "|---|---|---|"]
-    lines += [f"| {w} | {'—' if c is None else f'{c:.2f}'} | {'—' if unsaturated[w] is None else f'{unsaturated[w]:g}'} |"
-              for w, c in sorted(capacity.items())]
+    lines += ["", "| workers | capacity, verdicts/s (median of the runs' best step) | highest unsaturated step, /s | SYSTEM_ERROR per run |",
+              "|---|---|---|---|"]
+    lines += [f"| {w} | {'—' if c is None else f'{c:.2f}'} | {'—' if unsaturated[w] is None else f'{unsaturated[w]:g}'} | "
+              f"{cell([r.get('system_errors') for r in by[w]], digits=0)} |" for w, c in sorted(capacity.items())]
     lines += ["", "![capacity](capacity.png)"]
     return "\n".join(lines)
 
 
 def e3(runs):
     rs = [res for _, res in runs]
-    lines = ["| route | p50 ms | p95 ms | p99 ms | errors % |", "|---|---|---|---|---|"]
+    lines = ["| route | p50 ms | p95 ms | p99 ms | n | errors % |", "|---|---|---|---|---|---|"]
     for route in READ_ROUTES + ["submit"]:
         xs = [r.get("routes", {}).get(route, {}) for r in rs]
         lines.append(f"| {route} | {cell([x.get('p50') for x in xs])} | {cell([x.get('p95') for x in xs])} | "
-                     f"{cell([x.get('p99') for x in xs])} | {cell([x.get('error_rate') for x in xs], 100, 2)} |")
+                     f"{cell([x.get('p99') for x in xs])} | {cell([x.get('n') for x in xs], digits=0)} | "
+                     f"{cell([x.get('error_rate') for x in xs], 100, 2)} |")
     lines += ["", "| measure | value |", "|---|---|",
-              f"| judge latency p95, s | {cell([r.get('judge_p95') for r in rs], digits=2)} |",
+              f"| judge latency p95, s (n) | {qcell(rs, 'judge_p95')} ({cell([r.get('judge_n') for r in rs], digits=0)}) |",
+              f"| SYSTEM_ERROR submissions | {cell([r.get('system_errors') for r in rs], digits=0)} |",
               f"| verdict consumer lag, max | {cell([r.get('verdict_lag_max') for r in rs], digits=0)} |",
               f"| outbox oldest age, max, s | {cell([r.get('outbox_age_max') for r in rs])} |"]
     for job in sorted({j for r in rs for j in (r.get("heap_max_bytes") or {})}):
@@ -94,7 +112,8 @@ def e4(runs):
     for run, res in runs:
         by[res.get("fault") or run["args"]["fault"]].append(res)
     lines = ["| fault | route | errors during % | first error after inject, s | first success after removal, s | "
-             "queue back, s | breaker open after, s | alerts firing, s after inject | invariant |", "|---|---|---|---|---|---|---|---|---|"]
+             "queue back, s | breaker open after, s | alerts firing, s after inject | invariant | SYSTEM_ERROR |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
     for f in sorted(by):
         rs = by[f]
         ok = sum(1 for r in rs if r.get("invariant_ok"))
@@ -103,7 +122,8 @@ def e4(runs):
         for k, route in enumerate(sorted({x for r in rs for x in r.get("routes", {})})):
             xs = [r.get("routes", {}).get(route, {}) for r in rs]
             common = (f"{cell([r.get('queue_recovery_s') for r in rs], digits=0)} | "
-                      f"{cell([r.get('breaker_open_after_s') for r in rs], digits=0)} | {alerts} | {ok}/{len(rs)}") if k == 0 else " | | | "
+                      f"{cell([r.get('breaker_open_after_s') for r in rs], digits=0)} | {alerts} | {ok}/{len(rs)} | "
+                      f"{cell([r.get('system_errors') for r in rs])}") if k == 0 else " | | | | "
             lines.append(f"| {f if k == 0 else ''} | {route} | {cell([x.get('error_rate_during') for x in xs], 100)} | "
                          f"{cell([x.get('first_error_after_inject_ms') for x in xs], 1 / 1000)} | "
                          f"{cell([x.get('first_success_after_remove_ms') for x in xs], 1 / 1000)} | {common} |")
@@ -115,7 +135,9 @@ def write(results_dir, exp):
     runs = load(results_dir, exp)
     body = {"e1": lambda: e1(runs), "e2": lambda: e2(runs, results_dir), "e3": lambda: e3(runs), "e4": lambda: e4(runs)}[exp]()
     path = results_dir / f"summary-{exp}.md"
-    path.write_text(f"# {TITLES[exp]}\n\nRuns: {len(runs)}. Each cell: median (min–max) over the runs.\n\n{body}\n")
+    dropped = sum(1 for _, res in runs if (res.get("dropped_iterations") or 0) > 0)
+    path.write_text(f"# {TITLES[exp]}\n\nRuns: {len(runs)}. Each cell: median (min–max) over the runs. "
+                    f"Runs with dropped iterations: {dropped} of {len(runs)} (k6 could not start an arrival on time).\n\n{body}\n")
     return str(path)
 
 

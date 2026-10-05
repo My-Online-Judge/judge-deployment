@@ -11,9 +11,11 @@ def put(results, name, run, res):
     (d / "results.json").write_text(json.dumps(res))
 
 
-def step(rate, thr, p95, sat=False, lag=0.0):
-    return {"rate": rate, "throughput": thr, "p95": p95, "p50": 1.0, "p99": None, "n": 100, "arrivals": 100,
-            "queue_start": 0, "queue_end": 0, "saturated": sat, "verdict_lag_max": lag}
+def step(rate, thr, p95, sat=False, lag=0.0, censored=False):
+    return {"rate": rate, "throughput": thr, "p95": None if censored else p95, "p50": 1.0, "p99": None, "n": 100,
+            "arrivals": 100, "measured_rate": rate * 0.98, "queue_start": 0, "queue_end": 0, "saturated": sat,
+            "verdict_lag_max": lag, "p50_censored": False, "p95_censored": censored, "p99_censored": censored,
+            "histogram_top_s": 30.0}
 
 
 def test_cell_is_median_and_spread_or_a_dash():
@@ -33,6 +35,8 @@ def test_e2_summary_capacity_and_chart_skip_pilots_and_smoke(tmp_path):
     text = open(path).read()
     assert "Runs: 3." in text and "| 1 | 2 |" in text
     assert "| 1 | 2.00 | 1 |" in text   # capacity 2.00, the 2/s step saturated in every run
+    assert "| workers | target/s | measured/s | verdicts/s | p50 s | p95 s | p99 s | n | saturated runs |" in text
+    assert "| 1 | 1 | 0.98 (0.98–0.98) |" in text
     assert json.loads((tmp_path / "e2-capacity.json").read_text()) == {"1": 2.0}
     assert (tmp_path / "capacity.png").read_bytes()[:4] == b"\x89PNG"
 
@@ -60,3 +64,28 @@ def test_the_steps_command_prints_the_measured_step_list(tmp_path, capsys):
     (d / "results.json").write_text(json.dumps({"steps": [step(0.5, 0.5, 1.0), step(4, 2.0, 30.0, sat=True)]}))
     assert main(["steps", str(d)]) == 0
     assert capsys.readouterr().out.strip() == "1,1.5,2,2.5"
+
+
+def test_a_censored_quantile_prints_as_at_least_the_histogram_top(tmp_path):
+    put(tmp_path, "c1", {"exp": "e2", "args": {"workers": 1}}, {"steps": [step(4, 1.2, 30.0, sat=True, censored=True)]})
+    text = open(summarize.write(tmp_path, "e2")).read()
+    assert "≥ 30" in text and "30.00" not in text
+
+
+def test_system_errors_and_dropped_iterations_reach_the_tables(tmp_path):
+    for k in range(2):
+        put(tmp_path, f"e{k}", {"exp": "e4", "args": {"fault": "c2"}},
+            {"fault": "c2", "invariant_ok": True, "system_errors": 3 + k, "dropped_iterations": k,
+             "routes": {"submit": {"error_rate_during": 0.0}}})
+    text = open(summarize.write(tmp_path, "e4")).read()
+    assert "SYSTEM_ERROR" in text and "3.5 (3.0–4.0)" in text
+    assert "Runs with dropped iterations: 1 of 2" in text
+
+
+def test_e3_prints_n_beside_every_percentile(tmp_path):
+    put(tmp_path, "x", {"exp": "e3", "args": {}},
+        {"routes": {"history": {"p50": 5.0, "p95": 9.0, "p99": None, "n": 18000, "error_rate": 0.0}},
+         "judge_p95": 2.0, "judge_n": 450.0, "system_errors": 0})
+    text = open(summarize.write(tmp_path, "e3")).read()
+    assert "| route | p50 ms | p95 ms | p99 ms | n | errors % |" in text and "| history | 5.0 | 9.0 | — | 18000 |" in text
+    assert "| judge latency p95, s (n) | 2.00 (450) |" in text

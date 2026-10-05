@@ -17,6 +17,7 @@ def test_a_chart_without_data_is_still_drawn(tmp_path):
 
 def test_the_capacity_chart_skips_missing_points(tmp_path):
     path = tmp_path / "capacity.png"
-    charts.capacity_png(path, {1: [{"rate": 0.5, "throughput": 0.5, "p95": 3.0}, {"rate": 1, "throughput": 0.8, "p95": None}],
+    charts.capacity_png(path, {1: [{"rate": 0.5, "throughput": 0.5, "p95": 3.0}, {"rate": 1, "throughput": 0.8, "p95": None},
+                                   {"rate": 2, "throughput": 0.8, "p95": 30.0, "p95_censored": True}],
                                2: [{"rate": 1, "throughput": 1.0, "p95": 2.0}]})
     assert path.read_bytes()[:4] == PNG

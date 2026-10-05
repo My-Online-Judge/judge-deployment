@@ -6,8 +6,11 @@ from oj_analyze import export
 class FakeProm:
     """Answers by query text; record the queries to check what the export asked."""
 
-    def __init__(self, instant=None, ranges=None, vectors=None):
-        self.instant, self.ranges, self.vectors, self.asked = instant or {}, ranges or {}, vectors or {}, []
+    def __init__(self, instant=None, ranges=None, vectors=None, les=None):
+        self.instant, self.ranges, self.vectors, self.asked, self.les = instant or {}, ranges or {}, vectors or {}, [], les or []
+
+    def label_values(self, label, match):
+        return self.les
 
     def query(self, q, at):
         self.asked.append(q)
@@ -52,6 +55,7 @@ def test_e2_steps_come_from_the_windows_and_the_histogram(tmp_path):
     assert first["p95"] == 2.0 and first["p99"] is None    # n = 90 < 500
     assert first["saturated"] is False and first["queue_end"] == 1.0
     assert res["verdicts_counted"] == 90.0
+    assert first["measured_rate"] == 0.5 and first["p95_censored"] is False   # no buckets known → nothing censored
     assert json.loads((d / "results.json").read_text())["steps"][1]["arrivals"] == 0
     assert (d / "series" / "queue_depth.csv").exists() and (d / "queue_depth.png").exists()
 
@@ -91,3 +95,29 @@ def test_no_prometheus_data_at_all_still_exports(tmp_path):
            "started_at": 1000, "ended_at": 2000}
     res = export.export_run(write_run(tmp_path, run, [{"ev": "setup-done", "t": 1_000_000}]), FakeProm())
     assert res["judge_p95"] is None and res["heap_max_bytes"] == {}
+
+
+def test_a_quantile_above_the_top_finite_bucket_is_censored_not_reported_as_the_bucket_bound(tmp_path):
+    # Micrometer's default timer histogram stops at 30 s; a saturated step's p95 would read "30.0" (review C2).
+    run = {"id": "r-c", "exp": "e2", "args": {"steps": [4], "step_s": 180, "workers": 1}, "started_at": 1000, "ended_at": 1300}
+    schedule = {"startMs": 1_000_000, "stepS": 180, "windows": [{"rate": 4, "startS": 5, "endS": 185}]}
+    prom = FakeProm(instant={'le="+Inf"': 20.0, "oj_judge_latency_seconds_count": 200.0, "histogram_quantile(0.5": 12.0,
+                             "histogram_quantile(0.95": 30.0, "histogram_quantile(0.99": 30.0},
+                    les=["0.5", "1.0", "28.633115306", "30.0", "+Inf"])
+    step = export.export_run(write_run(tmp_path, run, schedule=schedule), prom)["steps"][0]
+    assert step["histogram_top_s"] == 30.0
+    assert step["p50"] == 12.0 and step["p50_censored"] is False      # 10 % above the top: p50 is real
+    assert step["p95"] is None and step["p95_censored"] is True       # … p95 is not
+    assert step["p99_censored"] is True
+
+
+def test_dropped_iterations_system_errors_and_the_verdict_delta_are_reported(tmp_path):
+    run = {"id": "r-d", "exp": "e3", "args": {"submit_rate": 1, "read_rate": 20, "warmup_s": 60, "measure_s": 900},
+           "started_at": 1000, "ended_at": 2000}
+    summary = {"metrics": {"dropped_iterations": {"values": {"count": 7, "rate": 0.01}}}}
+    d = write_run(tmp_path, run, [{"ev": "setup-done", "t": 1_000_000}], summary=summary)
+    (d / "invariant.json").write_text(json.dumps({"ok": True, "accepted": 100, "system_error": ["x", "y"], "by_status": {"0": 98, "5": 2}}))
+    res = export.export_run(d, FakeProm(instant={"oj_judge_latency_seconds_count": 98.0}))
+    assert res["dropped_iterations"] == 7
+    assert res["system_errors"] == 2 and res["by_status"] == {"0": 98, "5": 2}
+    assert res["verdict_delta"] == -2.0

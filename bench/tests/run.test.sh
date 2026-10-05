@@ -22,7 +22,10 @@ if grep -q -- '-e STEPS=0.5,1,2,4' <<< "$out"; then ok "e2 passes its steps"; el
 if run e2 --workers 1 --steps 0.5,18.5 >/dev/null; then bad "a step above 18/s is refused"; else ok "a step above 18/s is refused"; fi
 if run e2 --workers 1 --steps 0.5,18 >/dev/null; then ok "18/s is allowed"; else bad "18/s is allowed"; fi
 out=$(run e2 --workers 2 --pilot)
-if grep -q -- '-e STEPS=0.5,1,2,4,8' <<< "$out" && grep -q -- '-e STEP_S=120' <<< "$out"; then ok "a pilot runs 0.5..8/s at 120 s"; else bad "a pilot runs 0.5..8/s at 120 s"; fi
+if grep -q -- '-e STEPS=1,2,3,4' <<< "$out" && grep -q -- '-e STEP_S=60' <<< "$out"; then ok "a pilot runs 0.5, 1, 1.5, 2 /s per worker for 60 s each (backlog under the reconcile job's 5 min)"
+else bad "a pilot runs 0.5, 1, 1.5, 2 /s per worker for 60 s each (backlog under the reconcile job's 5 min)"; fi
+out=$(run e2 --workers 6 --pilot)
+if grep -q -- '-e STEPS=3,6,9,12' <<< "$out"; then ok "a 6-worker pilot runs 3, 6, 9, 12 /s"; else bad "a 6-worker pilot runs 3, 6, 9, 12 /s"; fi
 
 out=$(run e4 --fault c1 --submit-rate 1)
 a=$(line_of '/scripts/bg-load.js' "$out"); b=$(line_of 'fault.sh c1 inject' "$out"); c=$(line_of 'fault.sh c1 remove' "$out")

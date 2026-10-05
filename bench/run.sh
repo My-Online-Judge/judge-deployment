@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One measured run (spec §5): run.json → k6 (+ the fault, E4) → drain → invariant check → export.
 #   run.sh e1 --rate R
-#   run.sh e2 --workers N --steps 0.5,1,2,4 [--step-s 180]   |   run.sh e2 --workers N --pilot
+#   run.sh e2 --workers N --steps 0.5,1,2,4 [--step-s 180]   |   run.sh e2 --workers N --pilot (0.5,1,1.5,2/s per worker, 60 s)
 #   run.sh e3 --submit-rate X [--read-rate 20] [--workers 1]
 #   run.sh e4 --fault c1..c6 --submit-rate X [--read-rate 10] [--workers 1]
 #   any: --smoke (short durations; results under results/smoke/)
@@ -42,7 +42,11 @@ case "$EXP" in
     ARGS=$(jq -n --argjson r "$RATE" --argjson w "$W" --argjson m "$M" '{rate:$r, warmup_s:$w, measure_s:$m}')
     LABEL="e1-r$RATE" ;;
   e2)
-    if [ -n "$PILOT" ]; then STEPS=0.5,1,2,4,8 STEP_S=120; fi
+    # A pilot scales with the workers and stays short, so its backlog drains well inside the reconcile job's 5 min
+    # (a submission queued longer is flipped to SYSTEM_ERROR and its verdict thrown away — review C1).
+    if [ -n "$PILOT" ]; then
+      STEPS=$(python3 -c "print(','.join(f'{min($MAX_SUBMIT_RATE, $WORKERS * f):g}' for f in (0.5, 1, 1.5, 2)))") STEP_S=60
+    fi
     [ -n "$STEPS" ] || die "e2 needs --steps or --pilot"
     above_max "$STEPS" && die "a step above $MAX_SUBMIT_RATE/s: the bench users would hit the submission cooldown"
     if [ -n "$SMOKE" ]; then STEP_S=20 W=10; else W=60; fi

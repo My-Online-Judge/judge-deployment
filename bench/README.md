@@ -24,7 +24,7 @@ docker compose up -d
 |---|---|
 | `bench/run.sh e1 --rate R` | E1 read latency at R req/s (60 s warm-up, 180 s measured) |
 | `bench/run.sh e2 --workers N --steps 1,1.5,2,2.5` | E2 capacity: each step 180 s |
-| `bench/run.sh e2 --workers N --pilot` | E2 pilot: 0.5,1,2,4,8/s at 120 s; `analyze steps <dir>` prints the measured steps |
+| `bench/run.sh e2 --workers N --pilot` | E2 pilot: 0.5, 1, 1.5, 2 /s per worker, 60 s each; `analyze steps <dir>` prints the measured steps |
 | `bench/run.sh e3 --submit-rate X` | E3: 15 min of reads (20/s) + submissions |
 | `bench/run.sh e4 --fault c1..c6 --submit-rate X` | E4: 120 s steady, 60 s fault, 180 s recovery |
 | `bench/smoke.sh` | a short version of each, with the invariant check |
