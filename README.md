@@ -2,12 +2,12 @@
 
 **Single source of truth** for running the whole Online Judge system with Docker Compose.
 Every service is containerized; all configuration lives in this directory. Build contexts
-reference the sibling repos (`../judge-api`, `../oj-identity-service`, `../oj-api-gateway`, `../oj-common`, `../judge-portal`,
+reference the sibling repos (`../oj-submission-service`, `../oj-identity-service`, `../oj-problem-service`, `../oj-api-gateway`, `../oj-common`, `../judge-portal`,
 `../judge-worker`, `../mock-judge-server`) — no source is copied here.
 
 > This directory supersedes the scattered compose files
 > (`../docker-compose.integration.yml`, `../docker-compose.mock.yml`,
-> `../judge-api/docker-compose.yml`, `../judge-server/docker-compose.yml`). Those are kept
+> `../judge-server/docker-compose.yml`). Those are kept
 > as legacy references; prefer this stack.
 
 ## Architecture
@@ -78,8 +78,8 @@ docker compose down -v
 | API         | http://localhost:8000/api/v1     |
 | Swagger UI  | http://localhost:8000/swagger-ui/index.html (dev profile only) |
 | Jaeger UI   | http://127.0.0.1:16686           |
-| Kafka       | localhost:9092                   |
-| Postgres    | localhost:5433 (user `postgres`) |
+| Kafka       | kafka:29092 inside oj-net (no host port) |
+| Postgres    | identity-db, problem-db, submission-db inside oj-net (no host port) |
 
 ## Upgrading to the gateway (sub-project 0)
 

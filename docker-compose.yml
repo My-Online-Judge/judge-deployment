@@ -12,8 +12,8 @@
 
 # Vietnam time (GMT+7) for every service's logs and DB now()/timestamps, aliased into each service
 # below. Sandboxes (judge-server, judge-server-2) are intentionally excluded — they run untrusted
-# submissions and their wall-clock is irrelevant. NOTE: judge-api also pins the JVM zone in code
-# (BackendServiceApplication.main) — that is what fixes its stored LocalDateTime timestamps; the TZ
+# submissions and their wall-clock is irrelevant. NOTE: every Spring service also pins the JVM zone in code
+# (its *Application.main) — that is what fixes its stored LocalDateTime timestamps; the TZ
 # here only aligns its logs. TZ is best-effort on images without OS tzdata (alpine) — harmless if unset.
 x-tz-env: &tz-env
   TZ: Asia/Ho_Chi_Minh
