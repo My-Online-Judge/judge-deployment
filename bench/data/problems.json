@@ -1,0 +1,30 @@
+[
+  {
+    "title": "Bench A+B",
+    "subject": "bench",
+    "description": "Print the sum of two integers. Used by the load tests (sub-project 5).",
+    "timeLimit": 1000,
+    "memoryLimit": 256,
+    "hardnessLevel": 1,
+    "problemSlug": "bench-ab",
+    "inputDescription": "Two integers a and b, |a|, |b| <= 1000000000.",
+    "outputDescription": "a + b",
+    "sampleInput": "1 2",
+    "sampleOutput": "3",
+    "status": 1
+  },
+  {
+    "title": "Bench sum of squares",
+    "subject": "bench",
+    "description": "Print (1*1 + 2*2 + ... + n*n) mod 1000000007. Moderate CPU work for the load tests (sub-project 5).",
+    "timeLimit": 3000,
+    "memoryLimit": 256,
+    "hardnessLevel": 2,
+    "problemSlug": "bench-sum",
+    "inputDescription": "One integer n, 1 <= n <= 3000000.",
+    "outputDescription": "The sum of squares modulo 1000000007.",
+    "sampleInput": "3",
+    "sampleOutput": "14",
+    "status": 1
+  }
+]
