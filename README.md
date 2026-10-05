@@ -296,8 +296,8 @@ Nothing reads oj-db once submission-service runs on submission-db. Retire it in 
 
 ## Configuration
 
-Shared knobs live in **`.env`**. `judge-worker` loads it via `env_file`; every other service gets only the
-variables it needs through `${VAR}` interpolation, and its database settings from its own file (`.env.identity`,
+Shared knobs live in **`.env`**. No service loads it through `env_file`: each gets only the variables it
+needs through `${VAR}` interpolation, and its database settings from its own file (`.env.identity`,
 `.env.problem`, `.env.submission`).
 Copy `.env.example` → `.env` to start from a clean template.
 
@@ -306,6 +306,7 @@ Notes:
   the OpenTelemetry settings. submission-service is not published on the host — everything goes
   through the gateway on :8000.
 - `.env` holds **container-network** addresses (`kafka:29092`, `judge-server`).
+- `.env` and every `.env.<service>` hold secrets: keep them mode 600 (`chmod 600 .env`).
 - One `JUDGE_SERVER_TOKEN` is shared by api, worker, and judge-server.
 - `problem-service` does not load `.env` either: it reads `.env.problem` (its database) and compose
   passes it MinIO, Kafka, the JWKS URI and `PROBLEM_RPC_TOKEN`; submission-service likewise reads

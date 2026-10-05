@@ -135,12 +135,16 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      # Kafka keeps no volume, so every fresh broker starts empty and whoever touches a topic first
-      # creates it. judge-worker usually subscribes before judge-api creates its 6-partition topics,
-      # which auto-created submission.requested with 1 partition; judge-api then grew it, and the
-      # worker's client only noticed the new partitions after its 5-minute metadata refresh — until
-      # then most submissions sat PENDING. Auto-created topics now get judge-api's partition count.
+      # judge-worker subscribes to submission.requested before submission-service declares it; an auto-created
+      # topic must then get the declared 6 partitions, or the worker only sees the extra ones after its 5-minute
+      # metadata refresh (submissions sat PENDING). With the volume below an empty broker is a first start only.
       KAFKA_NUM_PARTITIONS: ${KAFKA_PARTITIONS:-6}
+      # Topics, messages and committed offsets live on the named volume and survive a recreated container.
+      # The cluster id is fixed because the formatted volume records it: a different id refuses to start.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: LL99FafWSZyhNAgsibWLog
+    volumes:
+      - kafkadata:/var/lib/kafka/data
     healthcheck:
       test:
         [
@@ -311,6 +315,7 @@ services:
       OTEL_SERVICE_NAME: problem-service
       JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
       KAFKA_BROKERS: ${KAFKA_BROKERS}
+      KAFKA_PARTITIONS: ${KAFKA_PARTITIONS:-6}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
@@ -337,12 +342,14 @@ services:
     container_name: oj-api-gateway
     restart: unless-stopped
     depends_on:
+      # Started, not healthy: a back-end that is down answers 503 through the gateway, and the other routes keep
+      # working — the gateway itself must not wait for every service. Redis is needed from the first request.
       submission-service:
-        condition: service_healthy
+        condition: service_started
       identity-service:
-        condition: service_healthy
+        condition: service_started
       problem-service:
-        condition: service_healthy
+        condition: service_started
       redis:
         condition: service_healthy
     # Only what the gateway needs — deliberately NOT env_file .env, which carries DB, JWT and OAuth secrets.
@@ -399,11 +406,18 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    # Only what the worker reads — not env_file .env, which also carries MinIO's root account and the
+    # service token of problem-service's internal API.
     environment:
       <<: [*tz-env, *otel-env]
       OTEL_SERVICE_NAME: judge-worker
-    env_file:
-      - .env
+      JUDGE_SERVER_TOKEN: ${JUDGE_SERVER_TOKEN}
+      JUDGE_SERVER_URL: ${JUDGE_SERVER_URL}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
     networks: [oj-net]
 
   judge-server:
@@ -473,3 +487,4 @@ volumes:
   miniodata:
   test_case_cache:
   promdata:
+  kafkadata:
