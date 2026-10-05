@@ -294,6 +294,12 @@ Nothing reads oj-db once submission-service runs on submission-db. Retire it in 
    `docker volume rm judge-deployment_pgdata`.
 5. **Archive** the judge-api repository on GitHub; its history lives on in `oj-submission-service`.
 
+## Benchmarking (sub-project 5)
+
+`bench/` holds the load and chaos harness: a separate `oj-bench` compose project, k6 scenarios, faults, and the
+analysis that turns each run into CSV, charts and tables. The live stack is stopped while it runs. See
+[bench/README.md](bench/README.md).
+
 ## Configuration
 
 Shared knobs live in **`.env`**. No service loads it through `env_file`: each gets only the variables it
