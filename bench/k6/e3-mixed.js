@@ -3,7 +3,7 @@
 import exec from 'k6/execution';
 import { SUMMARY_TREND_STATS, SYSTEM_TAGS, loadUserIds } from './lib/config.js';
 import { loginAll, read, recordSubmit, submit } from './lib/api.js';
-import { READ_ROUTES, SUBMIT_PROBLEM, USERS, checkSubmitRate, languageForIteration, measureThresholds, num, perMinute, readRouteForIteration, submitUserIndex } from './lib/pure.js';
+import { READ_ROUTES, SUBMIT_PROBLEM, USERS, checkSubmitRate, languageForIteration, measureThresholds, measureUserOffset, num, perMinute, readRouteForIteration, submitUserIndex } from './lib/pure.js';
 
 const READ_RATE = num(__ENV.READ_RATE, 20);
 const SUBMIT_RATE = checkSubmitRate(num(__ENV.SUBMIT_RATE, 0));
@@ -12,13 +12,12 @@ const WARMUP_S = num(__ENV.WARMUP_S, 60);
 const MEASURE_S = num(__ENV.MEASURE_S, 900);
 const USER_IDS = loadUserIds();
 const SOURCES = { cpp: open('/data/solutions/sum.cpp'), python3: open('/data/solutions/sum.py') };
-const WARMUP_SUBMITS = Math.round((perMinute(SUBMIT_RATE) * WARMUP_S) / 60);
 
 const reads = (phase, startS, durationS) => ({
   executor: 'constant-arrival-rate', exec: 'readOne', rate: READ_RATE, timeUnit: '1s', startTime: `${startS}s`,
   duration: `${durationS}s`, preAllocatedVUs: 20, maxVUs: 100, tags: { phase },
 });
-// The measured submits continue the warm-up's round-robin (USER_OFFSET): no user is reused inside its cooldown.
+// The measured submits continue the warm-up's round-robin past its users (USER_OFFSET): none is reused inside its cooldown.
 const submits = (phase, startS, durationS, offset) => ({
   executor: 'constant-arrival-rate', exec: 'submitOne', rate: perMinute(SUBMIT_RATE), timeUnit: '1m', startTime: `${startS}s`,
   duration: `${durationS}s`, preAllocatedVUs: 10, maxVUs: 50, tags: { phase }, env: { USER_OFFSET: String(offset) },
@@ -30,7 +29,7 @@ export const options = {
     reads_warmup: reads('warmup', 0, WARMUP_S),
     reads: reads('measure', WARMUP_S, MEASURE_S),
     submits_warmup: submits('warmup', 0, WARMUP_S, 0),
-    submits: submits('measure', WARMUP_S, MEASURE_S, WARMUP_SUBMITS),
+    submits: submits('measure', WARMUP_S, MEASURE_S, measureUserOffset(WARMUP_S, SUBMIT_RATE)),
   },
   thresholds: measureThresholds(READ_ROUTES.concat(['submit'])),
 };

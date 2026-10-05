@@ -21,6 +21,12 @@ export function submitUserIndex(iteration, offset) {
   return userIndexForIteration(iteration + offset);
 }
 
+// Where a measured scenario's rotation starts after a warm-up at the same rate: past the warm-up's users plus a
+// margin of 10, because k6 may run one more warm-up iteration on the boundary (seen in the smoke run: a 429).
+export function measureUserOffset(warmupS, ratePerSecond) {
+  return Math.round((perMinute(ratePerSecond) * warmupS) / 60) + 10;
+}
+
 export function maxSubmitRate(users = USERS, cooldownS = COOLDOWN_S) {
   return Math.floor((users / cooldownS) * 0.9 * 10) / 10;
 }

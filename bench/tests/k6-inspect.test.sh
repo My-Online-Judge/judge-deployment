@@ -24,7 +24,7 @@ expect "E2: a 60 s warm-up at the first rate, then the steps per minute with 5 s
   '.scenarios.submit.stages == [{"target":30,"duration":"5s"},{"target":30,"duration":"1m0s"},{"target":30,"duration":"5s"},{"target":30,"duration":"3m0s"},{"target":60,"duration":"5s"},{"target":60,"duration":"3m0s"}]' \
   e2-capacity.js -e STEPS=0.5,1
 expect "E3: the measured submits continue the warm-up's rotation" \
-  '(.scenarios.submits.env.USER_OFFSET == "30") and (.scenarios.submits.duration == "15m0s") and (.scenarios.reads.rate == 20)' \
+  '(.scenarios.submits.env.USER_OFFSET == "40") and (.scenarios.submits.duration == "15m0s") and (.scenarios.reads.rate == 20)' \
   e3-mixed.js -e SUBMIT_RATE=0.5
 expect "E4: reads and submits for steady + fault + recovery" \
   '(.scenarios.reads.duration == "6m0s") and (.scenarios.submits.rate == 30) and (.scenarios.submits.timeUnit == "1m0s")' \

@@ -106,3 +106,10 @@ test('the access token comes from the accessToken cookie of the login response (
   assert.equal(p.accessTokenFrom({ accessToken: [] }), null);
   assert.equal(p.accessTokenFrom(undefined), null);
 });
+
+test('E3 measured submits start 10 users past the warm-up (k6 runs one more warm-up iteration at the boundary)', () => {
+  assert.equal(p.measureUserOffset(60, 0.5), 40);
+  assert.equal(p.measureUserOffset(10, 0.5), 15);
+  // after the offset, a user comes back no sooner than (USERS - 10) / rate seconds — above the cooldown up to 18/s
+  assert.ok((p.USERS - 10) / p.maxSubmitRate() > p.COOLDOWN_S);
+});
