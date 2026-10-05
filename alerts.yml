@@ -127,6 +127,19 @@ groups:
           summary: "problem-service dead-lettered verdict events; statistics are missing counts"
           description: "Records on oj.submission.events.dlq were not counted. Fix the cause in the problem-service log, then replay them (oj-problem-service README); the alert clears when problem-service restarts."
 
+      - alert: KafkaConsumerLagging
+        # The verdict consumer (judge-api-results) or problem-service's statistics consumer has stayed behind its
+        # topic for 5 minutes. records_lag_max is updated only while the consumer polls: one that is stuck stops
+        # reporting, and JudgeQueueStalled, OutboxBacklogStale and ProblemStatsDeadLettered cover that case.
+        # The threshold (any lag) suits today's traffic; revisit it with the load tests.
+        expr: max by (job, client_id) (kafka_consumer_fetch_manager_records_lag_max{job=~"submission-service|problem-service"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A Kafka consumer of {{ $labels.job }} has been behind for 5 minutes"
+          description: "{{ $labels.client_id }} has not caught up with its topic for 5 minutes. A consumer that stops polling stops updating this metric — JudgeQueueStalled, OutboxBacklogStale and ProblemStatsDeadLettered cover that case."
+
   - name: judge-abuse
     rules:
       - alert: LoginLockoutSpike

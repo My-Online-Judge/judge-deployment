@@ -303,3 +303,40 @@ tests:
       - eval_time: 5m
         alertname: ProblemStatsDeadLettered
         exp_alerts: []
+
+  # KafkaConsumerLagging: a consumer five minutes behind. records_lag_max of the verdict consumer stays at 3.
+  - interval: 1m
+    input_series:
+      - series: 'kafka_consumer_fetch_manager_records_lag_max{job="submission-service", instance="submission-service:8081", client_id="consumer-judge-api-results-1"}'
+        values: '3x10'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: KafkaConsumerLagging
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: submission-service
+              client_id: consumer-judge-api-results-1
+            exp_annotations:
+              summary: "A Kafka consumer of submission-service has been behind for 5 minutes"
+              description: "consumer-judge-api-results-1 has not caught up with its topic for 5 minutes. A consumer that stops polling stops updating this metric — JudgeQueueStalled, OutboxBacklogStale and ProblemStatsDeadLettered cover that case."
+
+  # ...a consumer that keeps up stays silent...
+  - interval: 1m
+    input_series:
+      - series: 'kafka_consumer_fetch_manager_records_lag_max{job="problem-service", instance="problem-service:8081", client_id="consumer-problem-service-stats-1"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: KafkaConsumerLagging
+        exp_alerts: []
+
+  # ...and a short burst of lag (2 minutes) does not fire yet.
+  - interval: 1m
+    input_series:
+      - series: 'kafka_consumer_fetch_manager_records_lag_max{job="problem-service", instance="problem-service:8081", client_id="consumer-problem-service-stats-1"}'
+        values: '3 3 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: KafkaConsumerLagging
+        exp_alerts: []
