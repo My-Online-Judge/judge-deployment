@@ -21,5 +21,6 @@ def test_the_verdict_lag_is_the_submission_service_consumer():
 
 def test_every_run_exports_the_same_series_with_its_own_testid():
     s = promql.series_for("20261005-120000-e2-w1")
-    assert set(s) == {"queue_depth", "throughput", "judge_p95", "verdict_lag", "breaker_open", "outbox_age", "heap", "alerts", "k6_p95"}
-    assert 'testid="20261005-120000-e2-w1"' in s["k6_p95"]
+    assert set(s) == {"queue_depth", "throughput", "judge_p95", "verdict_lag", "breaker_open", "outbox_age", "heap", "alerts", "k6_reqs"}
+    # a counter rate per route: k6's remote-written trend stats are cumulative since the start, so no k6 p95 here
+    assert s["k6_reqs"] == 'sum by (route) (rate(k6_http_reqs_total{testid="20261005-120000-e2-w1"}[30s]))'

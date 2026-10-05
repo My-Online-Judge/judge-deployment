@@ -26,8 +26,10 @@ HEAP_BY_JOB = 'sum by (job) (jvm_memory_used_bytes{area="heap"})'
 ALERTS_FIRING = 'max by (alertname) (ALERTS{alertstate="firing"})'   # the bench Prometheus evaluates alerts.yml
 
 
-def k6_p95_by_route(testid):
-    return f'max by (route) (k6_http_req_duration_p95{{testid="{testid}"}})'
+def k6_request_rate(testid):
+    # k6's remote-written trend stats (p95 …) are cumulative since the start of the run, so they cannot show
+    # latency over time; client latency over time comes from the request log (timeline.latency_windows).
+    return f'sum by (route) (rate(k6_http_reqs_total{{testid="{testid}"}}[30s]))'
 
 
 def series_for(testid):
@@ -41,5 +43,5 @@ def series_for(testid):
         "outbox_age": OUTBOX_AGE,
         "heap": HEAP_BY_JOB,
         "alerts": ALERTS_FIRING,
-        "k6_p95": k6_p95_by_route(testid),
+        "k6_reqs": k6_request_rate(testid),
     }

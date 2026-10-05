@@ -2,7 +2,7 @@
 // SUBMIT_RATE (half the 1-worker capacity from E2), WARMUP_S then MEASURE_S (15 minutes).
 import exec from 'k6/execution';
 import { SUMMARY_TREND_STATS, SYSTEM_TAGS, loadUserIds } from './lib/config.js';
-import { loginAll, read, recordSubmit, submit } from './lib/api.js';
+import { loginAll, read, recordRequest, recordSubmit, submit } from './lib/api.js';
 import { READ_ROUTES, SUBMIT_PROBLEM, USERS, checkSubmitRate, languageForIteration, measureThresholds, measureUserOffset, num, perMinute, readRouteForIteration, submitUserIndex } from './lib/pure.js';
 
 const READ_RATE = num(__ENV.READ_RATE, 20);
@@ -41,13 +41,16 @@ export function setup() {
 }
 
 export function readOne(data) {
-  read(data.users, (exec.vu.idInTest - 1) % USERS, USER_IDS, readRouteForIteration(exec.scenario.iterationInTest));
+  const route = readRouteForIteration(exec.scenario.iterationInTest);
+  recordRequest(route, read(data.users, (exec.vu.idInTest - 1) % USERS, USER_IDS, route));
 }
 
 export function submitOne(data) {
   const i = exec.scenario.iterationInTest;
   const lang = languageForIteration(i);
-  recordSubmit(submit(data.users, submitUserIndex(i, num(__ENV.USER_OFFSET, 0)), SUBMIT_PROBLEM, lang, SOURCES[lang]));
+  const res = submit(data.users, submitUserIndex(i, num(__ENV.USER_OFFSET, 0)), SUBMIT_PROBLEM, lang, SOURCES[lang]);
+  recordRequest('submit', res);
+  recordSubmit(res);
 }
 
 export function handleSummary(data) {

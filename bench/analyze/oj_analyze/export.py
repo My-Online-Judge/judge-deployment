@@ -11,7 +11,7 @@ CHARTS = [
     ("queue_depth", "Judge queue depth", "submissions"),
     ("throughput", "Verdicts per second", "verdicts/s"),
     ("judge_p95", "Judge latency p95 (submit → verdict)", "seconds"),
-    ("k6_p95", "Client latency p95 by route (k6)", "ms"),
+    ("k6_reqs", "Requests per second by route (k6)", "req/s"),
     ("heap", "JVM heap by service", "bytes"),
 ]
 
@@ -89,6 +89,11 @@ def export_run(run_dir, prom):
         charts.timeseries_png(run_dir / f"{name}.png", series[name], title, unit, start, shade)
 
     # Cross-check for the invariant (spec §5): verdicts the service applied while the run lasted.
+    if run["exp"] in ("e3", "e4"):  # client latency over time, from the request log: 1-minute windows, 10 s around a fault
+        latency = timeline.latency_windows(events, width_s=60 if run["exp"] == "e3" else 10)
+        write_csv(series_dir / "client_p95.csv", latency)
+        charts.timeseries_png(run_dir / "client_p95.png", latency, "Client latency p95 by route (request log)", "ms", start, shade)
+
     results = {"id": run["id"], "exp": run["exp"],
                "verdicts_counted": prom.query(promql.verdict_count(max(1, int(round(end - start)))), end)}
     if run["exp"] == "e1":

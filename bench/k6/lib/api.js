@@ -83,7 +83,8 @@ export function recordSubmit(res) {
   return false;
 }
 
-// E4: one line per request, so the fault timings come from exact request times.
+// E3/E4: one line per request — exact times for the fault timings, and durations for client latency over time
+// (k6's remote-written trend stats are cumulative since the start of the run).
 export function recordRequest(route, res) {
-  console.log(JSON.stringify({ ev: 'req', route, status: res.status, t: Date.now() }));
+  console.log(JSON.stringify({ ev: 'req', route, status: res.status, t: Date.now(), ms: Math.round(res.timings.duration * 10) / 10 }));
 }

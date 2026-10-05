@@ -1,4 +1,5 @@
 """Windows and fault timings (spec §3.3, §3.5). Times: ms for request events, epoch seconds for Prometheus points."""
+import math
 
 
 def step_windows(schedule):
@@ -53,3 +54,25 @@ def first_at_least(points, t0, threshold):
         if t >= t0 and v is not None and v >= threshold:
             return t - t0
     return None
+
+
+def latency_windows(events, width_s=60, q=0.95):
+    """Per route, the q-quantile (nearest rank) of the logged request durations, ms, in consecutive width_s windows:
+    [(window end, epoch s, value)]. Client latency over time (spec §3.4) — k6's remote-written trend stats are
+    cumulative since the start of the run and cannot show it."""
+    reqs = [e for e in events if e.get("ev") == "req" and e.get("ms") is not None]
+    if not reqs:
+        return {}
+    t0 = min(e["t"] for e in reqs)
+    out = {}
+    for route in sorted({e["route"] for e in reqs}):
+        buckets = {}
+        for e in reqs:
+            if e["route"] == route:
+                buckets.setdefault(int((e["t"] - t0) // (width_s * 1000)), []).append(e["ms"])
+        pts = []
+        for k in sorted(buckets):
+            xs = sorted(buckets[k])
+            pts.append((t0 / 1000 + (k + 1) * width_s, xs[max(1, math.ceil(q * len(xs))) - 1]))
+        out[route] = pts
+    return out

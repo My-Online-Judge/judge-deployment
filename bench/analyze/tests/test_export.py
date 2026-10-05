@@ -68,8 +68,8 @@ def test_e1_route_figures_come_from_the_measure_sub_metrics(tmp_path):
 def test_e4_fault_timings_and_recovery(tmp_path):
     run = {"id": "r-e4", "exp": "e4", "args": {"fault": "c1"}, "started_at": 900, "ended_at": 1400,
            "fault": {"inject_ms": 1_001_000, "remove_ms": 1_060_000}}
-    events = [{"ev": "req", "route": "submit", "status": 200, "t": 990_000}, {"ev": "req", "route": "submit", "status": 503, "t": 1_002_000},
-              {"ev": "req", "route": "submit", "status": 200, "t": 1_070_000}]
+    events = [{"ev": "req", "route": "submit", "status": 200, "t": 990_000, "ms": 20.0}, {"ev": "req", "route": "submit", "status": 503, "t": 1_002_000, "ms": 5.0},
+              {"ev": "req", "route": "submit", "status": 200, "t": 1_070_000, "ms": 25.0}]
     queue = {"value": [(950.0, 2.0), (1000.0, 3.0), (1100.0, 9.0), (1200.0, 2.0)]}
     breaker = {"value": [(1000.0, 0.0), (1010.0, 1.0)]}
     alerts = {"alertname=ProblemServiceDown": [(1060.0, 1.0)]}
@@ -83,6 +83,7 @@ def test_e4_fault_timings_and_recovery(tmp_path):
     assert res["queue_recovery_s"] == 140.0 and res["breaker_open_after_s"] == 9.0
     assert res["alerts_after_s"] == {"alertname=ProblemServiceDown": 59.0}
     assert res["invariant_ok"] is True
+    assert (d / "client_p95.png").exists() and "submit" in (d / "series" / "client_p95.csv").read_text()
 
 
 def test_no_prometheus_data_at_all_still_exports(tmp_path):

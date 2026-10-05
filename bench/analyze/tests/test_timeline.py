@@ -47,3 +47,13 @@ def test_queue_recovery_is_none_without_a_baseline_or_without_recovery():
 def test_first_at_least_is_seconds_after_t0():
     assert timeline.first_at_least([(10, 0.0), (20, 1.0), (30, 1.0)], 12, 1) == 8
     assert timeline.first_at_least([(10, 0.0)], 5, 1) is None
+
+
+def test_latency_windows_give_a_per_window_quantile_per_route():
+    evs = [{"ev": "req", "route": "history", "status": 200, "t": 1_000_000 + i * 1000, "ms": float(i % 60 + 1)} for i in range(120)]
+    evs.append({"ev": "req", "route": "submit", "status": 200, "t": 1_000_000, "ms": 30.0})
+    evs.append({"ev": "accepted", "id": "x", "t": 1})
+    w = timeline.latency_windows(evs, width_s=60, q=0.95)
+    assert w["history"] == [(1060.0, 57.0), (1120.0, 57.0)]
+    assert w["submit"] == [(1060.0, 30.0)]
+    assert timeline.latency_windows([], 60) == {}
