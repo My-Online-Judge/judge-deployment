@@ -25,10 +25,10 @@ Browser
                                                      └── kafka  ──produce→ submission.requested, oj.submission.events
                                                                 ←consume── submission.judged
                                                                       │            └→ problem-service (statistics)
-                                                                judge-worker (Python, kafka-python)
-                                                                      │  HTTP POST /judge
-                                                                      └→ judge-server ×2 (qduoj sandbox, privileged)
-                                                                            └─ heartbeat → submission-service:8000 /api/judge_server_heartbeat/
+                                                                judge-worker (Python, kafka-python) ── relays each sandbox's /ping
+                                                                      │  HTTP POST /judge                → submission-service:8000
+                                                                      │  (sandbox-net: internal, worker + sandboxes only)   /api/judge_server_heartbeat/
+                                                                      └→ judge-server ×2 (qduoj sandbox: no privileged, 6 caps, read-only)
 Traces: api-gateway, submission-service, identity-service, problem-service, judge-worker ──OTLP──→ jaeger (UI http://127.0.0.1:16686)
 ```
 
@@ -45,8 +45,8 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 | `problem-service` | build `../oj-problem-service` | — (internal) | Problems, test cases, statistics; gRPC API for submission-service |
 | `problem-db`   | `postgres:16`            | — (internal) | problem-service's database (`problem`) |
 | `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI + OTLP collector |
-| `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge      |
-| `judge-server` | `qduoj/judge-server`     | —         | Privileged code sandbox          |
+| `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge; relays sandbox status to the registry |
+| `judge-server` | `qduoj/judge-server`     | —         | Code sandbox (×2) on the internal `sandbox-net`; least privilege, see `x-sandbox` |
 | `judge-portal` | build `../judge-portal`  | 80        | Vue 3 frontend (nginx)           |
 
 ## Run
@@ -57,7 +57,7 @@ cd judge-deployment
 # real sandbox (default)
 docker compose up -d --build
 
-# mock sandbox — offline / CI / no privileged
+# mock sandbox — offline / CI
 docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --build
 
 # logs
@@ -336,11 +336,13 @@ some local quirks worth recording:
   `docker-compose.yml`) because a legacy `kafka` container already owns host `9092`. All
   services use the in-network `kafka:29092` listener, so nothing is lost. Re-enable the
   publish once host `9092` is free.
-- **`oj-judge-server` shows `unhealthy` — this is cosmetic.** The `qduoj/judge-server`
-  image's built-in healthcheck (`python3 /code/service.py`) exits 1 on this setup (the
-  legacy judge-server behaves identically). The server is functional: it heartbeats to
-  `submission-service:8000` and registers in `t_judge_servers`. Nothing depends on its health
-  (`judge-worker` waits on `service_started`).
+- **Sandbox health and the admin "Judge servers" page.** Compose replaces the image's own healthcheck
+  (QingdaoU's heartbeat script, which always exited 1 here) with a call to the sandbox's `/ping`, and
+  `judge-worker` waits for `service_healthy`. The sandboxes sit on the internal `sandbox-net` and cannot
+  reach submission-service, so `judge-worker` relays each one's `/ping` to `t_judge_servers` every 10 s
+  (`SANDBOX_HEARTBEAT_URL`); rows are keyed by the fixed hostnames `judge-server` / `judge-server-2`. The
+  registry stores the worker's IP for them, not the sandbox's. Rows from before the fixed hostnames
+  (one per old container id) stay "Offline" until deleted.
 - **Legacy stacks may still be running** on the snap daemon (`judge-server` and `my-oj`
   compose projects — the scattered files this directory replaces). They coexist with this
   stack but are redundant; stop them when convenient (their privileged containers may need

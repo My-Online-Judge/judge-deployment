@@ -29,11 +29,12 @@ x-otel-env: &otel-env
 # Liveness for the QingdaoU sandboxes, shared by both instances.
 #
 # The image ships `python3 /code/service.py` as its HEALTHCHECK — QingdaoU's heartbeat, which POSTs
-# to BACKEND_URL /api/judge_server_heartbeat/. This stack dispatches over Kafka and never implements
-# that endpoint, so both sandboxes reported (unhealthy) forever while judging perfectly: a permanently
-# red signal that trains you to ignore it. Ask the sandbox itself instead — /ping is its own liveness
-# endpoint and returns live cpu/memory/judger_version. Auth is sha256(TOKEN) in X-Judge-Server-Token,
-# computed inline because the sandbox stores the digest, not the raw token.
+# to BACKEND_URL /api/judge_server_heartbeat/ and exits 1 on any answer not shaped like QingdaoU's
+# backend, so both sandboxes reported (unhealthy) forever while judging perfectly. Ask the sandbox
+# itself instead — /ping is its own liveness endpoint and returns live cpu/memory/judger_version.
+# Auth is sha256(TOKEN) in X-Judge-Server-Token, computed inline because the sandbox stores the
+# digest, not the raw token. The sandboxes cannot reach submission-service anyway (sandbox-net):
+# judge-worker relays each /ping to the judge-server registry instead (SANDBOX_HEARTBEAT_URL).
 # Overridden in docker-compose.mock.yml: the mock only implements /judge.
 x-sandbox-health: &sandbox-health
   test:
@@ -45,6 +46,31 @@ x-sandbox-health: &sandbox-health
   timeout: 5s
   retries: 3
   start_period: 20s
+
+# The QingdaoU sandboxes run contestants' code, so they get the least the judger needs.
+# - No `privileged`: the judger isolates a run with setrlimit + its own seccomp filter + setuid to an
+#   unprivileged user — no cgroups, no device access. Proven on 2026-10-05 by judging the same
+#   programs (AC/WA/TLE/RE/CE in C, C++, Java, Python 3) on a privileged and on this configuration:
+#   identical verdicts, and 8 judges in parallel.
+# - Capabilities: CHOWN/FOWNER/DAC_OVERRIDE to prepare each run directory for the compiler and run
+#   users, SETUID/SETGID to drop to them, KILL to stop a run over its time limit. Nothing else.
+# - Read-only root filesystem; /judger (sources and binaries, so `exec`) and /tmp (compiler scratch)
+#   are size-capped tmpfs. Docker's default seccomp and AppArmor profiles apply again.
+# - Only sandbox-net: no route to Kafka, Redis, the databases, MinIO or the internet — whatever a
+#   submission's language does or does not filter at the syscall level.
+x-sandbox: &sandbox
+  image: qduoj/judge-server
+  restart: always
+  shm_size: 256m
+  cap_drop: [ALL]
+  cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID, KILL]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+  tmpfs:
+    - /judger:exec,mode=755,size=1g
+    - /tmp:size=256m
+  healthcheck: *sandbox-health
+  networks: [sandbox-net]
 
 services:
   # ---- infrastructure ------------------------------------------------------
@@ -418,47 +444,41 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
-    networks: [oj-net]
+      # The sandboxes cannot reach submission-service, so the worker relays their /ping there.
+      SANDBOX_HEARTBEAT_URL: http://submission-service:8000/api/judge_server_heartbeat/
+    # oj-net for Kafka/MinIO/the registry, sandbox-net for the sandboxes — the only service on both.
+    networks: [oj-net, sandbox-net]
 
   judge-server:
     # Official QingdaoU sandbox on Docker Hub (qduoj account) — the canonical
     # registry.cn-hangzhou.aliyuncs.com/onlinejudge/judge_server is unreachable outside China.
-    # Overridden by docker-compose.mock.yml for offline / non-privileged runs.
-    image: qduoj/judge-server
+    # Overridden by docker-compose.mock.yml for offline runs.
+    <<: *sandbox
     container_name: oj-judge-server
-    restart: always
-    privileged: true
-    shm_size: 256m
-    # Map form (not list) so docker-compose.mock.yml can override image/privileged
+    # The registry is keyed by hostname; without a fixed one every recreate added a row (18 by 2026-10-05).
+    hostname: judge-server
+    # Map form (not list) so docker-compose.mock.yml can override image
     # while inheriting these values via Compose's environment merge.
     environment:
       TOKEN: ${JUDGE_SERVER_TOKEN}
       SERVICE_URL: http://judge-server:8080
-      BACKEND_URL: http://submission-service:8000/api/judge_server_heartbeat/
     volumes:
       - test_case_cache:/test_case:ro
       - ../judge-server/log:/log
-    healthcheck: *sandbox-health
-    networks: [oj-net]
 
   judge-server-2:
     # Second QingdaoU sandbox. The worker round-robins across the JUDGE_SERVER_URL comma-list with
     # failover (T1-3), so a second sandbox adds judging throughput and survives one sandbox dying.
     # Each sandbox needs its OWN writable /log (they can't share one), hence a dedicated volume.
-    image: qduoj/judge-server
+    <<: *sandbox
     container_name: oj-judge-server-2
-    restart: always
-    privileged: true
-    shm_size: 256m
+    hostname: judge-server-2
     environment:
       TOKEN: ${JUDGE_SERVER_TOKEN}
       SERVICE_URL: http://judge-server-2:8080
-      BACKEND_URL: http://submission-service:8000/api/judge_server_heartbeat/
     volumes:
       - test_case_cache:/test_case:ro
       - js2log:/log
-    healthcheck: *sandbox-health
-    networks: [oj-net]
 
   judge-portal:
     build: ../judge-portal
@@ -475,6 +495,10 @@ services:
 networks:
   oj-net:
     name: oj-net
+  # The sandboxes and judge-worker only. internal: no route off the host either.
+  sandbox-net:
+    name: oj-sandbox-net
+    internal: true
 
 volumes:
   # The retired oj-db's data (sub-project 3b). No service mounts it any more; it is kept until you delete it by
