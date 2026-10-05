@@ -102,6 +102,13 @@ export function faultTimeline(steadyS = 120, faultS = 60, recoverS = 180) {
   return { steadyS, faultS, recoverS, totalS: steadyS + faultS + recoverS };
 }
 
+// POST /auth/login answers {status, message} only: the tokens travel as HttpOnly cookies (identity's design).
+// k6 response cookies: { name: [{ name, value, … }] }.
+export function accessTokenFrom(cookies) {
+  const c = cookies && cookies.accessToken;
+  return c && c.length && c[0].value ? c[0].value : null;
+}
+
 export function isTerminal(status) {
   return status !== 6 && status !== 7;
 }

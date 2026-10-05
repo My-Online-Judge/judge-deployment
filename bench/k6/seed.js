@@ -103,6 +103,7 @@ export default function () {}
 
 export function handleSummary(data) {
   const s = data.setup_data;
+  if (!s) return { stdout: 'seed failed in setup() — see the error above\n' };
   return {
     '/gen/users.json': JSON.stringify(s.ids, null, 1),
     '/gen/seed-report.json': JSON.stringify({ verdicts: s.verdicts, history: s.history }, null, 1),

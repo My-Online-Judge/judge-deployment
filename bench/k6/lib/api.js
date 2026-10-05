@@ -2,7 +2,7 @@
 // series) and a 10 s timeout: a request that hangs during a fault ends as a status-0 error, not a stuck VU.
 import http from 'k6/http';
 import { BASE, USER_PASSWORD } from './config.js';
-import { USERS, makeTokenCache, username } from './pure.js';
+import { USERS, accessTokenFrom, makeTokenCache, username } from './pure.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -19,11 +19,20 @@ export function body(res) {
   try { return res.json(); } catch (e) { return null; }
 }
 
+// Login sets the token as an HttpOnly cookie; it is read off the response and sent as a Bearer header (which the
+// services and the gateway check first). A throwaway jar keeps the cookie out of the VU's own jar.
+function loginParams() {
+  return Object.assign(params('login', null, '30s'), { jar: new http.CookieJar() });
+}
+
+function tokenOf(res, user) {
+  const token = res.status === 200 ? accessTokenFrom(res.cookies) : null;
+  if (!token) throw new Error(`login ${user} failed: HTTP ${res.status}${res.status === 200 ? ' without an accessToken cookie' : ''}`);
+  return token;
+}
+
 export function login(user, password) {
-  const res = http.post(`${BASE}/api/v1/auth/login`, JSON.stringify({ username: user, password }), params('login', null, '30s'));
-  const b = body(res);
-  if (res.status !== 200 || !b || !b.data || !b.data.accessToken) throw new Error(`login ${user} failed: HTTP ${res.status}`);
-  return b.data.accessToken;
+  return tokenOf(http.post(`${BASE}/api/v1/auth/login`, JSON.stringify({ username: user, password }), loginParams()), user);
 }
 
 // Logs every bench user in, 20 at a time: [{ username, token, mintedAt }] indexed like username(i).
@@ -33,11 +42,9 @@ export function loginAll() {
     const names = [];
     for (let i = start; i < Math.min(start + 20, USERS); i++) names.push(username(i));
     const responses = http.batch(names.map((u) => ['POST', `${BASE}/api/v1/auth/login`,
-      JSON.stringify({ username: u, password: USER_PASSWORD }), params('login', null, '30s')]));
+      JSON.stringify({ username: u, password: USER_PASSWORD }), loginParams()]));
     responses.forEach((res, k) => {
-      const b = body(res);
-      if (res.status !== 200 || !b || !b.data || !b.data.accessToken) throw new Error(`login ${names[k]} failed: HTTP ${res.status}`);
-      users.push({ username: names[k], token: b.data.accessToken, mintedAt: Date.now() });
+      users.push({ username: names[k], token: tokenOf(res, names[k]), mintedAt: Date.now() });
     });
   }
   return users;

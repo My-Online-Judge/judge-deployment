@@ -99,3 +99,10 @@ test('measure thresholds name a duration and a failure sub-metric per route', ()
   assert.deepEqual(Object.keys(p.measureThresholds(['history'])),
     ['http_req_duration{phase:measure,route:history}', 'http_req_failed{phase:measure,route:history}']);
 });
+
+test('the access token comes from the accessToken cookie of the login response (the body carries none)', () => {
+  assert.equal(p.accessTokenFrom({ accessToken: [{ name: 'accessToken', value: 'abc' }], refreshToken: [{ value: 'r' }] }), 'abc');
+  assert.equal(p.accessTokenFrom({ refreshToken: [{ value: 'r' }] }), null);
+  assert.equal(p.accessTokenFrom({ accessToken: [] }), null);
+  assert.equal(p.accessTokenFrom(undefined), null);
+});
