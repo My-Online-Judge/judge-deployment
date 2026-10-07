@@ -40,8 +40,10 @@ check "the built services run the live images, never pulled or built" \
   "all(s[n].get('image') == f'judge-deployment-{n}:latest' and s[n].get('pull_policy') == 'never' for n in '${BUILT_SERVICES[*]}'.split())"
 check "prometheus accepts remote write and reads the generated config" \
   "'--web.enable-remote-write-receiver' in s['prometheus']['command'] and any(m['source'].endswith('/bench/.gen/prometheus.yml') and m['target'] == '/etc/prometheus/prometheus.yml' for m in s['prometheus']['volumes'])"
-check "prometheus keeps its other mounts (alerts, data volume)" \
-  "[m for m in s['prometheus']['volumes'] if m['target'] != '/etc/prometheus/prometheus.yml'] == [m for m in b['prometheus']['volumes'] if m['target'] != '/etc/prometheus/prometheus.yml']"
+check "prometheus evaluates this checkout's alerts.yml (in a worktree, not the main checkout's)" \
+  "any(__import__('os').path.normpath(m['source']) == '$(cd "$BENCH_DIR/.." && pwd)/alerts.yml' and m['target'] == '/etc/prometheus/alerts.yml' for m in s['prometheus']['volumes'])"
+check "prometheus keeps its data volume" \
+  "[m for m in s['prometheus']['volumes'] if m['target'] == '/prometheus'] == [m for m in b['prometheus']['volumes'] if m['target'] == '/prometheus']"
 check "relative paths resolve against the main checkout (../judge-server/log)" \
   "any(m.get('source') == '$OJ_ROOT/judge-server/log' for m in s['judge-server'].get('volumes', []))"
 

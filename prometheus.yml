@@ -1,7 +1,7 @@
 global:
   scrape_interval: 15s
-  # Rules are re-evaluated on this cadence; the shortest `for:` in alerts.yml is 1m, so a rule is
-  # confirmed several times before it fires.
+  # Rules are re-evaluated on this cadence. The shortest `for:` in alerts.yml is 15s (the *Down rules and the
+  # dependency rules), so those fire on their second evaluation; the others are confirmed several times.
   evaluation_interval: 15s
 
 rule_files:
@@ -27,3 +27,12 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ['problem-service:8081']
+
+  - job_name: judge-worker
+    # One target per worker replica (docker compose --scale judge-worker=N): the name resolves to every replica.
+    # A stopped worker drops out at the next refresh; JudgeWorkerDown asks whether any worker is still up.
+    dns_sd_configs:
+      - names: ['judge-worker']
+        type: A
+        port: 9100
+        refresh_interval: 5s

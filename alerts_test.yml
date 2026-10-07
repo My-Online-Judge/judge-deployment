@@ -92,7 +92,7 @@ tests:
               summary: "Login lockouts are firing repeatedly"
               description: "More than 20 login attempts were refused by the rate limiter in 15 minutes — check /admin/security for the offending ip or device."
 
-  # SubmissionServiceDown: a submission-service that cannot be scraped for over a minute must fire...
+  # SubmissionServiceDown: a submission-service that cannot be scraped for 15 seconds must fire...
   - interval: 1m
     input_series:
       - series: 'up{job="submission-service", instance="submission-service:8081"}'
@@ -107,7 +107,7 @@ tests:
               instance: submission-service:8081
             exp_annotations:
               summary: "submission-service is not being scraped"
-              description: "Prometheus has failed to scrape submission-service for over a minute. Submissions are not being accepted."
+              description: "Prometheus has failed to scrape submission-service for 15 seconds. Submissions are not being accepted."
 
   # ...and a healthy submission-service must stay silent.
   - interval: 1m
@@ -119,7 +119,7 @@ tests:
         alertname: SubmissionServiceDown
         exp_alerts: []
 
-  # ApiGatewayDown: a gateway that cannot be scraped for over a minute must fire...
+  # ApiGatewayDown: a gateway that cannot be scraped for 15 seconds must fire...
   - interval: 1m
     input_series:
       - series: 'up{job="api-gateway", instance="api-gateway:8081"}'
@@ -134,7 +134,7 @@ tests:
               instance: api-gateway:8081
             exp_annotations:
               summary: "api-gateway is not being scraped"
-              description: "Prometheus has failed to scrape api-gateway for over a minute. The API is unreachable from the browser."
+              description: "Prometheus has failed to scrape api-gateway for 15 seconds. The API is unreachable from the browser."
 
   # ...and a healthy gateway must stay silent.
   - interval: 1m
@@ -146,7 +146,7 @@ tests:
         alertname: ApiGatewayDown
         exp_alerts: []
 
-  # IdentityServiceDown: an identity-service that cannot be scraped for over a minute must fire...
+  # IdentityServiceDown: an identity-service that cannot be scraped for 15 seconds must fire...
   - interval: 1m
     input_series:
       - series: 'up{job="identity-service", instance="identity-service:8081"}'
@@ -161,7 +161,7 @@ tests:
               instance: identity-service:8081
             exp_annotations:
               summary: "identity-service is not being scraped"
-              description: "Prometheus has failed to scrape identity-service for over a minute. Nobody can log in or refresh a session."
+              description: "Prometheus has failed to scrape identity-service for 15 seconds. Nobody can log in or refresh a session."
 
   # ...and a healthy identity-service must stay silent.
   - interval: 1m
@@ -200,7 +200,7 @@ tests:
         alertname: OutboxBacklogStale
         exp_alerts: []
 
-  # ProblemServiceDown: a problem-service that cannot be scraped for over a minute must fire...
+  # ProblemServiceDown: a problem-service that cannot be scraped for 15 seconds must fire...
   - interval: 1m
     input_series:
       - series: 'up{job="problem-service", instance="problem-service:8081"}'
@@ -215,7 +215,7 @@ tests:
               instance: problem-service:8081
             exp_annotations:
               summary: "problem-service is not being scraped"
-              description: "Prometheus has failed to scrape problem-service for over a minute. Problem pages fail and submissions are refused with 503."
+              description: "Prometheus has failed to scrape problem-service for 15 seconds. Problem pages fail and submissions are refused with 503."
 
   # ...and a healthy problem-service must stay silent.
   - interval: 1m

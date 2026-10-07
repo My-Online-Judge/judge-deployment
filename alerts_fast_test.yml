@@ -1,0 +1,138 @@
+# promtool test rules alerts.yml at live Prometheus's cadence (15 s), for the rules that must fire while a one-minute
+# fault lasts (sub-project 6 §3.1). Run with: promtool test rules alerts_test.yml alerts_fast_test.yml
+# A `for:` longer than 15 s fails the firing cases below.
+
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 15s
+
+tests:
+  # The *ServiceDown rules fire on the second failed scrape...
+  - interval: 15s
+    input_series:
+      - series: 'up{job="problem-service", instance="problem-service:8081"}'
+        values: '0x8'
+      - series: 'up{job="submission-service", instance="submission-service:8081"}'
+        values: '0x8'
+      - series: 'up{job="api-gateway", instance="api-gateway:8081"}'
+        values: '0x8'
+      - series: 'up{job="identity-service", instance="identity-service:8081"}'
+        values: '0x8'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: ProblemServiceDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: problem-service, instance: "problem-service:8081"}
+            exp_annotations:
+              summary: "problem-service is not being scraped"
+              description: "Prometheus has failed to scrape problem-service for 15 seconds. Problem pages fail and submissions are refused with 503."
+      - eval_time: 30s
+        alertname: SubmissionServiceDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: submission-service, instance: "submission-service:8081"}
+            exp_annotations:
+              summary: "submission-service is not being scraped"
+              description: "Prometheus has failed to scrape submission-service for 15 seconds. Submissions are not being accepted."
+      - eval_time: 30s
+        alertname: ApiGatewayDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: api-gateway, instance: "api-gateway:8081"}
+            exp_annotations:
+              summary: "api-gateway is not being scraped"
+              description: "Prometheus has failed to scrape api-gateway for 15 seconds. The API is unreachable from the browser."
+      - eval_time: 30s
+        alertname: IdentityServiceDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: identity-service, instance: "identity-service:8081"}
+            exp_annotations:
+              summary: "identity-service is not being scraped"
+              description: "Prometheus has failed to scrape identity-service for 15 seconds. Nobody can log in or refresh a session."
+
+  # JudgeWorkerDown: no worker is scraped at all (a stopped replica drops out of DNS discovery)...
+  - interval: 15s
+    input_series:
+      - series: 'up{job="api-gateway", instance="api-gateway:8081"}'
+        values: '1x8'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: JudgeWorkerDown
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "No judge-worker is running"
+              description: "No judge-worker has answered a scrape for 15 seconds, so nothing is being judged. Check the judge-worker containers."
+
+  # ...or the only one fails its scrapes...
+  - interval: 15s
+    input_series:
+      - series: 'up{job="judge-worker", instance="172.18.0.9:9100"}'
+        values: '0x8'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: JudgeWorkerDown
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "No judge-worker is running"
+              description: "No judge-worker has answered a scrape for 15 seconds, so nothing is being judged. Check the judge-worker containers."
+
+  # ...but one replica of two being down is not "no worker" (Review Focus 5).
+  - interval: 15s
+    input_series:
+      - series: 'up{job="judge-worker", instance="172.18.0.9:9100"}'
+        values: '0x8'
+      - series: 'up{job="judge-worker", instance="172.18.0.10:9100"}'
+        values: '1x8'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: JudgeWorkerDown
+        exp_alerts: []
+
+  # SandboxDown: one sandbox does not answer the worker; a healthy one stays silent.
+  - interval: 15s
+    input_series:
+      - series: 'oj_sandbox_up{job="judge-worker", instance="172.18.0.9:9100", sandbox="judge-server-2"}'
+        values: '0x8'
+      - series: 'oj_sandbox_up{job="judge-worker", instance="172.18.0.9:9100", sandbox="judge-server"}'
+        values: '1x8'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: SandboxDown
+        exp_alerts:
+          - exp_labels: {severity: warning, sandbox: judge-server-2}
+            exp_annotations:
+              summary: "Sandbox judge-server-2 is not answering"
+              description: "The judge-worker cannot reach sandbox judge-server-2; submissions go to the other sandboxes."
+
+  # KafkaUnreachable: a consumer with no connection to the broker; a connected one stays silent.
+  - interval: 15s
+    input_series:
+      - series: 'kafka_consumer_connection_count{job="submission-service", instance="submission-service:8081", client_id="consumer-judge-api-results-1"}'
+        values: '0x8'
+      - series: 'kafka_consumer_connection_count{job="problem-service", instance="problem-service:8081", client_id="consumer-problem-service-stats-1"}'
+        values: '2x8'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: KafkaUnreachable
+        exp_alerts:
+          - exp_labels: {severity: critical, job: submission-service}
+            exp_annotations:
+              summary: "submission-service has lost its connection to Kafka"
+              description: "No judge requests or verdicts are moving. Submissions wait in the outbox until Kafka is back."
+
+  # RedisUnavailable: requests let through without Redis; a counter that does not move stays silent.
+  - interval: 15s
+    input_series:
+      - series: 'oj_redis_fallback_total{job="api-gateway", instance="api-gateway:8081", lookup="ban"}'
+        values: '0+10x8'
+      - series: 'oj_redis_fallback_total{job="submission-service", instance="submission-service:8081", lookup="rate_limit"}'
+        values: '5x8'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RedisUnavailable
+        exp_alerts:
+          - exp_labels: {severity: critical, job: api-gateway}
+            exp_annotations:
+              summary: "api-gateway cannot reach Redis"
+              description: "Requests are let through without the ban, revocation and cooldown checks (fail-open). Check oj-redis."

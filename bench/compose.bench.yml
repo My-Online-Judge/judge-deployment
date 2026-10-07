@@ -7,6 +7,9 @@ services:
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.enable-remote-write-receiver"]
     volumes:
       - ${BENCH_DIR:?run through bench/lib/common.sh}/.gen/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # This checkout's rules, like the generated prometheus.yml above: the base file's ./alerts.yml resolves
+      # against the main checkout (--project-directory), which in a worktree is not the code being measured.
+      - ${BENCH_DIR}/../alerts.yml:/etc/prometheus/alerts.yml:ro
   submission-service: {image: "judge-deployment-submission-service:latest", pull_policy: never}
   identity-service: {image: "judge-deployment-identity-service:latest", pull_policy: never}
   problem-service: {image: "judge-deployment-problem-service:latest", pull_policy: never}

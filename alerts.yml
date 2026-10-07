@@ -17,49 +17,51 @@
 groups:
   - name: judge-availability
     rules:
+      # The four *ServiceDown rules fire on the second failed scrape live (15 s), so a service that is down for a
+      # minute is reported while it is down (sub-project 6, R6; it took 64–74 s in sub-project 5's E4).
       - alert: SubmissionServiceDown
         # The scrape itself failing covers every way submission-service can die — crash, OOM, hung thread
         # pool — without needing a metric from inside the process that just stopped producing them.
         expr: up{job="submission-service"} == 0
-        for: 1m
+        for: 15s
         labels:
           severity: critical
         annotations:
           summary: "submission-service is not being scraped"
-          description: "Prometheus has failed to scrape submission-service for over a minute. Submissions are not being accepted."
+          description: "Prometheus has failed to scrape submission-service for 15 seconds. Submissions are not being accepted."
 
       - alert: ApiGatewayDown
         # The gateway is the only public entry point: while it is down the portal reaches no API at
         # all, even with every service behind it healthy.
         expr: up{job="api-gateway"} == 0
-        for: 1m
+        for: 15s
         labels:
           severity: critical
         annotations:
           summary: "api-gateway is not being scraped"
-          description: "Prometheus has failed to scrape api-gateway for over a minute. The API is unreachable from the browser."
+          description: "Prometheus has failed to scrape api-gateway for 15 seconds. The API is unreachable from the browser."
 
       - alert: IdentityServiceDown
         # Login, refresh and every admin screen for users, roles and bans go through identity-service;
         # submission-service and problem-service also fetch their token-signing key from it.
         expr: up{job="identity-service"} == 0
-        for: 1m
+        for: 15s
         labels:
           severity: critical
         annotations:
           summary: "identity-service is not being scraped"
-          description: "Prometheus has failed to scrape identity-service for over a minute. Nobody can log in or refresh a session."
+          description: "Prometheus has failed to scrape identity-service for 15 seconds. Nobody can log in or refresh a session."
 
       - alert: ProblemServiceDown
         # Problem lists and pages, test-case editing and the statistics consumer live in problem-service;
         # submission-service asks it for every submission's limits and test-case version.
         expr: up{job="problem-service"} == 0
-        for: 1m
+        for: 15s
         labels:
           severity: critical
         annotations:
           summary: "problem-service is not being scraped"
-          description: "Prometheus has failed to scrape problem-service for over a minute. Problem pages fail and submissions are refused with 503."
+          description: "Prometheus has failed to scrape problem-service for 15 seconds. Problem pages fail and submissions are refused with 503."
 
       - alert: ProblemServiceCircuitOpen
         # submission-service's breaker around problem-service (GrpcProblemCatalog) is refusing calls: submissions get 503
@@ -176,3 +178,52 @@ groups:
   #   - JudgeLatencyHigh: histogram_quantile(0.95, sum(rate(oj_judge_latency_seconds_bucket[10m])) by (le)) > S
   #       S is a submit-to-verdict SLO. Anchor it to the worst-case problem: time limit x test count
   #       x safety factor, not to the A+B measurement of ~20ms.
+
+  - name: judge-dependencies
+    # Sub-project 6 §3.1: a rule for each dependency sub-project 5's E4 stopped without any alert firing. `for: 15s`
+    # is two evaluations live and three on the bench (5 s), so each fires while a one-minute outage lasts.
+    rules:
+      - alert: JudgeWorkerDown
+        # No judge-worker answers its /metrics scrape. Workers are found through DNS (prometheus.yml), so a stopped
+        # one drops out of the targets instead of reporting up == 0: the rule asks whether ANY worker is up. One dead
+        # worker among several is not caught here (spec §1, out of scope).
+        expr: absent(up{job="judge-worker"} == 1)
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: "No judge-worker is running"
+          description: "No judge-worker has answered a scrape for 15 seconds, so nothing is being judged. Check the judge-worker containers."
+
+      - alert: SandboxDown
+        # The worker pings every sandbox every 10 s, and a failed dispatch marks one down at once (oj_sandbox_up).
+        # When the worker itself is down this series disappears with it, and JudgeWorkerDown fires instead.
+        expr: min by (sandbox) (oj_sandbox_up) == 0
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sandbox {{ $labels.sandbox }} is not answering"
+          description: "The judge-worker cannot reach sandbox {{ $labels.sandbox }}; submissions go to the other sandboxes."
+
+      - alert: KafkaUnreachable
+        # Every Kafka consumer keeps connections to the broker; one with none has lost Kafka. A service that is down
+        # loses this series altogether, and its *ServiceDown rule fires instead.
+        expr: max by (job) (kafka_consumer_connection_count{job=~"submission-service|problem-service"}) == 0
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} has lost its connection to Kafka"
+          description: "No judge requests or verdicts are moving. Submissions wait in the outbox until Kafka is back."
+
+      - alert: RedisUnavailable
+        # Every request or broadcast that went on only because a Redis call failed (fail-open) is counted. The rule
+        # needs traffic: with no requests nobody is affected. An absent series is no data, so the rule is inactive.
+        expr: sum by (job) (rate(oj_redis_fallback_total[1m])) > 0
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} cannot reach Redis"
+          description: "Requests are let through without the ban, revocation and cooldown checks (fail-open). Check oj-redis."
