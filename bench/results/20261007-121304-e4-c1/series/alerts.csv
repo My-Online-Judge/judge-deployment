@@ -1,0 +1,17 @@
+series,t,value
+alertname=ProblemServiceCircuitOpen,1791350195,1
+alertname=ProblemServiceCircuitOpen,1791350200,1
+alertname=ProblemServiceCircuitOpen,1791350205,1
+alertname=ProblemServiceCircuitOpen,1791350210,1
+alertname=ProblemServiceCircuitOpen,1791350215,1
+alertname=ProblemServiceCircuitOpen,1791350220,1
+alertname=ProblemServiceCircuitOpen,1791350225,1
+alertname=ProblemServiceCircuitOpen,1791350230,1
+alertname=ProblemServiceCircuitOpen,1791350235,1
+alertname=ProblemServiceCircuitOpen,1791350240,1
+alertname=ProblemServiceCircuitOpen,1791350245,1
+alertname=ProblemServiceCircuitOpen,1791350250,1
+alertname=ProblemServiceCircuitOpen,1791350255,1
+alertname=ProblemServiceCircuitOpen,1791350260,1
+alertname=ProblemServiceDown,1791350195,1
+alertname=ProblemServiceDown,1791350200,1

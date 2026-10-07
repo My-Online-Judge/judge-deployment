@@ -1,0 +1,4 @@
+series,t,value
+alertname=SubmissionServiceDown,1791354122,1
+alertname=SubmissionServiceDown,1791354127,1
+alertname=SubmissionServiceDown,1791354132,1

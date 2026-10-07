@@ -1,0 +1,52 @@
+{
+ "id": "20261007-123921-e4-c5",
+ "exp": "e4",
+ "dropped_iterations": 0,
+ "verdicts_counted": 173.26027397260273,
+ "fault": "c5",
+ "routes": {
+  "history": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.9901960784313726,
+   "error_rate_after": 0.08614864864864864,
+   "first_error_after_inject_ms": 803,
+   "first_success_after_remove_ms": 15947,
+   "last_error_after_remove_ms": 15042
+  },
+  "problem_detail": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 243,
+   "last_error_after_remove_ms": null
+  },
+  "problem_list": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 143,
+   "last_error_after_remove_ms": null
+  },
+  "submit": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.972972972972973,
+   "error_rate_after": 0.08411214953271028,
+   "first_error_after_inject_ms": 4139,
+   "first_success_after_remove_ms": 16409,
+   "last_error_after_remove_ms": 14110
+  }
+ },
+ "queue_recovery_s": 22.776000022888184,
+ "breaker_open_after_s": null,
+ "alerts_after_s": {
+  "alertname=SubmissionServiceDown": 64.13599991798401
+ },
+ "invariant_ok": true,
+ "system_errors": 0,
+ "by_status": {
+  "0": 172
+ },
+ "verdict_delta": 1.3
+}

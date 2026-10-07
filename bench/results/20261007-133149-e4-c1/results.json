@@ -1,0 +1,53 @@
+{
+ "id": "20261007-133149-e4-c1",
+ "exp": "e4",
+ "dropped_iterations": 0,
+ "verdicts_counted": 167.328,
+ "fault": "c1",
+ "routes": {
+  "history": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 161,
+   "last_error_after_remove_ms": null
+  },
+  "problem_detail": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.9950738916256158,
+   "error_rate_after": 0.07094594594594594,
+   "first_error_after_inject_ms": 566,
+   "first_success_after_remove_ms": 13080,
+   "last_error_after_remove_ms": 12359
+  },
+  "problem_list": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.9901960784313726,
+   "error_rate_after": 0.06925675675675676,
+   "first_error_after_inject_ms": 769,
+   "first_success_after_remove_ms": 13080,
+   "last_error_after_remove_ms": 12259
+  },
+  "submit": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 1.0,
+   "error_rate_after": 0.1308411214953271,
+   "first_error_after_inject_ms": 769,
+   "first_success_after_remove_ms": 24474,
+   "last_error_after_remove_ms": 22566
+  }
+ },
+ "queue_recovery_s": 3.2660000324249268,
+ "breaker_open_after_s": 14.371999979019165,
+ "alerts_after_s": {
+  "alertname=ProblemServiceCircuitOpen": 74.37199997901917,
+  "alertname=ProblemServiceDown": 69.37199997901917
+ },
+ "invariant_ok": true,
+ "system_errors": 0,
+ "by_status": {
+  "0": 166
+ },
+ "verdict_delta": 1.3
+}
