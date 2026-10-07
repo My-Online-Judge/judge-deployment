@@ -3,8 +3,9 @@
 Every table and chart below comes from a file under `bench/results/` on this branch, and every run can be repeated
 from `bench/README.md`. Raw data per run: `run.json` (arguments, commits, image ids), `summary.json` (k6),
 `k6.log` (one line per request), `series/*.csv` (Prometheus), `invariant.json`; for C2 and C3 also `worker-log.txt`,
-an excerpt of the judge-worker's log. A few observations come from outside these files and say so where they
-appear: the host's swap use and the seed's timing (the campaign's session logs) and the host description.
+an excerpt of the judge-worker's log. A few observations come from outside the per-run files and say so where they
+appear: the host's memory and swap (the campaign's session logs in `bench/results/sessions/`, or read during a
+session), the seed's timing (noted during the session) and the host description.
 The 16 E2 `summary.json` files were written before the fix that keeps access tokens out of them (`3a595f8`); their
 `setup_data` field was removed afterwards by script, and nothing else in them changed.
 
@@ -86,8 +87,8 @@ Runs: 9. Each cell: median (min–max) over the runs. Runs with dropped iteratio
   consistent with CPU power states on a mostly idle laptop, where cores sleep between requests at low rates. Not
   investigated.
 - **One stall.** Run `20261007-102621-e1-r100` dropped 858 arrivals (n = 5,715 instead of 6,000 per route)
-  around a single 9 s pause in the measured window. The host had 3.9 of its 4 GB swap in use (session log), so swapping is
-  the likely cause; the bench stack's logs went with it, so it cannot be confirmed. The run is kept in the table.
+  around a single 9 s pause in the measured window. The host had 3.9 of its 4 GB swap in use (read during the session, not
+  logged), so swapping is the likely cause; the bench stack's logs went with it, so it cannot be confirmed. The run is kept in the table.
 
 ## 4. E2 — judging capacity
 
@@ -151,7 +152,7 @@ capacity. The efficiencies are therefore approximate. With capacity(1) = 1.13 th
 instead of 0.71, 0.40 and 0.29; the plateau shows either way.
 
 **The language mix probably matters.** A side observation, not a measurement: when the E1 seed submitted 400
-`bench-ab` Python 3 solutions, one worker judged them in about 85 s (≈ 4.7/s, session log), against 1.28/s for
+`bench-ab` Python 3 solutions, one worker judged them in about 85 s (≈ 4.7/s; noted during the session, not recorded in a file), against 1.28/s for
 E2's half-C++ `bench-sum` mix. The problem differs as well as the language, so this does not isolate the C++
 compile; a C++-only and a Python-only E2 step would.
 
@@ -394,8 +395,8 @@ Recorded, not fixed (spec §1).
 - **k6's remote write is experimental.** Tables take k6's numbers from `summary.json`, not from the remote-written
   series.
 - **Thermal and frequency behaviour** of a laptop CPU was not controlled.
-- **Memory pressure.** The host's 4 GB swap was nearly full through sessions 2 and 3 (3.9 GB in use at the start,
-  4.0 GB at the end of E4, per the session logs), with a browser and other programs also running. The E1 stall is the visible effect;
+- **Memory pressure.** The host's 4 GB swap was nearly full through sessions 2 and 3 (3.8–3.9 GB in use while they ran,
+  all 4.0 GB at the end of E4: `bench/results/sessions/session-3.log`), with a browser and other programs also running. The E1 stall is the visible effect;
   smaller ones may be hidden in the spread.
 - **E4's scope.** One worker and one load level; each fault is a clean stop held for 60 s. Throughput lost to a
   dead sandbox, a consumer-group rebalance across several workers, network partitions, slow (rather than absent)
