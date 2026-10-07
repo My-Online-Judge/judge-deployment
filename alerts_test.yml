@@ -331,7 +331,7 @@ tests:
         alertname: KafkaConsumerLagging
         exp_alerts: []
 
-  # ...lag at the threshold itself (the worst seen while the system kept up, doubled) stays silent...
+  # ...lag at the threshold itself (the floor of 10: the load tests saw no lag) stays silent...
   - interval: 1m
     input_series:
       - series: 'kafka_consumer_fetch_manager_records_lag_max{job="submission-service", instance="submission-service:8081", client_id="consumer-judge-api-results-1"}'
@@ -341,12 +341,12 @@ tests:
         alertname: KafkaConsumerLagging
         exp_alerts: []
 
-  # ...and a short burst of lag (2 minutes) does not fire yet.
+  # ...and lag above the threshold for less than 5 minutes does not fire yet.
   - interval: 1m
     input_series:
       - series: 'kafka_consumer_fetch_manager_records_lag_max{job="problem-service", instance="problem-service:8081", client_id="consumer-problem-service-stats-1"}'
-        values: '3 3 0 0 0 0 0 0'
+        values: '11 11 11 0 0 0 0 0'
     alert_rule_test:
-      - eval_time: 3m
+      - eval_time: 2m
         alertname: KafkaConsumerLagging
         exp_alerts: []

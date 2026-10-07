@@ -1,8 +1,12 @@
 # Sub-project 5 — load and chaos evaluation: report
 
-Every number below comes from a file under `bench/results/` on this branch, and every run can be repeated from
-`bench/README.md`. Raw data per run: `run.json` (arguments, commits, image ids), `summary.json` (k6),
-`k6.log` (one line per request), `series/*.csv` (Prometheus), `invariant.json`.
+Every table and chart below comes from a file under `bench/results/` on this branch, and every run can be repeated
+from `bench/README.md`. Raw data per run: `run.json` (arguments, commits, image ids), `summary.json` (k6),
+`k6.log` (one line per request), `series/*.csv` (Prometheus), `invariant.json`; for C2 and C3 also `worker-log.txt`,
+an excerpt of the judge-worker's log. A few observations come from outside these files and say so where they
+appear: the host's swap use and the seed's timing (the campaign's session logs) and the host description.
+The 16 E2 `summary.json` files were written before the fix that keeps access tokens out of them (`3a595f8`); their
+`setup_data` field was removed afterwards by script, and nothing else in them changed.
 
 ## 1. Setup
 
@@ -11,7 +15,8 @@ Every number below comes from a file under `bench/results/` on this branch, and 
 - **System under test.** `judge-deployment`'s production Compose file, run as project `oj-bench` with
   `bench/compose.bench.yml`: Prometheus scrapes every 5 s and accepts k6's remote write, `judge-portal` is left
   out, and the five built services run the same images as the live stack (`pull_policy: never`).
-- **Versions** (`run.json`). The service commits below and every image id are the same in all 46 measured runs.
+- **Versions** (`run.json`). The service commits below and every image id are the same in all 46 run directories (42 measured runs
+  and 4 pilots).
   judge-deployment was at `40fcc84` for E2, `20f5c7d` for E1 and E3, and `7abea79` for E4; these three commits
   differ only under `bench/`, through the harness fixes made on this branch.
 
@@ -26,7 +31,8 @@ Every number below comes from a file under `bench/results/` on this branch, and 
   | judge-worker | `c748655` |
 
 - **Configuration.** 2 sandboxes (`judge-server`, `judge-server-2`); 6 partitions on `submission.requested`;
-  a per-user submit cooldown of 10 s, so the 200 bench users allow at most 18 submissions/s; the reconcile job
+  a per-user submit cooldown of 10 s, so the 200 bench users allow at most 20 submissions/s (the harness refuses
+  rates above 90 % of that, 18/s); the reconcile job
   turns a submission still PENDING or JUDGING after 5 minutes into SYSTEM_ERROR.
 - **Load generator.** k6 2.3.0 (pinned by digest), `--cpus 1`, on `oj-net`, every request through the gateway.
 - **Data.** 200 users `bench_u001…bench_u200`; problems `bench-ab` (A + B) and `bench-sum`, 5 test cases each.
@@ -76,11 +82,12 @@ Runs: 9. Each cell: median (min–max) over the runs. Runs with dropped iteratio
 - **No errors at any rate, p95 at or under 10 ms** (median of the runs). At 100 req/s the read path is far from
   saturated on this host. The figures are end to end: gateway hop, JWT check, the owning service and its
   database. Splitting them per hop needs trace sampling (follow-up 8.4).
-- **Latency falls as the rate rises** (p50 ≈ 5.7 ms at 20 req/s, ≈ 3.0 ms at 100 req/s). This is consistent with
-  CPU power states on a mostly idle laptop, where cores sleep between requests at low rates. Not investigated.
+- **Latency is lowest at the highest rate** (p50 5.4–6.8 ms at 20 and 50 req/s, 2.8–3.0 ms at 100 req/s). This is
+  consistent with CPU power states on a mostly idle laptop, where cores sleep between requests at low rates. Not
+  investigated.
 - **One stall.** Run `20261007-102621-e1-r100` dropped 858 arrivals (n = 5,715 instead of 6,000 per route)
-  around a single 9 s pause in the measured window. The host had 3.9 of its 4 GB swap in use, so swapping is the
-  likely cause; the bench stack's logs went with it, so it cannot be confirmed. The run is kept in the table.
+  around a single 9 s pause in the measured window. The host had 3.9 of its 4 GB swap in use (session log), so swapping is
+  the likely cause; the bench stack's logs went with it, so it cannot be confirmed. The run is kept in the table.
 
 ## 4. E2 — judging capacity
 
@@ -118,10 +125,11 @@ Runs: 12. Each cell: median (min–max) over the runs. Runs with dropped iterati
 
 ![Judging throughput and p95 against the arrival rate](results/capacity.png)
 
-**Below saturation the latency is the cost of one judgement, not of queueing.** At every worker count the steps
-under capacity show p50 ≈ 0.72 s and p95 ≈ 0.8–0.9 s: the time to compile and run five tests. Once arrivals pass
-capacity, the queue grows for the whole step (open model): p50 jumps to 10–12 s (median of the runs) and p95 passes the histogram's
-30 s ceiling within three minutes.
+**Well below capacity the latency is the cost of one judgement, not of queueing.** At every worker count the
+lowest step shows p50 0.72 s and p95 0.82–0.86 s: the time to compile and run five tests. Near capacity queueing
+already shows while the system still keeps up: at the third step, p95 is 3.0–5.7 s with 2, 4 and 6 workers (0.86 s
+with 1 worker). Once arrivals pass capacity, the queue grows for the whole step (open model): p50 jumps to 10–12 s
+(median of the runs) and p95 passes the histogram's 30 s ceiling within three minutes.
 
 **Scaling stops after two workers.** Scaling efficiency, capacity(N) / (N × capacity(1)):
 
@@ -136,12 +144,16 @@ Going from 4 to 6 workers adds about 6 %. The workers are not the bottleneck pas
 the two sandboxes and CPU on a 4-core host that also runs the services, the databases, Kafka and k6. The
 campaign did not sample per-container CPU, so it cannot say which of the two limits the plateau (follow-up 8.1).
 
-**The 1-worker figure is a lower bound.** Its top step (1.3/s) saturated in only one of the three runs, so the
-true capacity is at or a little above 1.3/s; the efficiencies above are upper bounds for the same reason.
+**The 1-worker capacity is only known to lie between 1.1 and 1.3 verdicts/s.** At 1.3/s two runs kept up and one
+delivered 1.13/s; the pilot, overloaded harder (1.5 and 2/s for 60 s), delivered 1.04–1.07/s. Heavier overload
+costs throughput: the saturated pilot steps of every worker count delivered 4–19 % less than the measured
+capacity. The efficiencies are therefore approximate. With capacity(1) = 1.13 they would be 0.81, 0.46 and 0.33
+instead of 0.71, 0.40 and 0.29; the plateau shows either way.
 
-**Language mix matters.** A side observation, not a measurement: when the E1 seed submitted 400 `bench-ab`
-Python 3 solutions, one worker judged them in about 85 s (≈ 4.7/s), against 1.28/s for E2's half-C++ mix — the
-C++ compile dominates a verdict.
+**The language mix probably matters.** A side observation, not a measurement: when the E1 seed submitted 400
+`bench-ab` Python 3 solutions, one worker judged them in about 85 s (≈ 4.7/s, session log), against 1.28/s for
+E2's half-C++ `bench-sum` mix. The problem differs as well as the language, so this does not isolate the C++
+compile; a C++-only and a Python-only E2 step would.
 
 ## 5. E3 — sustained mixed load
 
@@ -180,7 +192,7 @@ Runs: 3. Each cell: median (min–max) over the runs. Runs with dropped iteratio
 
 ## 6. E4 — resilience
 
-Each fault of spec §3.5 on E3's load (0.6 submissions/s, 10 reads/s, one worker): 120 s steady, the fault held
+Each fault of spec §3.5 on E3's submit rate (0.6 submissions/s) with 10 reads/s and one worker: 120 s steady, the fault held
 60 s, then 180 s after the component is started again. `bench/chaos/fault.sh` stops the container (`docker stop`,
 SIGTERM with a grace period; for c2 `docker stop --time 0`, a kill) and later starts the same container again.
 Times come from k6's per-request log, each request stamped when its response arrived.
@@ -267,8 +279,8 @@ none of them SYSTEM_ERROR, and k6 dropped no arrivals. The answers to spec §3.5
 - **C2 — judge-worker killed.** Nothing fails for a user, but judging stops. In run `20261007-121936-e4-c2` the
   kill landed 92 ms after the worker had started judging submission `2f492edd…`. The worker commits a message's
   offset only after publishing its verdict, so after the restart the same message was delivered again and judged.
-  The worker log shows both starts, and the submission ended ACCEPTED, not SYSTEM_ERROR. In the other two runs the
-  kill fell between two submissions. The queue is back 49–54 s after the restart, and the backlog explains this:
+  The run's `worker-log.txt` shows both starts, and the submission ended ACCEPTED, not SYSTEM_ERROR. In the other
+  two runs the kill fell between two submissions: their excerpts show no submission judged twice. The queue is back 49–54 s after the restart, and the backlog explains this:
   60 s of arrivals at 0.6/s is 36 submissions, which one worker drains at a net 1.28 − 0.6 = 0.68/s, about 53 s.
 
   ![C2: judge queue depth](results/20261007-121936-e4-c2/queue_depth.png)
@@ -276,7 +288,7 @@ none of them SYSTEM_ERROR, and k6 dropped no arrivals. The answers to spec §3.5
 - **C3 — one sandbox stopped.** No errors, and the judge p95 does not move: its highest value is 0.80–0.87 s during the
   fault, against 0.84–0.86 s in the minute before. The worker starts each judgement on the next sandbox in turn and falls through to the
   other when that one fails. The stopped sandbox's name no longer resolves, so each failure is immediate, even
-  though every other submission still tries the stopped sandbox first (worker log: one failure every ≈ 3.3 s).
+  though every other submission still tries the stopped sandbox first (`worker-log.txt`: one failure every ≈ 3.3 s).
   The throughput loss cannot be measured in this setup: one worker judges one submission at a time, so at this
   load the second sandbox adds no capacity.
 
@@ -300,8 +312,8 @@ none of them SYSTEM_ERROR, and k6 dropped no arrivals. The answers to spec §3.5
 - **C6 — Redis stopped.** Nothing fails, because every Redis lookup fails open by design: the submit cooldown
   (`SubmissionRateLimiter`), the gateway's ban lookup (`AccessBanFilter`) and its token-revocation lookup
   (`RevokedTokenFilter`). The cost is latency. Every request waits out the gateway's 250 ms Redis timeout on
-  both lookups, about 615 ms in all, and a submit also waits out submission-service's 1 s timeout, about 1.6 s
-  in all. Once Redis is back, the gateway recovers within 4 s, but submits stay at about 1 s for another 13–48 s.
+  both lookups and takes about 615 ms in all; the ≈ 115 ms beyond the two timeouts is not explained. A submit
+  also waits out submission-service's 1 s timeout, about 1.6 s in all. Once Redis is back, the gateway recovers within 4 s, but submits stay at about 1 s for another 13–48 s.
   That fits the reconnect back-off of submission-service's Redis client, but was not confirmed. Live verdict
   push (SSE) also goes through Redis pub/sub, but the bench has no SSE client, so it was not measured. No alert
   fired.
@@ -314,14 +326,18 @@ none of them SYSTEM_ERROR, and k6 dropped no arrivals. The answers to spec §3.5
 (kafka_consumer_fetch_manager_records_lag_max{job=~"submission-service|problem-service"}) > 10` for 5 minutes,
 instead of `> 0`.
 
-The plan sets the threshold at twice the highest verdict-consumer lag (`records_lag_max` of submission-service)
-seen while the system kept up, that is in E2's unsaturated steps and in E3, with a floor of 10. All 41 of those
-values (38 steps, 3 runs) are 0, so the floor applies. The lag was 0 in the saturated steps too, and in every E4
-run. That includes C5, where about 36 verdicts waited in Kafka for a minute while their consumer was down. The
-restarted consumer presumably read them in its first fetches, before a 5 s scrape could see any lag; this was
-not investigated. At these rates the verdict consumer is never the bottleneck: the backlog builds in front of the
-judge-worker, where the queue alerts look. The measurements can confirm that any sustained lag is abnormal, but
-they cannot calibrate the threshold beyond its floor. `alerts_test.yml` pins the boundary: a lag of 10 held for
+Spec §3.6 set the threshold at the number of messages one worker judges in about 2 minutes (≈ 1.28 × 120 ≈ 154).
+The plan replaced that rule (its correction P7): `KafkaConsumerLagging` watches the verdict consumer and
+problem-service's statistics consumer, not the judge queue (the Python worker's lag is not exported), so a judging
+rate says nothing about the lag it alerts on. The plan's rule instead: twice the highest verdict-consumer lag
+(`records_lag_max` of submission-service) seen while the system kept up, that is in E2's unsaturated steps and in
+E3, with a floor of 10. All 41 of those values (38 steps, 3 runs) are 0, so the floor applies. The lag was 0 in the
+saturated steps too, and in every E4 run. Even C5, which stopped the verdict consumer for a minute, left only the
+verdicts of the one or two submissions still queued at the stop waiting for it, since submits failed meanwhile.
+At these rates the verdict consumer is never the bottleneck: the backlog builds in front of the judge-worker,
+where the queue alerts look. The statistics consumer was not measured (the analysis reads submission-service's
+lag only), so the threshold applies to it untested. The measurements can confirm that any sustained lag is
+abnormal, but they cannot calibrate the threshold beyond its floor. `alerts_test.yml` pins the boundary: a lag of 10 held for
 10 minutes stays silent, and a lag of 11 fires.
 
 ## 8. Findings and follow-ups
@@ -349,8 +365,9 @@ Recorded, not fixed (spec §1).
    route in the gateway would answer at once.
 7. **A Redis outage silently switches enforcement off and slows every request** (C6). The submit cooldown, the IP
    and device bans and logout (token revocation) all fail open. That is a deliberate choice for availability, but
-   it means that for the length of an outage a logged-out token works again and a banned client gets in, with no
-   alert to say so. Every request pays 0.5–1.5 s of timeouts. Options: an alert on Redis (item 9); a breaker
+   the code means that for the length of an outage a logged-out token works again and a banned client gets in,
+   with no alert to say so (read from the code; the bench sent no logged-out tokens and no banned clients). Every
+   request pays 0.6–1.6 s of timeouts. Options: an alert on Redis (item 9); a breaker
    around the lookups, so that an outage costs one timeout instead of one per request; and a per-lookup decision
    on failing open (cooldown, bans) or closed (revocation).
 8. **Submit stays slow for up to 48 s after Redis is back** (C6), while the gateway recovers in 4 s. Check the
@@ -378,7 +395,7 @@ Recorded, not fixed (spec §1).
   series.
 - **Thermal and frequency behaviour** of a laptop CPU was not controlled.
 - **Memory pressure.** The host's 4 GB swap was nearly full through sessions 2 and 3 (3.9 GB in use at the start,
-  4.0 GB at the end of E4), with a browser and other programs also running. The E1 stall is the visible effect;
+  4.0 GB at the end of E4, per the session logs), with a browser and other programs also running. The E1 stall is the visible effect;
   smaller ones may be hidden in the spread.
 - **E4's scope.** One worker and one load level; each fault is a clean stop held for 60 s. Throughput lost to a
   dead sandbox, a consumer-group rebalance across several workers, network partitions, slow (rather than absent)
