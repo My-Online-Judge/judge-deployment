@@ -304,11 +304,11 @@ tests:
         alertname: ProblemStatsDeadLettered
         exp_alerts: []
 
-  # KafkaConsumerLagging: a consumer five minutes behind. records_lag_max of the verdict consumer stays at 3.
+  # KafkaConsumerLagging: a consumer five minutes behind. records_lag_max of the verdict consumer stays at 11.
   - interval: 1m
     input_series:
       - series: 'kafka_consumer_fetch_manager_records_lag_max{job="submission-service", instance="submission-service:8081", client_id="consumer-judge-api-results-1"}'
-        values: '3x10'
+        values: '11x10'
     alert_rule_test:
       - eval_time: 7m
         alertname: KafkaConsumerLagging
@@ -326,6 +326,16 @@ tests:
     input_series:
       - series: 'kafka_consumer_fetch_manager_records_lag_max{job="problem-service", instance="problem-service:8081", client_id="consumer-problem-service-stats-1"}'
         values: '0x10'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: KafkaConsumerLagging
+        exp_alerts: []
+
+  # ...lag at the threshold itself (the worst seen while the system kept up, doubled) stays silent...
+  - interval: 1m
+    input_series:
+      - series: 'kafka_consumer_fetch_manager_records_lag_max{job="submission-service", instance="submission-service:8081", client_id="consumer-judge-api-results-1"}'
+        values: '10x10'
     alert_rule_test:
       - eval_time: 7m
         alertname: KafkaConsumerLagging

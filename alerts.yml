@@ -131,8 +131,10 @@ groups:
         # The verdict consumer (judge-api-results) or problem-service's statistics consumer has stayed behind its
         # topic for 5 minutes. records_lag_max is updated only while the consumer polls: one that is stuck stops
         # reporting, and JudgeQueueStalled, OutboxBacklogStale and ProblemStatsDeadLettered cover that case.
-        # The threshold (any lag) suits today's traffic; revisit it with the load tests.
-        expr: max by (job, client_id) (kafka_consumer_fetch_manager_records_lag_max{job=~"submission-service|problem-service"}) > 0
+        # The threshold is twice the highest verdict-consumer lag the load tests saw while the system kept up, and at
+        # least 10 (bench/REPORT.md, E5). They saw none, so the floor applies: below it a burst is normal, above it for
+        # 5 minutes a consumer is falling behind.
+        expr: max by (job, client_id) (kafka_consumer_fetch_manager_records_lag_max{job=~"submission-service|problem-service"}) > 10
         for: 5m
         labels:
           severity: warning
