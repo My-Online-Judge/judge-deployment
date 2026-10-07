@@ -1,0 +1,318 @@
+[12:11:17] memory: used 5590 MB, available 6131 MB; swap used 3854 of 4095 MB
+[12:11:17] up
+[12:11:17] starting oj-bench on fresh volumes
+ Network oj-net Creating 
+ Network oj-net Created 
+ Network oj-sandbox-net Creating 
+ Network oj-sandbox-net Created 
+ Volume oj-bench_submissiondata Creating 
+ Volume oj-bench_submissiondata Created 
+ Volume oj-bench_test_case_cache Creating 
+ Volume oj-bench_test_case_cache Created 
+ Volume oj-bench_js2log Creating 
+ Volume oj-bench_js2log Created 
+ Volume oj-bench_identitydata Creating 
+ Volume oj-bench_identitydata Created 
+ Volume oj-bench_promdata Creating 
+ Volume oj-bench_promdata Created 
+ Volume oj-bench_miniodata Creating 
+ Volume oj-bench_miniodata Created 
+ Volume oj-bench_kafkadata Creating 
+ Volume oj-bench_kafkadata Created 
+ Volume oj-bench_problemdata Creating 
+ Volume oj-bench_problemdata Created 
+ Container oj-judge-server-2 Creating 
+ Container oj-identity-db Creating 
+ Container oj-submission-db Creating 
+ Container oj-redis Creating 
+ Container oj-minio Creating 
+ Container oj-judge-server Creating 
+ Container oj-jaeger Creating 
+ Container oj-problem-db Creating 
+ Container oj-kafka Creating 
+ Container oj-judge-server Created 
+ Container oj-judge-server-2 Created 
+ Container oj-minio Created 
+ Container oj-jaeger Created 
+ Container oj-kafka Created 
+ Container oj-bench-judge-worker-1 Creating 
+ Container oj-redis Created 
+ Container oj-problem-db Created 
+ Container oj-problem-service Creating 
+ Container oj-submission-db Created 
+ Container oj-submission-service Creating 
+ Container oj-identity-db Created 
+ Container oj-identity-service Creating 
+ Container oj-bench-judge-worker-1 Created 
+ Container oj-submission-service Created 
+ Container oj-prometheus Creating 
+ Container oj-problem-service Created 
+ Container oj-identity-service Created 
+ Container oj-api-gateway Creating 
+ Container oj-prometheus Created 
+ Container oj-api-gateway Created 
+ Container oj-redis Starting 
+ Container oj-kafka Starting 
+ Container oj-submission-db Starting 
+ Container oj-jaeger Starting 
+ Container oj-judge-server-2 Starting 
+ Container oj-minio Starting 
+ Container oj-problem-db Starting 
+ Container oj-judge-server Starting 
+ Container oj-identity-db Starting 
+ Container oj-judge-server Started 
+ Container oj-judge-server-2 Started 
+ Container oj-kafka Started 
+ Container oj-minio Started 
+ Container oj-kafka Waiting 
+ Container oj-judge-server Waiting 
+ Container oj-judge-server-2 Waiting 
+ Container oj-minio Waiting 
+ Container oj-jaeger Started 
+ Container oj-problem-db Started 
+ Container oj-kafka Waiting 
+ Container oj-minio Waiting 
+ Container oj-problem-db Waiting 
+ Container oj-identity-db Started 
+ Container oj-redis Started 
+ Container oj-redis Waiting 
+ Container oj-identity-db Waiting 
+ Container oj-submission-db Started 
+ Container oj-redis Waiting 
+ Container oj-submission-db Waiting 
+ Container oj-kafka Waiting 
+ Container oj-problem-db Healthy 
+ Container oj-identity-db Healthy 
+ Container oj-submission-db Healthy 
+ Container oj-judge-server Healthy 
+ Container oj-judge-server-2 Healthy 
+ Container oj-minio Healthy 
+ Container oj-minio Healthy 
+ Container oj-redis Healthy 
+ Container oj-identity-service Starting 
+ Container oj-redis Healthy 
+ Container oj-identity-service Started 
+ Container oj-kafka Healthy 
+ Container oj-bench-judge-worker-1 Starting 
+ Container oj-kafka Healthy 
+ Container oj-problem-service Starting 
+ Container oj-kafka Healthy 
+ Container oj-submission-service Starting 
+ Container oj-bench-judge-worker-1 Started 
+ Container oj-problem-service Started 
+ Container oj-submission-service Started 
+ Container oj-redis Waiting 
+ Container oj-prometheus Starting 
+ Container oj-prometheus Started 
+ Container oj-redis Healthy 
+ Container oj-api-gateway Starting 
+ Container oj-api-gateway Started 
+ Container oj-judge-server-2 Waiting 
+ Container oj-identity-service Waiting 
+ Container oj-bench-judge-worker-1 Waiting 
+ Container oj-submission-db Waiting 
+ Container oj-prometheus Waiting 
+ Container oj-jaeger Waiting 
+ Container oj-problem-service Waiting 
+ Container oj-minio Waiting 
+ Container oj-problem-db Waiting 
+ Container oj-identity-db Waiting 
+ Container oj-api-gateway Waiting 
+ Container oj-submission-service Waiting 
+ Container oj-kafka Waiting 
+ Container oj-redis Waiting 
+ Container oj-judge-server Waiting 
+ Container oj-kafka Healthy 
+ Container oj-bench-judge-worker-1 Healthy 
+ Container oj-judge-server-2 Healthy 
+ Container oj-judge-server Healthy 
+ Container oj-minio Healthy 
+ Container oj-problem-db Healthy 
+ Container oj-identity-db Healthy 
+ Container oj-redis Healthy 
+ Container oj-jaeger Healthy 
+ Container oj-submission-db Healthy 
+ Container oj-prometheus Healthy 
+ Container oj-api-gateway Healthy 
+ Container oj-problem-service Healthy 
+ Container oj-identity-service Healthy 
+ Container oj-submission-service Healthy 
+[12:12:15] seeding (history=0)
+[12:13:04] seeded: 200 users; reference verdicts {"bench-sum/cpp":0,"bench-sum/python3":0,"bench-ab/cpp":0,"bench-ab/python3":0}
+[12:13:04] e4 submit-rate=0.6
+ Container oj-bench-judge-worker-1 Running 
+[12:13:15] run 20261007-121304-e4-c1
+invariant ok: 167 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-121304-e4-c1
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-121304-e4-c1
+ Container oj-bench-judge-worker-1 Running 
+[12:19:47] run 20261007-121936-e4-c2
+invariant ok: 216 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-121936-e4-c2
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-121936-e4-c2
+ Container oj-bench-judge-worker-1 Running 
+[12:26:18] run 20261007-122607-e4-c3
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-122607-e4-c3
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-122607-e4-c3
+ Container oj-bench-judge-worker-1 Running 
+[12:32:55] run 20261007-123244-e4-c4
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-123244-e4-c4
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-123244-e4-c4
+ Container oj-bench-judge-worker-1 Running 
+[12:39:31] run 20261007-123921-e4-c5
+invariant ok: 172 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-123921-e4-c5
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-123921-e4-c5
+ Container oj-bench-judge-worker-1 Running 
+[12:46:02] run 20261007-124551-e4-c6
+invariant ok: 216 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-124551-e4-c6
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-124551-e4-c6
+ Container oj-bench-judge-worker-1 Running 
+[12:52:32] run 20261007-125222-e4-c1
+invariant ok: 167 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-125222-e4-c1
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-125222-e4-c1
+ Container oj-bench-judge-worker-1 Running 
+[12:59:09] run 20261007-125859-e4-c2
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-125859-e4-c2
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-125859-e4-c2
+ Container oj-bench-judge-worker-1 Running 
+[13:05:45] run 20261007-130535-e4-c3
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-130535-e4-c3
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-130535-e4-c3
+ Container oj-bench-judge-worker-1 Running 
+[13:12:16] run 20261007-131205-e4-c4
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-131205-e4-c4
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-131205-e4-c4
+ Container oj-bench-judge-worker-1 Running 
+[13:18:52] run 20261007-131842-e4-c5
+invariant ok: 172 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-131842-e4-c5
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-131842-e4-c5
+ Container oj-bench-judge-worker-1 Running 
+[13:25:29] run 20261007-132519-e4-c6
+invariant ok: 216 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-132519-e4-c6
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-132519-e4-c6
+ Container oj-bench-judge-worker-1 Running 
+[13:31:59] run 20261007-133149-e4-c1
+invariant ok: 166 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-133149-e4-c1
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-133149-e4-c1
+ Container oj-bench-judge-worker-1 Running 
+[13:38:35] run 20261007-133825-e4-c2
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-133825-e4-c2
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-133825-e4-c2
+ Container oj-bench-judge-worker-1 Running 
+[13:45:06] run 20261007-134456-e4-c3
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-134456-e4-c3
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-134456-e4-c3
+ Container oj-bench-judge-worker-1 Running 
+[13:51:42] run 20261007-135131-e4-c4
+invariant ok: 216 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-135131-e4-c4
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-135131-e4-c4
+ Container oj-bench-judge-worker-1 Running 
+[13:58:14] run 20261007-135804-e4-c5
+invariant ok: 171 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-135804-e4-c5
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-135804-e4-c5
+ Container oj-bench-judge-worker-1 Running 
+[14:04:51] run 20261007-140441-e4-c6
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-140441-e4-c6
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp5-results/judge-deployment/bench/results/20261007-140441-e4-c6
+results/summary-e4.md
+[14:11:18] memory: used 10398 MB, available 1323 MB; swap used 4095 of 4095 MB
+[14:11:18] down
+ Container oj-jaeger Stopping 
+ Container oj-bench-judge-worker-1 Stopping 
+ Container oj-prometheus Stopping 
+ Container oj-api-gateway Stopping 
+ Container oj-prometheus Stopped 
+ Container oj-prometheus Removing 
+ Container oj-prometheus Removed 
+ Container oj-jaeger Stopped 
+ Container oj-jaeger Removing 
+ Container oj-jaeger Removed 
+ Container oj-api-gateway Stopped 
+ Container oj-api-gateway Removing 
+ Container oj-api-gateway Removed 
+ Container oj-problem-service Stopping 
+ Container oj-submission-service Stopping 
+ Container oj-identity-service Stopping 
+ Container oj-bench-judge-worker-1 Stopped 
+ Container oj-bench-judge-worker-1 Removing 
+ Container oj-bench-judge-worker-1 Removed 
+ Container oj-judge-server-2 Stopping 
+ Container oj-judge-server Stopping 
+ Container oj-identity-service Stopped 
+ Container oj-identity-service Removing 
+ Container oj-identity-service Removed 
+ Container oj-identity-db Stopping 
+ Container oj-identity-db Stopped 
+ Container oj-identity-db Removing 
+ Container oj-identity-db Removed 
+ Container oj-problem-service Stopped 
+ Container oj-problem-service Removing 
+ Container oj-problem-service Removed 
+ Container oj-minio Stopping 
+ Container oj-problem-db Stopping 
+ Container oj-minio Stopped 
+ Container oj-minio Removing 
+ Container oj-problem-db Stopped 
+ Container oj-problem-db Removing 
+ Container oj-minio Removed 
+ Container oj-problem-db Removed 
+ Container oj-submission-service Stopped 
+ Container oj-submission-service Removing 
+ Container oj-submission-service Removed 
+ Container oj-submission-db Stopping 
+ Container oj-redis Stopping 
+ Container oj-kafka Stopping 
+ Container oj-submission-db Stopped 
+ Container oj-submission-db Removing 
+ Container oj-submission-db Removed 
+ Container oj-redis Stopped 
+ Container oj-redis Removing 
+ Container oj-redis Removed 
+ Container oj-kafka Stopped 
+ Container oj-kafka Removing 
+ Container oj-kafka Removed 
+ Container oj-judge-server-2 Stopped 
+ Container oj-judge-server-2 Removing 
+ Container oj-judge-server Stopped 
+ Container oj-judge-server Removing 
+ Container oj-judge-server-2 Removed 
+ Container oj-judge-server Removed 
+ Volume oj-bench_test_case_cache Removing 
+ Volume oj-bench_submissiondata Removing 
+ Network oj-net Removing 
+ Network oj-sandbox-net Removing 
+ Volume oj-bench_test_case_cache Removed 
+ Volume oj-bench_submissiondata Removed 
+ Volume oj-bench_miniodata Removing 
+ Volume oj-bench_kafkadata Removing 
+ Volume oj-bench_js2log Removing 
+ Volume oj-bench_promdata Removing 
+ Volume oj-bench_identitydata Removing 
+ Volume oj-bench_problemdata Removing 
+ Volume oj-bench_js2log Removed 
+ Volume oj-bench_miniodata Removed 
+ Volume oj-bench_promdata Removed 
+ Volume oj-bench_problemdata Removed 
+ Volume oj-bench_identitydata Removed 
+ Network oj-net Removed 
+ Volume oj-bench_kafkadata Removed 
+ Network oj-sandbox-net Removed 
+bench volumes left: 0
+live volumes unchanged
+[14:11:38] session done

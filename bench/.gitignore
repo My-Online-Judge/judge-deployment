@@ -1,2 +1,5 @@
 .gen/
 results/smoke/
+# The run logs are results too, read by the analysis; the root *.log rule would leave them out.
+!results/*/k6.log
+!results/sessions/*.log
