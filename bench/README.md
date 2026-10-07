@@ -47,6 +47,10 @@ Each run writes `results/<time>-<label>/`: `run.json` (versions, image ids, argu
 
 `chaos/fault.sh` refuses any container whose compose project is not `oj-bench`.
 
+`bench/probe.sh dns|redis` (sub-project 6) shows, request by request, what a stopped problem-service or Redis costs
+on a running oj-bench stack, and what each service's log says about it. It stops oj-bench containers only, through
+`chaos/fault.sh`.
+
 ## Tests
 
 `bench/tests/all.sh` — shell checks (stubs, no stack needed), `node --test` of the k6 helpers, pytest of the data and
