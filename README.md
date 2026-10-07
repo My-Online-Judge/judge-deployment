@@ -290,8 +290,8 @@ Nothing reads oj-db once submission-service runs on submission-db. Retire it in 
    `docker compose up -d --remove-orphans` — `oj-db` is stopped and removed.
 3. **Strip** its credentials from `.env`: `migrations/sp3-env.sh strip` (backup `.env.pre-sp3b`, owner-only;
    `shred -u` it once you are sure).
-4. The volume `judge-deployment_pgdata` is kept. Deleting it is irreversible and up to you:
-   `docker volume rm judge-deployment_pgdata`.
+4. **Delete** its volume once the backup reads back; the compose file no longer declares it, and this is
+   irreversible: `docker volume rm judge-deployment_pgdata`.
 5. **Archive** the judge-api repository on GitHub; its history lives on in `oj-submission-service`.
 
 ## Benchmarking (sub-project 5)

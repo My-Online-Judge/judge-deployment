@@ -501,9 +501,6 @@ networks:
     internal: true
 
 volumes:
-  # The retired oj-db's data (sub-project 3b). No service mounts it any more; it is kept until you delete it by
-  # hand (docker volume rm judge-deployment_pgdata) — the final backup is in backups/.
-  pgdata:
   identitydata:
   problemdata:
   submissiondata:
