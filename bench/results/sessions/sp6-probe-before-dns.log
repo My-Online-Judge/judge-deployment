@@ -1,0 +1,31 @@
+[17:52:36] read before the stop: 200 0.050311s
+[17:52:37] problem-service stopped
+[17:52:39] t+1s read 503 2.025748s — problem-service does not resolve
+[17:52:42] t+4s read 503 2.008690s — problem-service does not resolve
+[17:52:45] t+7s read 503 2.008793s — problem-service does not resolve
+[17:52:48] t+10s read 503 2.007529s — problem-service does not resolve
+[17:52:49] t+13s read 500 0.009169s — problem-service does not resolve
+[17:52:52] t+14s read 503 2.005659s — problem-service does not resolve
+[17:52:54] t+17s read 500 0.046525s — problem-service does not resolve
+[17:52:57] t+19s read 503 2.005231s — problem-service does not resolve
+[17:52:58] t+22s read 500 0.048281s — problem-service does not resolve
+[17:53:01] t+23s read 503 2.006003s — problem-service does not resolve
+[17:53:02] t+26s read 500 0.038287s — problem-service does not resolve
+[17:53:05] t+27s read 503 2.009227s — problem-service does not resolve
+[17:53:06] t+30s read 500 0.022884s — problem-service does not resolve
+[17:53:09] t+31s read 503 2.006768s — problem-service does not resolve
+[17:53:10] t+34s read 500 0.044085s — problem-service does not resolve
+[17:53:13] t+35s read 503 2.008438s — problem-service does not resolve
+[17:53:14] t+38s read 500 0.041878s — problem-service does not resolve
+[17:53:17] t+39s read 503 2.009302s — problem-service does not resolve
+[17:53:18] t+42s read 500 0.028897s — problem-service does not resolve
+[17:53:22] t+43s read 503 2.005526s — problem-service does not resolve
+[17:53:23] t+47s read 500 0.048513s — problem-service does not resolve
+[17:53:26] t+48s read 503 2.007593s — problem-service does not resolve
+[17:53:27] t+51s read 500 0.034418s — problem-service does not resolve
+[17:53:30] t+52s read 503 2.010011s — problem-service does not resolve
+[17:53:31] t+55s read 500 0.027746s — problem-service does not resolve
+[17:53:34] t+56s submit 503 2.054356s
+[17:53:34] problem-service addresses the gateway dialled:
+[17:53:34] problem-service addresses submission-service dialled:
+[17:53:34] problem-service started again
