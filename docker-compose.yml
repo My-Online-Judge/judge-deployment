@@ -75,10 +75,14 @@ x-sandbox: &sandbox
 # The JVM services' options: the OpenTelemetry agent, heap sizing, and DNS caching. The JDK keeps a resolved address
 # 30 s and a failed lookup 10 s by default, so a stopped container's old address took connections until the cache
 # expired (submit's gRPC call waited out its 2 s deadline) and a restarted one stayed unresolvable. 1 s and 0 s
-# (sub-project 6 §3.2 A).
+# (sub-project 6 §3.2 A), set as Security properties from the jvm-dns-security config: the runtime image's
+# java.security sets networkaddress.cache.negative.ttl=10, which a -Dsun.net.inetaddr.* flag cannot override.
 x-java-tool-options: &java-tool-options >-
   -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
-  -Dsun.net.inetaddr.ttl=1 -Dsun.net.inetaddr.negative.ttl=0
+  -Djava.security.properties=/opt/oj/jvm-dns.security
+x-jvm-dns-configs: &jvm-dns-configs
+  - source: jvm-dns-security
+    target: /opt/oj/jvm-dns.security
 
 services:
   # ---- infrastructure ------------------------------------------------------
@@ -257,6 +261,7 @@ services:
   # Submissions, judging, languages and judge servers: the remainder of the judge-api monolith, its own service
   # with its own database since sub-project 3b.
   submission-service:
+    configs: *jvm-dns-configs
     build:
       context: ../oj-submission-service
       additional_contexts:
@@ -301,6 +306,7 @@ services:
     networks: [oj-net]
 
   identity-service:
+    configs: *jvm-dns-configs
     build:
       context: ../oj-identity-service
       additional_contexts:
@@ -331,6 +337,7 @@ services:
     networks: [oj-net]
 
   problem-service:
+    configs: *jvm-dns-configs
     build:
       context: ../oj-problem-service
       additional_contexts:
@@ -374,6 +381,7 @@ services:
     networks: [oj-net]
 
   api-gateway:
+    configs: *jvm-dns-configs
     build:
       context: ../oj-api-gateway
       additional_contexts:
@@ -504,6 +512,13 @@ services:
     ports:
       - "80:80"
     networks: [oj-net]
+
+configs:
+  jvm-dns-security:
+    # Appended to each JVM's java.security (x-java-tool-options): DNS answers kept 1 s, failed lookups not at all.
+    content: |
+      networkaddress.cache.ttl=1
+      networkaddress.cache.negative.ttl=0
 
 networks:
   oj-net:

@@ -32,8 +32,8 @@ check "problem-service gets KAFKA_PARTITIONS" "s['problem-service']['environment
 check "redis keeps an append-only file on the named volume redisdata (revocations survive down/up)" \
   "s['redis'].get('command') == ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec'] and any(m.get('source') == 'redisdata' and m.get('target') == '/data' for m in s['redis'].get('volumes', [])) and 'redisdata' in v"
 java_services="('api-gateway', 'identity-service', 'problem-service', 'submission-service')"
-check "the JVM services forget a resolved address after 1 s and never cache a failed lookup, agent kept" \
-  "all({'-Dsun.net.inetaddr.ttl=1', '-Dsun.net.inetaddr.negative.ttl=0', '-javaagent:/otel/opentelemetry-javaagent.jar'} <= set(s[n]['environment']['JAVA_TOOL_OPTIONS'].split()) for n in $java_services)"
+check "the JVM services load the jvm-dns-security config as Security properties, agent kept (effect: tests/jvm-dns.test.sh)" \
+  "all({'-Djava.security.properties=/opt/oj/jvm-dns.security', '-javaagent:/otel/opentelemetry-javaagent.jar'} <= set(s[n]['environment']['JAVA_TOOL_OPTIONS'].split()) and {'source': 'jvm-dns-security', 'target': '/opt/oj/jvm-dns.security'} in [{k: x[k] for k in ('source', 'target')} for x in s[n].get('configs', [])] for n in $java_services) and c['configs']['jvm-dns-security']['content'].split() == ['networkaddress.cache.ttl=1', 'networkaddress.cache.negative.ttl=0']"
 
 # The sandboxes run untrusted code: least privilege, and a network that reaches only the worker.
 sandboxes="('judge-server', 'judge-server-2')"
