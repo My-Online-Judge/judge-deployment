@@ -57,3 +57,42 @@ def test_latency_windows_give_a_per_window_quantile_per_route():
     assert w["history"] == [(1060.0, 57.0), (1120.0, 57.0)]
     assert w["submit"] == [(1060.0, 30.0)]
     assert timeline.latency_windows([], 60) == {}
+
+
+def req(t, ms, route="submit", status=200):
+    return {"ev": "req", "route": route, "status": status, "t": t, "ms": ms}
+
+
+def test_fault_latency_before_during_and_overhead():
+    events = [req(t, 10) for t in range(0, 60_000, 1000)] + [req(t, 2000) for t in range(60_000, 120_000, 1000)] \
+             + [req(t, 10) for t in range(120_000, 180_000, 1000)]
+    f = timeline.fault_latency(events, inject_ms=60_000, remove_ms=120_000)["submit"]
+    assert f["before"] == {"p50": 10, "p95": 10, "n": 60}
+    assert f["during"]["p95"] == 2000
+    assert f["overhead_p95"] == 1990
+    assert f["recovery_s"] == 0
+
+
+def test_latency_recovery_is_the_end_of_the_last_slow_window_after_removal():
+    events = [req(t, 10) for t in range(0, 60_000, 500)]
+    events += [req(120_000 + t, 1000) for t in range(0, 12_000, 500)]     # slow for 12 s after the removal
+    events += [req(120_000 + t, 10) for t in range(12_000, 60_000, 500)]
+    f = timeline.fault_latency(events, inject_ms=60_000, remove_ms=120_000)["submit"]
+    assert f["recovery_s"] == 15   # the windows [0,5), [5,10), [10,15) s are slow
+
+
+def test_the_slow_threshold_is_at_least_100_ms():
+    events = [req(t, 10) for t in range(0, 60_000, 500)] + [req(120_000 + t, 90) for t in range(0, 30_000, 500)]
+    assert timeline.fault_latency(events, 60_000, 120_000)["submit"]["recovery_s"] == 0
+
+
+def test_a_route_without_requests_before_the_fault_has_no_overhead_or_recovery():
+    f = timeline.fault_latency([req(70_000, 5)], 60_000, 120_000)["submit"]
+    assert f["before"]["p95"] is None and f["overhead_p95"] is None and f["recovery_s"] is None
+
+
+def test_counter_increase_counts_a_series_that_did_not_exist_yet_from_zero():
+    pts = [(105.0, 1.0), (110.0, 1.0), (130.0, 2.0)]
+    assert timeline.increase(pts, 100, 125) == 1.0
+    assert timeline.increase(pts, 100, 140) == 2.0
+    assert timeline.increase([], 100, 140) == 0

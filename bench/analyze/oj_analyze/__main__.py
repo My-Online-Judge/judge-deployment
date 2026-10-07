@@ -1,10 +1,10 @@
-"""python -m oj_analyze export|invariant|steps|summarize|lag-threshold — used by bench/run.sh and bench/campaign.sh."""
+"""python -m oj_analyze export|invariant|steps|summarize|lag-threshold|compare — used by bench/run.sh and bench/campaign.sh."""
 import argparse
 import json
 import sys
 from pathlib import Path
 
-from . import export, stats, summarize
+from . import compare, export, stats, summarize
 from . import invariant as inv
 from .prom import Prom
 
@@ -39,6 +39,10 @@ def main(argv=None):
     s.add_argument("results_dir", type=Path)
     s.add_argument("exp", choices=["e1", "e2", "e3", "e4"])
     sub.add_parser("lag-threshold").add_argument("results_dir", type=Path)
+    c = sub.add_parser("compare")
+    c.add_argument("exp", choices=["e3", "e4"])
+    c.add_argument("--before", nargs="+", type=Path, required=True)
+    c.add_argument("--after", nargs="+", type=Path, required=True)
     a = p.parse_args(argv)
     if a.cmd == "export":
         export.export_run(a.run_dir, Prom(a.prom))
@@ -50,6 +54,9 @@ def main(argv=None):
         return cmd_steps(a.run_dir)
     if a.cmd == "summarize":
         print(summarize.write(a.results_dir, a.exp))
+        return 0
+    if a.cmd == "compare":
+        print(compare.write(a.exp, a.before, a.after))
         return 0
     print(summarize.lag_threshold(a.results_dir))
     return 0

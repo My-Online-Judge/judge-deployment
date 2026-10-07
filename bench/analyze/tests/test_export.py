@@ -121,3 +121,15 @@ def test_dropped_iterations_system_errors_and_the_verdict_delta_are_reported(tmp
     assert res["dropped_iterations"] == 7
     assert res["system_errors"] == 2 and res["by_status"] == {"0": 98, "5": 2}
     assert res["verdict_delta"] == -2.0
+
+
+def test_e4_exports_fault_latency_and_failed_dispatches(tmp_path):
+    run = {"id": "r-e4c3", "exp": "e4", "args": {"fault": "c3"}, "started_at": 900, "ended_at": 1400,
+           "fault": {"inject_ms": 1_001_000, "remove_ms": 1_060_000}}
+    events = [{"ev": "req", "route": "submit", "status": 200, "t": 990_000, "ms": 20.0},
+              {"ev": "req", "route": "submit", "status": 200, "t": 1_010_000, "ms": 30.0}]
+    from oj_analyze import promql
+    failed = {"sandbox=judge-server-2": [(1000.0, 0.0), (1010.0, 1.0), (1050.0, 1.0)]}
+    res = export.export_run(write_run(tmp_path, run, events), FakeProm(ranges={promql.DISPATCH_FAILED: failed}))
+    assert res["fault_latency"]["submit"]["during"]["p95"] == 30.0
+    assert res["dispatch_failed_during"] == {"sandbox=judge-server-2": 1.0}

@@ -33,6 +33,7 @@ BREAKER_OPEN = 'max(resilience4j_circuitbreaker_state{name="problem-service", st
 OUTBOX_AGE = "max(oj_outbox_oldest_age_seconds)"
 HEAP_BY_JOB = 'sum by (job) (jvm_memory_used_bytes{area="heap"})'
 ALERTS_FIRING = 'max by (alertname) (ALERTS{alertstate="firing"})'   # the bench Prometheus evaluates alerts.yml
+DISPATCH_FAILED = 'sum by (sandbox) (oj_judge_dispatch_total{outcome="failed"})'   # the worker's (sub-project 6)
 
 
 def k6_request_rate(testid):
@@ -52,5 +53,6 @@ def series_for(testid):
         "outbox_age": OUTBOX_AGE,
         "heap": HEAP_BY_JOB,
         "alerts": ALERTS_FIRING,
+        "dispatch_failed": DISPATCH_FAILED,
         "k6_reqs": k6_request_rate(testid),
     }

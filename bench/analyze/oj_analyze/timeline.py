@@ -76,3 +76,46 @@ def latency_windows(events, width_s=60, q=0.95):
             pts.append((t0 / 1000 + (k + 1) * width_s, xs[max(1, math.ceil(q * len(xs))) - 1]))
         out[route] = pts
     return out
+
+
+def _quantile(xs, q):
+    """Nearest-rank q-quantile of a non-empty list, as latency_windows computes it."""
+    xs = sorted(xs)
+    return xs[max(1, math.ceil(q * len(xs))) - 1]
+
+
+def _latency(xs):
+    return {"p50": _quantile(xs, 0.5), "p95": _quantile(xs, 0.95), "n": len(xs)} if xs else {"p50": None, "p95": None, "n": 0}
+
+
+def fault_latency(events, inject_ms, remove_ms, window_s=5):
+    """Per route, client latency around a fault (sub-project 6 §3.3), ms: p50/p95/n in the minute before the injection
+    and during the fault; overhead_p95 = during − before; recovery_s = the end, in seconds after the removal, of the
+    last window_s window whose p95 is above twice the p95 before or 100 ms, whichever is larger (0 when none is)."""
+    reqs = [e for e in events if e.get("ev") == "req" and e.get("ms") is not None]
+    out = {}
+    for route in sorted({e["route"] for e in reqs}):
+        rs = [(e["t"], e["ms"]) for e in reqs if e["route"] == route]
+        before = _latency([ms for t, ms in rs if inject_ms - 60_000 <= t < inject_ms])
+        during = _latency([ms for t, ms in rs if inject_ms <= t < remove_ms])
+        recovery = None
+        if before["p95"] is not None:
+            limit = max(2 * before["p95"], 100)
+            windows = {}
+            for t, ms in rs:
+                if t >= remove_ms:
+                    windows.setdefault(int((t - remove_ms) // (window_s * 1000)), []).append(ms)
+            slow = [k for k, xs in windows.items() if _quantile(xs, 0.95) > limit]
+            recovery = (max(slow) + 1) * window_s if slow else 0
+        out[route] = {"before": before, "during": during,
+                      "overhead_p95": None if before["p95"] is None or during["p95"] is None else during["p95"] - before["p95"],
+                      "recovery_s": recovery}
+    return out
+
+
+def increase(points, t0, t1):
+    """A counter's growth from t0 to t1 (epoch s) in range-query points; a series that did not exist yet counts as 0."""
+    def at(t):
+        vs = [v for ts, v in points if ts <= t and v is not None]
+        return vs[-1] if vs else 0
+    return at(t1) - at(t0)

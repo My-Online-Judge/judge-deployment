@@ -146,6 +146,9 @@ def export_run(run_dir, prom):
         results["queue_recovery_s"] = timeline.queue_recovery_s(series["queue_depth"].get("value", []), inject_s, remove_s)
         results["breaker_open_after_s"] = timeline.first_at_least(series["breaker_open"].get("value", []), inject_s, 1)
         results["alerts_after_s"] = {k: timeline.first_at_least(pts, inject_s, 1) for k, pts in series["alerts"].items()}
+        results["fault_latency"] = timeline.fault_latency(events, fault["inject_ms"], fault["remove_ms"])
+        results["dispatch_failed_during"] = {k: timeline.increase(pts, inject_s, remove_s)
+                                             for k, pts in series["dispatch_failed"].items()}
     inv_path = run_dir / "invariant.json"
     if inv_path.exists():
         invariant = json.loads(inv_path.read_text())
