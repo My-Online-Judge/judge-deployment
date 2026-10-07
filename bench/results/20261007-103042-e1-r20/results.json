@@ -1,0 +1,33 @@
+{
+ "id": "20261007-103042-e1-r20",
+ "exp": "e1",
+ "dropped_iterations": 0,
+ "verdicts_counted": 0.0,
+ "routes": {
+  "problem_list": {
+   "p50": 7.93872,
+   "p95": 9.051742,
+   "p99": 10.644682,
+   "n": 1201,
+   "error_rate": 0
+  },
+  "problem_detail": {
+   "p50": 7.3897395,
+   "p95": 8.4504639,
+   "p99": 11.516008139999997,
+   "n": 1200,
+   "error_rate": 0
+  },
+  "history": {
+   "p50": 7.4649605,
+   "p95": 8.483774899999998,
+   "p99": 9.35521943,
+   "n": 1200,
+   "error_rate": 0
+  }
+ },
+ "invariant_ok": true,
+ "system_errors": 0,
+ "by_status": {},
+ "verdict_delta": 0.0
+}
