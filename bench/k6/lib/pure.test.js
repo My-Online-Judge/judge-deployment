@@ -119,3 +119,10 @@ test('the written summary drops setup_data (it holds the users\' access tokens, 
   assert.deepEqual(p.publicSummary(data), { metrics: { iterations: { values: { count: 3 } } } });
   assert.ok('setup_data' in data, 'the input is left intact for the other outputs');
 });
+
+test('a user\'s next submit waits out the cooldown from that user\'s own last submit, plus a second', () => {
+  assert.equal(p.cooldownWaitS(1000, 1000), p.COOLDOWN_S + 1);
+  assert.equal(p.cooldownWaitS(1000, 1000 + 4000), p.COOLDOWN_S + 1 - 4);
+  assert.equal(p.cooldownWaitS(1000, 1000 + (p.COOLDOWN_S + 5) * 1000), 0);
+  assert.equal(p.cooldownWaitS(undefined, 5000), 0, 'a user who never submitted waits for nothing');
+});

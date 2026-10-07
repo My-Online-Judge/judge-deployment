@@ -5,7 +5,7 @@ import http from 'k6/http';
 import { sleep } from 'k6';
 import { ADMIN_PASSWORD, ADMIN_USER, BASE, PROM, USER_PASSWORD, USER_ROLE_ID } from './lib/config.js';
 import { auth, body, login } from './lib/api.js';
-import { COOLDOWN_S, USERS, isTerminal, username } from './lib/pure.js';
+import { USERS, cooldownWaitS, isTerminal, username } from './lib/pure.js';
 
 const PROBLEMS = JSON.parse(open('/data/problems.json'));
 const ZIPS = { 'bench-ab': open('/gen/data/bench-ab.zip', 'b'), 'bench-sum': open('/gen/data/bench-sum.zip', 'b') };
@@ -88,11 +88,15 @@ export function setup() {
   const wrong = Object.keys(verdicts).filter((key) => verdicts[key] !== 0);
   if (wrong.length) throw new Error(`reference solutions not ACCEPTED: ${wrong.map((key) => `${key}=${verdicts[key]}`).join(', ')}`);
   if (HISTORY) {
-    sleep(COOLDOWN_S + 1);
+    // Users 0..3 just submitted the references; every later submit waits out its own user's cooldown.
+    const last = {};
+    for (let i = 0; i < 4; i++) last[i] = Date.now();
     for (let pass = 0; pass < 2; pass++) {
-      const t0 = Date.now();
-      for (let i = 0; i < USERS; i++) submitAs(tokens[i], 'bench-ab', 'python3');
-      if (pass === 0) sleep(Math.max(0, COOLDOWN_S + 1 - (Date.now() - t0) / 1000));
+      for (let i = 0; i < USERS; i++) {
+        sleep(cooldownWaitS(last[i], Date.now()));
+        submitAs(tokens[i], 'bench-ab', 'python3');
+        last[i] = Date.now();
+      }
     }
     waitQueueEmpty(1800);
   }

@@ -133,3 +133,9 @@ export function publicSummary(data) {
   const { setup_data, ...rest } = data;
   return rest;
 }
+
+// Seconds a user must still wait before submitting again: the cooldown runs from that user's own last submit.
+export function cooldownWaitS(lastMs, nowMs) {
+  if (lastMs === undefined) return 0;
+  return Math.max(0, COOLDOWN_S + 1 - (nowMs - lastMs) / 1000);
+}
