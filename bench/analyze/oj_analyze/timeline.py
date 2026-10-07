@@ -88,10 +88,12 @@ def _latency(xs):
     return {"p50": _quantile(xs, 0.5), "p95": _quantile(xs, 0.95), "n": len(xs)} if xs else {"p50": None, "p95": None, "n": 0}
 
 
-def fault_latency(events, inject_ms, remove_ms, window_s=5):
+def fault_latency(events, inject_ms, remove_ms, window_s=5, settle_s=30):
     """Per route, client latency around a fault (sub-project 6 §3.3), ms: p50/p95/n in the minute before the injection
     and during the fault; overhead_p95 = during − before; recovery_s = the end, in seconds after the removal, of the
-    last window_s window whose p95 is above twice the p95 before or 100 ms, whichever is larger (0 when none is)."""
+    last window_s window whose p95 is above twice the p95 before or 100 ms, whichever is larger (0 when none is),
+    counting only the windows before latency has stayed below that for settle_s: a lone slow request later is an
+    outlier, not recovery. Windows without requests are skipped."""
     reqs = [e for e in events if e.get("ev") == "req" and e.get("ms") is not None]
     out = {}
     for route in sorted({e["route"] for e in reqs}):
@@ -105,8 +107,15 @@ def fault_latency(events, inject_ms, remove_ms, window_s=5):
             for t, ms in rs:
                 if t >= remove_ms:
                     windows.setdefault(int((t - remove_ms) // (window_s * 1000)), []).append(ms)
-            slow = [k for k, xs in windows.items() if _quantile(xs, 0.95) > limit]
-            recovery = (max(slow) + 1) * window_s if slow else 0
+            last_slow, calm = None, 0
+            for k in sorted(windows):
+                if _quantile(windows[k], 0.95) > limit:
+                    last_slow, calm = k, 0
+                else:
+                    calm += 1
+                    if calm * window_s >= settle_s:
+                        break
+            recovery = (last_slow + 1) * window_s if last_slow is not None else 0
         out[route] = {"before": before, "during": during,
                       "overhead_p95": None if before["p95"] is None or during["p95"] is None else during["p95"] - before["p95"],
                       "recovery_s": recovery}

@@ -96,3 +96,13 @@ def test_counter_increase_counts_a_series_that_did_not_exist_yet_from_zero():
     assert timeline.increase(pts, 100, 125) == 1.0
     assert timeline.increase(pts, 100, 140) == 2.0
     assert timeline.increase([], 100, 140) == 0
+
+
+def test_a_lone_slow_request_long_after_recovery_is_not_recovery():
+    # One submit above the threshold at t+150 s, after two minutes of normal latency, is an outlier (final review I2).
+    events = [req(t, 10) for t in range(0, 60_000, 500)]
+    events += [req(120_000 + t, 1000) for t in range(0, 10_000, 500)]      # slow for 10 s after the removal
+    events += [req(120_000 + t, 10) for t in range(10_000, 150_000, 500)]
+    events += [req(270_000, 1000)]                                          # the outlier
+    f = timeline.fault_latency(events, inject_ms=60_000, remove_ms=120_000)["submit"]
+    assert f["recovery_s"] == 10
