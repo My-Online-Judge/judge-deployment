@@ -72,6 +72,14 @@ x-sandbox: &sandbox
   healthcheck: *sandbox-health
   networks: [sandbox-net]
 
+# The JVM services' options: the OpenTelemetry agent, heap sizing, and DNS caching. The JDK keeps a resolved address
+# 30 s and a failed lookup 10 s by default, so a stopped container's old address took connections until the cache
+# expired (submit's gRPC call waited out its 2 s deadline) and a restarted one stayed unresolvable. 1 s and 0 s
+# (sub-project 6 §3.2 A).
+x-java-tool-options: &java-tool-options >-
+  -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
+  -Dsun.net.inetaddr.ttl=1 -Dsun.net.inetaddr.negative.ttl=0
+
 services:
   # ---- infrastructure ------------------------------------------------------
   identity-db:
@@ -184,11 +192,16 @@ services:
     networks: [oj-net]
 
   redis:
-    # Verdict SSE fan-out across submission-service instances (pub/sub on channel oj.verdicts).
+    # Pub/sub for the verdict SSE fan-out, and the ban mirror, logout blocklist, session-revocation cutoffs and rate
+    # limits. Append-only file on a named volume: a logged-out or revoked token must stay revoked across
+    # `docker compose down`/`up` (access tokens live 24 h). everysec: a crash loses at most a second of writes.
     image: redis:7-alpine
     container_name: oj-redis
     restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     environment: *tz-env
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -266,7 +279,7 @@ services:
     environment:
       <<: [*tz-env, *otel-env]
       OTEL_SERVICE_NAME: submission-service
-      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
+      JAVA_TOOL_OPTIONS: *java-tool-options
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_PARTITIONS: ${KAFKA_PARTITIONS:-6}
       REDIS_HOST: ${REDIS_HOST}
@@ -302,7 +315,7 @@ services:
     environment:
       <<: [*tz-env, *otel-env]
       OTEL_SERVICE_NAME: identity-service
-      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
+      JAVA_TOOL_OPTIONS: *java-tool-options
     # JWT signing keys, Google OAuth, identity-db credentials — only the identity containers read it.
     env_file:
       - .env.identity
@@ -339,7 +352,7 @@ services:
     environment:
       <<: [*tz-env, *otel-env]
       OTEL_SERVICE_NAME: problem-service
-      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
+      JAVA_TOOL_OPTIONS: *java-tool-options
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_PARTITIONS: ${KAFKA_PARTITIONS:-6}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
@@ -386,7 +399,7 @@ services:
       IDENTITY_URI: http://identity-service:8000
       PROBLEM_URI: http://problem-service:8000
       OTEL_SERVICE_NAME: api-gateway
-      JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
+      JAVA_TOOL_OPTIONS: *java-tool-options
       REDIS_HOST: redis
       REDIS_PORT: "6379"
     mem_limit: 512m
@@ -504,6 +517,7 @@ volumes:
   identitydata:
   problemdata:
   submissiondata:
+  redisdata:
   js2log:
   miniodata:
   test_case_cache:

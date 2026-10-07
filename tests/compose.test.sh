@@ -3,7 +3,9 @@
 # Run from anywhere: tests/compose.test.sh — needs the gitignored .env* files beside docker-compose.yml.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-config=$(docker compose config --format json)
+# The checkout that owns the .env files: in a worktree, the main checkout (as bench/lib/common.sh resolves it).
+deploy_dir=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+config=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
 fail=0
 check() { # check <description> <python expression over s = services, v = volumes>
   if python3 -c "import json,sys; c=json.load(sys.stdin); s=c['services']; v=c.get('volumes',{}); sys.exit(0 if ($2) else 1)" <<< "$config"; then
@@ -26,6 +28,12 @@ check "kafka has a fixed cluster id" "s['kafka']['environment'].get('CLUSTER_ID'
 check "api-gateway waits only for the back-ends to start, and for redis to be healthy" \
   "{k: d['condition'] for k, d in s['api-gateway']['depends_on'].items()} == {'submission-service': 'service_started', 'identity-service': 'service_started', 'problem-service': 'service_started', 'redis': 'service_healthy'}"
 check "problem-service gets KAFKA_PARTITIONS" "s['problem-service']['environment'].get('KAFKA_PARTITIONS') == '6'"
+
+check "redis keeps an append-only file on the named volume redisdata (revocations survive down/up)" \
+  "s['redis'].get('command') == ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec'] and any(m.get('source') == 'redisdata' and m.get('target') == '/data' for m in s['redis'].get('volumes', [])) and 'redisdata' in v"
+java_services="('api-gateway', 'identity-service', 'problem-service', 'submission-service')"
+check "the JVM services forget a resolved address after 1 s and never cache a failed lookup, agent kept" \
+  "all({'-Dsun.net.inetaddr.ttl=1', '-Dsun.net.inetaddr.negative.ttl=0', '-javaagent:/otel/opentelemetry-javaagent.jar'} <= set(s[n]['environment']['JAVA_TOOL_OPTIONS'].split()) for n in $java_services)"
 
 # The sandboxes run untrusted code: least privilege, and a network that reaches only the worker.
 sandboxes="('judge-server', 'judge-server-2')"
