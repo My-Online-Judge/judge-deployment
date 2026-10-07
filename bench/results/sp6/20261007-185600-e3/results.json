@@ -1,0 +1,54 @@
+{
+ "id": "20261007-185600-e3",
+ "exp": "e3",
+ "dropped_iterations": 0,
+ "verdicts_counted": 578.7845360824742,
+ "routes": {
+  "problem_list": {
+   "p50": 4.6233,
+   "p95": 8.271098,
+   "p99": 9.722074,
+   "n": 6001,
+   "error_rate": 0
+  },
+  "problem_detail": {
+   "p50": 4.196784,
+   "p95": 7.807121950000001,
+   "p99": 9.220677060000007,
+   "n": 6000,
+   "error_rate": 0
+  },
+  "history": {
+   "p50": 4.474983999999999,
+   "p95": 8.14568455,
+   "p99": 10.52545732000002,
+   "n": 6000,
+   "error_rate": 0
+  },
+  "submit": {
+   "p50": 13.198596,
+   "p95": 22.078942,
+   "p99": 22.7977722,
+   "n": 541,
+   "error_rate": 0
+  }
+ },
+ "judge_p95": 0.8942639146147261,
+ "judge_p95_censored": false,
+ "judge_n": 540.0,
+ "verdict_lag_max": 0.0,
+ "outbox_age_max": 0.0,
+ "heap_max_bytes": {
+  "job=api-gateway": 79654920.0,
+  "job=identity-service": 109792640.0,
+  "job=problem-service": 117213960.0,
+  "job=submission-service": 129389896.0
+ },
+ "histogram_top_s": 30.0,
+ "invariant_ok": true,
+ "system_errors": 0,
+ "by_status": {
+  "0": 577
+ },
+ "verdict_delta": 1.8
+}

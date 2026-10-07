@@ -1,0 +1,105 @@
+ Container oj-bench-judge-worker-1 Running 
+[18:23:05] run 20261007-182254-e3
+invariant ok: 578 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-182254-e3
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-182254-e3
+ Container oj-bench-judge-worker-1 Running 
+[18:39:38] run 20261007-183928-e3
+invariant ok: 577 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-183928-e3
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-183928-e3
+ Container oj-bench-judge-worker-1 Running 
+[18:56:10] run 20261007-185600-e3
+invariant ok: 577 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-185600-e3
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-185600-e3
+ Container oj-bench-judge-worker-1 Running 
+[19:12:42] run 20261007-191232-e4-c1
+invariant ok: 166 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-191232-e4-c1
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-191232-e4-c1
+ Container oj-bench-judge-worker-1 Running 
+[19:19:13] run 20261007-191903-e4-c2
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-191903-e4-c2
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-191903-e4-c2
+ Container oj-bench-judge-worker-1 Running 
+[19:25:45] run 20261007-192534-e4-c3
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-192534-e4-c3
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-192534-e4-c3
+ Container oj-bench-judge-worker-1 Running 
+[19:32:16] run 20261007-193206-e4-c4
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-193206-e4-c4
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-193206-e4-c4
+ Container oj-bench-judge-worker-1 Running 
+[19:38:54] run 20261007-193843-e4-c5
+invariant ok: 170 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-193843-e4-c5
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-193843-e4-c5
+ Container oj-bench-judge-worker-1 Running 
+[19:45:26] run 20261007-194516-e4-c6
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-194516-e4-c6
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-194516-e4-c6
+ Container oj-bench-judge-worker-1 Running 
+[19:52:03] run 20261007-195153-e4-c1
+invariant ok: 166 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-195153-e4-c1
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-195153-e4-c1
+ Container oj-bench-judge-worker-1 Running 
+[19:58:40] run 20261007-195829-e4-c2
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-195829-e4-c2
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-195829-e4-c2
+ Container oj-bench-judge-worker-1 Running 
+[20:05:23] run 20261007-200512-e4-c3
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-200512-e4-c3
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-200512-e4-c3
+ Container oj-bench-judge-worker-1 Running 
+[20:12:16] run 20261007-201205-e4-c4
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-201205-e4-c4
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-201205-e4-c4
+ Container oj-bench-judge-worker-1 Running 
+[20:20:17] run 20261007-202006-e4-c5
+invariant ok: 155 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-202006-e4-c5
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-202006-e4-c5
+ Container oj-bench-judge-worker-1 Running 
+[20:27:08] run 20261007-202657-e4-c6
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-202657-e4-c6
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-202657-e4-c6
+ Container oj-bench-judge-worker-1 Running 
+[20:33:58] run 20261007-203347-e4-c1
+invariant ok: 152 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-203347-e4-c1
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-203347-e4-c1
+ Container oj-bench-judge-worker-1 Running 
+[20:40:52] run 20261007-204041-e4-c2
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-204041-e4-c2
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-204041-e4-c2
+ Container oj-bench-judge-worker-1 Running 
+[20:47:33] run 20261007-204722-e4-c3
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-204722-e4-c3
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-204722-e4-c3
+ Container oj-bench-judge-worker-1 Running 
+[20:54:02] run 20261007-205352-e4-c4
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-205352-e4-c4
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-205352-e4-c4
+ Container oj-bench-judge-worker-1 Running 
+[21:00:32] run 20261007-210021-e4-c5
+invariant ok: 172 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-210021-e4-c5
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-210021-e4-c5
+ Container oj-bench-judge-worker-1 Running 
+[21:07:08] run 20261007-210658-e4-c6
+invariant ok: 217 accepted, 0 missing, 0 not terminal, 0 SYSTEM_ERROR
+exported results/20261007-210658-e4-c6
+RUN_DIR=/home/tuan/Project/my-oj/.worktrees/sp6/judge-deployment/bench/results/20261007-210658-e4-c6

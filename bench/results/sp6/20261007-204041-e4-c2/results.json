@@ -1,0 +1,111 @@
+{
+ "id": "20261007-204041-e4-c2",
+ "exp": "e4",
+ "dropped_iterations": 0,
+ "verdicts_counted": 218.7131578947368,
+ "fault": "c2",
+ "routes": {
+  "history": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 147,
+   "last_error_after_remove_ms": null
+  },
+  "problem_detail": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 47,
+   "last_error_after_remove_ms": null
+  },
+  "problem_list": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 247,
+   "last_error_after_remove_ms": null
+  },
+  "submit": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 1496,
+   "last_error_after_remove_ms": null
+  }
+ },
+ "queue_recovery_s": 54.66599988937378,
+ "breaker_open_after_s": null,
+ "alerts_after_s": {
+  "alertname=JudgeWorkerDown": 29.992000102996826
+ },
+ "fault_latency": {
+  "history": {
+   "before": {
+    "p50": 8.8,
+    "p95": 19.1,
+    "n": 200
+   },
+   "during": {
+    "p50": 8.3,
+    "p95": 10.7,
+    "n": 201
+   },
+   "overhead_p95": -8.400000000000002,
+   "recovery_s": 0
+  },
+  "problem_detail": {
+   "before": {
+    "p50": 9.1,
+    "p95": 19.1,
+    "n": 200
+   },
+   "during": {
+    "p50": 8.4,
+    "p95": 10.1,
+    "n": 201
+   },
+   "overhead_p95": -9.000000000000002,
+   "recovery_s": 0
+  },
+  "problem_list": {
+   "before": {
+    "p50": 9.7,
+    "p95": 22.2,
+    "n": 200
+   },
+   "during": {
+    "p50": 9.2,
+    "p95": 10.9,
+    "n": 201
+   },
+   "overhead_p95": -11.299999999999999,
+   "recovery_s": 0
+  },
+  "submit": {
+   "before": {
+    "p50": 24.3,
+    "p95": 41.8,
+    "n": 36
+   },
+   "during": {
+    "p50": 20,
+    "p95": 29.4,
+    "n": 37
+   },
+   "overhead_p95": -12.399999999999999,
+   "recovery_s": 0
+  }
+ },
+ "dispatch_failed_during": {},
+ "invariant_ok": true,
+ "system_errors": 0,
+ "by_status": {
+  "0": 217
+ },
+ "verdict_delta": 1.7
+}

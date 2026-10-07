@@ -1,0 +1,11 @@
+series,t,value
+alertname=SandboxDown,1791378483,1
+alertname=SandboxDown,1791378488,1
+alertname=SandboxDown,1791378493,1
+alertname=SandboxDown,1791378498,1
+alertname=SandboxDown,1791378503,1
+alertname=SandboxDown,1791378508,1
+alertname=SandboxDown,1791378513,1
+alertname=SandboxDown,1791378518,1
+alertname=SandboxDown,1791378523,1
+alertname=SandboxDown,1791378528,1

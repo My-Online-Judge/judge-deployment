@@ -1,0 +1,31 @@
+[18:18:41] read before the stop: 200 0.044659s
+[18:18:42] problem-service stopped
+[18:18:42] t+1s read 503 0.516573s — problem-service does not resolve
+[18:18:43] t+2s read 503 0.007304s — problem-service does not resolve
+[18:18:44] t+3s read 503 0.010434s — problem-service does not resolve
+[18:18:45] t+4s read 503 0.006878s — problem-service does not resolve
+[18:18:47] t+5s read 503 0.005487s — problem-service does not resolve
+[18:18:48] t+7s read 503 0.007816s — problem-service does not resolve
+[18:18:49] t+8s read 503 0.005841s — problem-service does not resolve
+[18:18:50] t+9s read 503 0.005945s — problem-service does not resolve
+[18:18:51] t+10s read 503 0.007662s — problem-service does not resolve
+[18:18:52] t+11s read 503 0.004342s — problem-service does not resolve
+[18:18:53] t+12s read 503 0.005198s — problem-service does not resolve
+[18:18:54] t+13s read 503 0.008788s — problem-service does not resolve
+[18:18:55] t+14s read 503 0.005008s — problem-service does not resolve
+[18:18:56] t+15s read 503 0.004759s — problem-service does not resolve
+[18:18:57] t+16s read 503 0.005947s — problem-service does not resolve
+[18:18:58] t+17s read 503 0.010869s — problem-service does not resolve
+[18:18:59] t+18s read 503 0.010304s — problem-service does not resolve
+[18:19:00] t+19s read 503 0.004585s — problem-service does not resolve
+[18:19:01] t+20s read 503 0.005240s — problem-service does not resolve
+[18:19:02] t+21s read 503 0.008129s — problem-service does not resolve
+[18:19:03] t+22s read 503 0.004484s — problem-service does not resolve
+[18:19:05] t+23s read 503 0.006167s — problem-service does not resolve
+[18:19:06] t+25s read 503 0.008672s — problem-service does not resolve
+[18:19:07] t+26s read 503 0.005004s — problem-service does not resolve
+[18:19:08] t+27s read 503 0.005571s — problem-service does not resolve
+[18:19:11] t+28s submit 503 2.048876s
+[18:19:11] problem-service addresses the gateway dialled:
+[18:19:11] problem-service addresses submission-service dialled:
+[18:19:11] problem-service started again

@@ -1,0 +1,113 @@
+{
+ "id": "20261007-205352-e4-c4",
+ "exp": "e4",
+ "dropped_iterations": 0,
+ "verdicts_counted": 218.17297297297296,
+ "fault": "c4",
+ "routes": {
+  "history": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 122,
+   "last_error_after_remove_ms": null
+  },
+  "problem_detail": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 22,
+   "last_error_after_remove_ms": null
+  },
+  "problem_list": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 221,
+   "last_error_after_remove_ms": null
+  },
+  "submit": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 863,
+   "last_error_after_remove_ms": null
+  }
+ },
+ "queue_recovery_s": 53.138999938964844,
+ "breaker_open_after_s": null,
+ "alerts_after_s": {
+  "alertname=KafkaUnreachable": 54.21900010108948
+ },
+ "fault_latency": {
+  "history": {
+   "before": {
+    "p50": 5.8,
+    "p95": 10.2,
+    "n": 200
+   },
+   "during": {
+    "p50": 8.9,
+    "p95": 10.1,
+    "n": 204
+   },
+   "overhead_p95": -0.09999999999999964,
+   "recovery_s": 0
+  },
+  "problem_detail": {
+   "before": {
+    "p50": 6.8,
+    "p95": 8.9,
+    "n": 200
+   },
+   "during": {
+    "p50": 8,
+    "p95": 9,
+    "n": 203
+   },
+   "overhead_p95": 0.09999999999999964,
+   "recovery_s": 0
+  },
+  "problem_list": {
+   "before": {
+    "p50": 6.5,
+    "p95": 9.5,
+    "n": 200
+   },
+   "during": {
+    "p50": 8.6,
+    "p95": 9.7,
+    "n": 204
+   },
+   "overhead_p95": 0.1999999999999993,
+   "recovery_s": 0
+  },
+  "submit": {
+   "before": {
+    "p50": 21.7,
+    "p95": 32.1,
+    "n": 36
+   },
+   "during": {
+    "p50": 20.3,
+    "p95": 31.1,
+    "n": 37
+   },
+   "overhead_p95": -1.0,
+   "recovery_s": 0
+  }
+ },
+ "dispatch_failed_during": {
+  "sandbox=judge-server-2": 0.0
+ },
+ "invariant_ok": true,
+ "system_errors": 0,
+ "by_status": {
+  "0": 217
+ },
+ "verdict_delta": 1.2
+}

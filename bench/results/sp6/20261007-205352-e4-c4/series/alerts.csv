@@ -1,0 +1,4 @@
+series,t,value
+alertname=KafkaUnreachable,1791381422,1
+alertname=KafkaUnreachable,1791381427,1
+alertname=KafkaUnreachable,1791381432,1

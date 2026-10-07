@@ -1,0 +1,9 @@
+series,t,value
+alertname=JudgeWorkerDown,1791378070,1
+alertname=JudgeWorkerDown,1791378075,1
+alertname=JudgeWorkerDown,1791378080,1
+alertname=JudgeWorkerDown,1791378085,1
+alertname=JudgeWorkerDown,1791378090,1
+alertname=JudgeWorkerDown,1791378095,1
+alertname=JudgeWorkerDown,1791378100,1
+alertname=JudgeWorkerDown,1791378105,1

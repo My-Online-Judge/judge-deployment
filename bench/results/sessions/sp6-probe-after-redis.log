@@ -1,0 +1,85 @@
+[18:20:32] before the stop: read 200 0.167889s submit 200 0.402497s
+[18:20:43] redis stopped
+[18:20:43] t+0s read 200 0.032354s submit 200 0.040095s
+[18:20:49] t+6s read 200 0.019719s submit 200 0.031852s
+[18:20:56] t+12s read 200 0.019908s submit 200 0.023692s
+[18:21:02] t+19s read 200 0.021201s submit 200 0.025412s
+[18:21:08] t+25s read 200 0.021408s submit 200 0.028969s
+[18:21:14] t+31s read 200 0.014524s submit 200 0.026411s
+[18:21:20] t+37s read 200 0.015022s submit 200 0.028429s
+[18:21:26] t+43s read 200 0.020184s submit 200 0.025916s
+[18:21:32] t+49s read 200 0.010376s submit 200 0.026336s
+[18:21:38] t+55s read 200 0.009464s submit 200 0.022166s
+[18:21:44] redis started again
+[18:21:44] t+0s after the start: read 200 0.013238s submit 200 0.040611s
+[18:21:50] t+6s after the start: read 200 0.010360s submit 200 0.026450s
+[18:21:56] t+12s after the start: read 200 0.011754s submit 429 0.026543s
+[18:22:02] t+18s after the start: read 200 0.009913s submit 200 0.030619s
+[18:22:08] t+24s after the start: read 200 0.015279s submit 429 0.023043s
+[18:22:14] t+30s after the start: read 200 0.011107s submit 200 0.028554s
+[18:22:21] t+36s after the start: read 200 0.014256s submit 429 0.021156s
+[18:22:27] t+43s after the start: read 200 0.010418s submit 200 0.029190s
+[18:22:33] t+49s after the start: read 200 0.009974s submit 429 0.019116s
+[18:22:39] t+55s after the start: read 200 0.008926s submit 200 0.027677s
+[18:22:45] oj-api-gateway, reconnect lines since the stop:
+2026-10-07T18:20:43.753+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-1] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/172.18.0.3:6379
+2026-10-07T18:20:48.772+07:00  WARN 1 --- [api-gateway] [xecutorLoop-3-1] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+	at io.lettuce.core.protocol.ReconnectionHandler.reconnect0(ReconnectionHandler.java:126) ~[lettuce-core-6.6.0.RELEASE.jar!/:6.6.0.RELEASE/643bd47]
+	at io.lettuce.core.protocol.ReconnectionHandler.lambda$reconnect$0(ReconnectionHandler.java:104) ~[lettuce-core-6.6.0.RELEASE.jar!/:6.6.0.RELEASE/643bd47]
+	at io.lettuce.core.protocol.ReconnectionHandler.reconnect(ReconnectionHandler.java:96) ~[lettuce-core-6.6.0.RELEASE.jar!/:6.6.0.RELEASE/643bd47]
+2026-10-07T18:20:48.842+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-3] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:20:53.849+07:00  WARN 1 --- [api-gateway] [llEventLoop-6-3] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:20:53.943+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-4] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:20:58.951+07:00  WARN 1 --- [api-gateway] [llEventLoop-6-4] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:20:59.042+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-6] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:04.050+07:00  WARN 1 --- [api-gateway] [llEventLoop-6-5] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:04.142+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-8] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:09.150+07:00  WARN 1 --- [api-gateway] [llEventLoop-6-6] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:09.244+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-2] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:14.251+07:00  WARN 1 --- [api-gateway] [llEventLoop-6-7] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:14.342+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-4] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:19.349+07:00  WARN 1 --- [api-gateway] [llEventLoop-6-8] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:19.542+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-6] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:24.549+07:00  WARN 1 --- [api-gateway] [llEventLoop-6-1] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:24.841+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-8] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:29.846+07:00  WARN 1 --- [api-gateway] [llEventLoop-6-2] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:30.442+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-3] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:35.447+07:00  WARN 1 --- [api-gateway] [llEventLoop-6-3] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:36.542+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-5] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:41.548+07:00  WARN 1 --- [api-gateway] [llEventLoop-6-4] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:42.642+07:00  INFO 1 --- [api-gateway] [xecutorLoop-3-7] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:45.149+07:00  INFO 1 --- [api-gateway] [llEventLoop-6-5] i.l.core.protocol.ReconnectionHandler    : Reconnected to redis/<unresolved>:6379
+[18:22:45] oj-submission-service, reconnect lines since the stop:
+2026-10-07T18:20:43.778+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-1] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/172.18.0.3:6379
+2026-10-07T18:20:43.780+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-2] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/172.18.0.3:6379
+2026-10-07T18:20:43.781+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-3] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/172.18.0.3:6379
+2026-10-07T18:20:48.793+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-4] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+	at io.lettuce.core.protocol.ReconnectionHandler.reconnect0(ReconnectionHandler.java:126)
+	at io.lettuce.core.protocol.ReconnectionHandler.lambda$reconnect$0(ReconnectionHandler.java:104)
+	at io.lettuce.core.protocol.ReconnectionHandler.reconnect(ReconnectionHandler.java:96)
+2026-10-07T18:20:48.871+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-5] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:20:53.798+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-6] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:20:53.872+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-6] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:20:58.802+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-5] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:20:58.871+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-8] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:03.809+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-8] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:03.870+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-2] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:08.813+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-7] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:08.871+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-4] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:13.819+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-2] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:13.871+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-6] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:18.826+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-1] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:18.871+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-8] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:23.830+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-4] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:23.870+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-2] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:28.837+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-3] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:28.871+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-4] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:33.842+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-6] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:33.970+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-6] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:38.846+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-5] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:38.871+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-8] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:43.853+07:00  WARN 1 --- [submission-service] [ioEventLoop-5-8] [] [] i.l.core.protocol.ConnectionWatchdog     : Cannot reconnect to [redis/<unresolved>:6379]: redis: Try again
+2026-10-07T18:21:43.971+07:00  INFO 1 --- [submission-service] [xecutorLoop-1-2] [] [] i.l.core.protocol.ConnectionWatchdog     : Reconnecting, last destination was redis/<unresolved>:6379
+2026-10-07T18:21:46.361+07:00  INFO 1 --- [submission-service] [ioEventLoop-5-1] [] [] i.l.core.protocol.ReconnectionHandler    : Reconnected to redis/<unresolved>:6379
+2026-10-07T18:21:46.361+07:00  INFO 1 --- [submission-service] [ioEventLoop-5-2] [] [] i.l.core.protocol.ReconnectionHandler    : Reconnected to redis/<unresolved>:6379
+2026-10-07T18:21:46.368+07:00  INFO 1 --- [submission-service] [ioEventLoop-5-7] [] [] i.l.core.protocol.ReconnectionHandler    : Reconnected to redis/<unresolved>:6379
