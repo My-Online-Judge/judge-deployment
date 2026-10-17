@@ -1,5 +1,6 @@
-"""Before/after tables and the targets of sub-project 6 (spec §3.3, §6): the same analysis over sub-project 5's runs
-and the re-measured ones. python -m oj_analyze compare <e3|e4> --before <run dirs> --after <run dirs> → Markdown."""
+"""Before/after tables and the targets of sub-projects 6 and 7 (sub-project 6 spec §3.3, §6; sub-project 7 spec §6):
+the same analysis over the earlier runs and the re-measured ones. python -m oj_analyze compare <e3|e4>
+--before <run dirs> --after <run dirs> → Markdown."""
 import csv
 import json
 from collections import defaultdict
@@ -18,7 +19,8 @@ REDIS_READ_OVERHEAD = 20   # ms, c6, read routes
 REDIS_SUBMIT_P95 = 100     # ms, c6
 RECOVERY_S = 5             # s, c6, every route
 DETECTION_S = 60           # s after the injection, every fault
-E3_SLACK = 1.1             # the new median at most this × sub-project 5's highest run
+E3_SLACK = 1.1             # the new median at most this × the before runs' highest
+QUEUE_BACK_S = 70          # s, c4, every run (sub-project 7 §6)
 
 
 def alerts_fired(run_dir):
@@ -85,7 +87,7 @@ def by_fault(runs):
     out = defaultdict(list)
     for run, res in runs:
         out[res.get("fault") or run["args"]["fault"]].append(res)
-    return out
+    return dict(out)
 
 
 def e4(before, after):
@@ -94,19 +96,21 @@ def e4(before, after):
     lines = ["| fault | route | errors during % | p95 during, ms | p95 overhead, ms | latency recovery, s |",
              "|---|---|---|---|---|---|"]
     for f in faults:
-        routes = sorted({r for res in b[f] + a[f] for r in (res.get("fault_latency") or {})})
+        bf, af = b.get(f, []), a.get(f, [])
+        routes = sorted({r for res in bf + af for r in (res.get("fault_latency") or {})})
         for k, route in enumerate(routes):
             errors = lambda res, route=route: (res.get("routes") or {}).get(route, {}).get("error_rate_during")
-            lines.append(f"| {f if k == 0 else ''} | {route} | {pair(b[f], a[f], errors, 100)} | "
-                         f"{pair(b[f], a[f], latency(route, 'during', 'p95'), digits=0)} | "
-                         f"{pair(b[f], a[f], latency(route, 'overhead_p95'), digits=0)} | "
-                         f"{pair(b[f], a[f], latency(route, 'recovery_s'), digits=0)} |")
+            lines.append(f"| {f if k == 0 else ''} | {route} | {pair(bf, af, errors, 100)} | "
+                         f"{pair(bf, af, latency(route, 'during', 'p95'), digits=0)} | "
+                         f"{pair(bf, af, latency(route, 'overhead_p95'), digits=0)} | "
+                         f"{pair(bf, af, latency(route, 'recovery_s'), digits=0)} |")
     lines += ["", "| fault | first alert, s after inject | queue back, s | failed dispatches during the fault |",
               "|---|---|---|---|"]
     for f in faults:
-        lines.append(f"| {f} | {pair(b[f], a[f], first_alert, digits=0)} | "
-                     f"{pair(b[f], a[f], lambda r: r.get('queue_recovery_s'), digits=0)} | "
-                     f"{pair(b[f], a[f], failed_dispatches, digits=0)} |")
+        bf, af = b.get(f, []), a.get(f, [])
+        lines.append(f"| {f} | {pair(bf, af, first_alert, digits=0)} | "
+                     f"{pair(bf, af, lambda r: r.get('queue_recovery_s'), digits=0)} | "
+                     f"{pair(bf, af, failed_dispatches, digits=0)} |")
     lines += ["", "Targets (spec §6), over the re-measured runs:", ""] + [f"- {t}" for t in e4_targets(a)]
     return "\n".join(lines)
 
@@ -148,6 +152,13 @@ def e4_targets(a):
         ok = all(x is not None and x <= 1 for x in fails)
         out.append(f"{_verdict(ok)} c3: at most the one failed dispatch that marks the sandbox down, per run "
                    f"({', '.join(_fmt(x) for x in fails)})")
+    if "c4" in a:
+        c4 = a["c4"]
+        down = sum(1 for r in c4 if "JudgeWorkerDown" in (r.get("alerts_fired") or []))
+        out.append(f"{_verdict(down == 0)} c4: JudgeWorkerDown in no run ({down} of {len(c4)})")
+        qs = [r.get("queue_recovery_s") for r in c4]
+        ok = all(q is not None and q <= QUEUE_BACK_S for q in qs)
+        out.append(f"{_verdict(ok)} c4: queue back ≤ {QUEUE_BACK_S} s in every run ({', '.join(_fmt(q) for q in qs)})")
     return out
 
 
@@ -165,7 +176,7 @@ def e3(before, after):
         get = {q: (lambda res, q=q, route=route: (res.get("routes") or {}).get(route, {}).get(q)) for q in ("p50", "p95")}
         ok = all(within_range([g(r) for r in b], [g(r) for r in a]) for g in get.values())
         lines.append(f"| {route} | {pair(b, a, get['p50'])} | {pair(b, a, get['p95'])} | {'yes' if ok else 'no'} |")
-        targets.append(f"{_verdict(ok)} {route}: median p50 and p95 ≤ {E3_SLACK} × SP5's highest run")
+        targets.append(f"{_verdict(ok)} {route}: median p50 and p95 ≤ {E3_SLACK} × the before runs' highest")
     fired = sorted({x for r in a for x in r["alerts_fired"]})
     targets.insert(0, f"{_verdict(not fired)} no alert fired in any run ({', '.join(fired) or 'none'})")
     return "\n".join(lines + ["", "Targets (spec §6), over the re-measured runs:", ""] + [f"- {t}" for t in targets])

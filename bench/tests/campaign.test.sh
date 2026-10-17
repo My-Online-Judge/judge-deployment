@@ -34,4 +34,11 @@ if [ "$(grep -c '^env down' "$stub/log")" = 3 ] && [ "$(grep -c '^run e4 --fault
 else echo "FAIL e4: a run that leaves the queue undrained is kept and the stack re-created before the next run"; fail=1; fi
 STUB_DIRTY="--rate 50" camp e1
 if [ "$(grep -c '^env up --history' "$stub/log")" = 3 ]; then echo "ok   e1: the stack comes back seeded with --history"; else echo "FAIL e1: the stack comes back seeded with --history"; fail=1; fi
+FAULTS="c1 c4 c5" camp e4 0.8
+if [ "$(grep -c '^run e4' "$stub/log")" = 9 ] && [ "$(sed -n 2p "$stub/log")" = "run e4 --fault c4 --submit-rate 0.8" ]; then
+  echo "ok   e4: FAULTS picks the faults, 3 rounds"; else echo "FAIL e4: FAULTS picks the faults, 3 rounds"; fail=1; fi
+if FAULTS="c1 c9" camp e4 0.8 || grep -q '^run' "$stub/log"; then echo "FAIL e4: an unknown fault in FAULTS is refused before any run"; fail=1
+else echo "ok   e4: an unknown fault in FAULTS is refused before any run"; fi
+REPEATS=1 camp e3 0.6
+if [ "$(grep -c '^run e3' "$stub/log")" = 1 ]; then echo "ok   e3: REPEATS=1 is one run"; else echo "FAIL e3: REPEATS=1 is one run"; fail=1; fi
 exit $fail

@@ -4,7 +4,7 @@
 #   campaign.sh e2 <workers> <steps>   3 runs
 #   campaign.sh e1                     3 rounds of 20, 50, 100 req/s (the stack seeded with env.sh up --history)
 #   campaign.sh e3 <submit-rate>       3 runs
-#   campaign.sh e4 <submit-rate>       3 rounds of c1..c6
+#   campaign.sh e4 <submit-rate>       3 rounds of c1..c6 (FAULTS="c1 c4 c5" picks some)
 # Any run that fails is run again on a re-created stack; a run that leaves the queue undrained or fails its invariant
 # is kept (a finding) and the stack is re-created before the next run, so nothing is measured on a dirty baseline.
 set -euo pipefail
@@ -12,6 +12,8 @@ source "$(dirname "$0")/lib/common.sh"
 RUN=${RUN_SH:-$BENCH_DIR/run.sh}
 ENV=${ENV_SH:-$BENCH_DIR/env.sh}
 REPEATS=${REPEATS:-3}
+FAULTS=${FAULTS:-c1 c2 c3 c4 c5 c6}
+for f in $FAULTS; do [[ $f =~ ^c[1-6]$ ]] || die "FAULTS: unknown fault '$f' (c1..c6)"; done
 UP_ARGS=()
 [ "${1:-}" = e1 ] && UP_ARGS=(--history)
 run() { "$RUN" "$@" | tail -1; }
@@ -44,6 +46,6 @@ case "${1:-}" in
   e2) for _ in $(seq "$REPEATS"); do measure e2 --workers "$2" --steps "$3"; done ;;
   e1) for _ in $(seq "$REPEATS"); do for r in 20 50 100; do measure e1 --rate "$r"; done; done ;;
   e3) for _ in $(seq "$REPEATS"); do measure e3 --submit-rate "$2"; done ;;
-  e4) for _ in $(seq "$REPEATS"); do for f in c1 c2 c3 c4 c5 c6; do measure e4 --fault "$f" --submit-rate "$2"; done; done ;;
+  e4) for _ in $(seq "$REPEATS"); do for f in $FAULTS; do measure e4 --fault "$f" --submit-rate "$2"; done; done ;;
   *) die "usage: campaign.sh e2-pilots | e2 <workers> <steps> | e1 | e3 <rate> | e4 <rate>" ;;
 esac
