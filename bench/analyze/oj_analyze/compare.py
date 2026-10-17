@@ -12,7 +12,7 @@ from . import invariant as inv
 from .summarize import READ_ROUTES, cell
 
 # The routes a stopped service fails and their p95 target during the fault, ms (spec §3.2 A). Submit during c1 waits
-# out the gRPC retries — three attempts 200 ms apart — until the breaker opens.
+# out the gRPC retries — three attempts, 50 ms apart since sub-project 7 (200 ms before) — until the breaker opens.
 STOPPED_SERVICE_P95 = {"c1": {"problem_list": 100, "problem_detail": 100, "submit": 500},
                        "c5": {"history": 100, "submit": 100}}
 REDIS_READ_OVERHEAD = 20   # ms, c6, read routes
