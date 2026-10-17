@@ -669,3 +669,201 @@ missing alert are fixed, and the lookups still fail open by choice.
 - **`run.json`'s `git` field.** For the six service repos it names the main checkouts' commits, which were
   sub-project 5's, not the worktrees the images were built from. The bench reads the service repos next to the main
   checkout. The `images` ids in the same file are the sub-project 6 builds named at the top of this section.
+
+## 11. Sub-project 6's follow-ups (sub-project 7)
+
+Sub-project 7 took on follow-ups 12–14 of §10.6. Each one was probed before any change, and the probes decided what
+changed. E4's c1, c4 and c5 were then run again (three runs each) together with one E3 run, on 2026-10-17, with the
+parameters of §10.
+
+The images were built from:
+
+- oj-submission-service `1282754`: F2 `b4c8e27` and F3 `1282754` below;
+- judge-worker `963fb4a`;
+- judge-deployment `5d42a30`, which holds the compose file, the rules and the bench.
+
+Each run's `run.json` lists these images by id under `images`: submission-service `0a7d77d759c8` and judge-worker
+`50e7e94acae7`; the other three images are sub-project 6's. As in §10.7, its `git` field names the main checkouts'
+commits for the service repositories.
+
+The comparison is against sub-project 6's runs of the same faults (`bench/results/sp6/`). The tables are
+`bench/results/sp7/compare-e4.md` and `bench/results/sp7/compare-e3.md`. The probes and start checks are in
+`bench/results/sessions/`, and the session's log is `bench/results/sessions/sp7-session.log`.
+
+### 11.1 Erratum to §10.5
+
+§10.5 says submission-service's gRPC channel to problem-service has a static address and "keeps dialling the old
+address, which no DNS setting reaches". The address is not static:
+
+- Spring gRPC strips the `static:` prefix.
+- grpc-java resolves `problem-service:9090` through its default `dns:///` resolver and balances with `round_robin`.
+- That resolver keeps an answer for the **system** property `networkaddress.cache.ttl`, 30 s when unset. Sub-project
+  6 set a Security property of the same name, which this resolver does not read.
+
+What a submit then waits for was not the resolver either. `bench/results/sessions/sp7-probe-before-grpc.log` timed a
+submit every 3 s through a 60 s stop of problem-service:
+
+- Most submits failed in 0.42 s: an `UNAVAILABLE` and two retries 200 ms apart.
+- Once the breaker had opened, they failed in about 15 ms.
+- Two submits took 2.02 s, at t+20 s and t+50 s. These are the breaker's half-open trials, ten seconds after it
+  opened, and they met the 2 s gRPC deadline.
+
+### 11.2 What was wrong, and what changed
+
+| follow-up (§10.6) | what the probe showed | change |
+|---|---|---|
+| 12: a submit waits 2 s while problem-service is down | Only the breaker's half-open trials wait, and they wait in the channel's buffer: `deadline exceeded after 2.0 s. Name resolution delay 0.000 … buffered_nanos=2.0e9, waiting_for_connection` (`bench/results/sessions/sp7-probe-after-grpc-statuses.log`). The channel was connecting, not failed, when the trial arrived. | Three fixes, each probed (§11.3); none removes the 2 s wait. F1: grpc-java's resolver cache 1 s (`-Dnetworkaddress.cache.ttl=1`). F2: a 500 ms connect timeout on the channel. F3: retries 50 ms apart instead of 200 ms. |
+| 13: the worker can exit when Kafka goes away | Kafka killed while a verdict was in flight (`sp7-probe-before-kafka.log`). After 30 s the publish timed out and the worker exited, then crash-looped on `NoBrokersAvailable`: 9 restarts, with Prometheus unable to scrape it. The verdict was terminal 36 s after Kafka's start. | The worker sends the verdict again until Kafka takes it. Meanwhile it pauses its partitions and polls to stay in its group, and it rewinds anything that poll fetches. A verdict Kafka refuses for good is replaced by a SYSTEM_ERROR. At start, the worker waits for a broker instead of exiting. |
+| 14: every stack start raises critical alerts | `sp7-startcheck-before.log`: `ApiGatewayDown` 30 s, `IdentityServiceDown` 25 s, `ProblemServiceDown` 30 s and `SubmissionServiceDown` 25 s after Prometheus started. | Prometheus scrapes itself. The five `up`-based rules hold off while it has run under 120 s: `unless on() (time() - process_start_time_seconds{job="prometheus"} <= 120)`. This fails open, so without the self-scrape the rules fire as before. |
+
+### 11.3 Probes and start checks, before and after
+
+**c1 (`probe.sh grpc`).** Each line is a submit's time during a 60 s stop of problem-service.
+
+| step | file | failing submits | half-open trials | gRPC statuses |
+|---|---|---|---|---|
+| before | `sp7-probe-before-grpc.log` | 0.42 s | 2.02 s (×2) | 2 DEADLINE_EXCEEDED, 4 UNAVAILABLE |
+| F1 | `sp7-probe-f1-grpc.log` | 0.42 s | 2.02 s (×2) | same |
+| F1+F2 | `sp7-probe-after-grpc.log` | 0.42 s | 2.02 s (×2) | same; the connect now times out after 500 ms |
+| F1+F2+F3 | `sp7-probe-f3-grpc.log` | 0.12–0.14 s | 2.02 s (×2) | same |
+
+**c4 (`probe.sh kafka`).** Kafka was killed (SIGKILL) the moment the worker started judging a submission that
+sleeps 2.5 s per test.
+
+| | worker restarts | Prometheus scraped the worker | terminal after Kafka's start |
+|---|---|---|---|
+| before (`sp7-probe-before-kafka.log`) | 0 → 9 | no, from t+41 s | 36 s |
+| after (`sp7-probe-after-kafka.log`) | 0 → 0 | yes, throughout | 17 s |
+
+**Stack start (`startcheck.sh`).** Every alert firing in Prometheus's first 180 s:
+
+- before, with sub-project 6's rules (`sp7-startcheck-before.log`): the four `*ServiceDown` rules, at 25–30 s;
+- with sub-project 7's rules, on sub-project 6's images (`sp7-startcheck-after-rules.log`): none;
+- with sub-project 7's rules and images (`sp7-startcheck-after.log`): none.
+
+### 11.4 E4 (c1, c4, c5) and E3 against sub-project 6
+
+Each cell is `sub-project 6 → sub-project 7`, each side the median (min–max) over its runs. The definitions are §10.3's.
+
+| fault | route | errors during % | p95 during, ms | p95 overhead, ms | latency recovery, s |
+|---|---|---|---|---|---|
+| c1 | history | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 12 (10–12) → 12 (11–14) | 1 (-12–1) → 1 (-0–1) | 0 (0–0) → 0 (0–0) |
+|  | problem_detail | 99.0 (99.0–99.5) → 99.5 (99.0–99.5) | 6 (6–6) → 6 (6–8) | -2 (-14–-2) → -3 (-6–-2) | 15 (0–15) → 15 (15–20) |
+|  | problem_list | 99.0 (98.5–99.5) → 99.5 (99.0–99.5) | 6 (6–7) → 6 (6–8) | -3 (-14–-2) → -3 (-7–-2) | 15 (0–15) → 15 (15–20) |
+|  | submit | 100.0 (100.0–100.0) → 100.0 (100.0–100.0) | 2009 (2008–2012) → 2010 (2009–2014) | 1984 (1967–1985) → 1979 (1978–1980) | 30 (25–55) → 25 (25–30) |
+| c4 | history | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 10 (10–12) → 10 (10–11) | -0 (-18–1) → 0 (-0–0) | 0 (0–0) → 0 (0–0) |
+|  | problem_detail | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 9 (9–10) → 10 (10–10) | 0 (-8–0) → 0 (-0–0) | 0 (0–0) → 0 (0–0) |
+|  | problem_list | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 10 (9–10) → 11 (11–11) | 0 (-17–0) → 0 (-1–0) | 0 (0–0) → 0 (0–0) |
+|  | submit | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 31 (31–32) → 36 (35–36) | -1 (-19–6) → 6 (5–6) | 0 (0–0) → 0 (0–0) |
+| c5 | history | 99.5 (99.0–99.5) → 100.0 (100.0–100.0) | 6 (5–6) → 6 (6–6) | -4 (-12–-3) → -4 (-5–-3) | 20 (0–20) → 20 (20–20) |
+|  | problem_detail | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 8 (7–9) → 9 (9–9) | 0 (-12–0) → 0 (-0–0) | 0 (0–0) → 0 (0–0) |
+|  | problem_list | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 9 (7–10) → 10 (10–10) | 0 (-9–0) → 0 (-0–1) | 0 (0–0) → 0 (0–0) |
+|  | submit | 100.0 (97.3–100.0) → 100.0 (100.0–100.0) | 6 (4–6) → 6 (6–7) | -18 (-21–-13) → -21 (-21–-20) | 20 (0–20) → 20 (20–20) |
+
+| fault | first alert, s after inject | queue back, s | failed dispatches during the fault |
+|---|---|---|---|
+| c1 | 23 (20–24) → 24 (20–28) | 4 (2–4) → 3 (2–4) | 0 (0–0) → 0 (0–0) |
+| c4 | 49 (19–54) → 49 (48–49) | 63 (53–247) → 63 (62–63) | 0 (0–0) → 0 (0–0) |
+| c5 | 21 (20–25) → 24 (24–25) | 24 (19–65) → 23 (23–24) | 0 (0–0) → 0 (0–0) |
+
+- **c1.** Reads still fail in 6 ms. Submit is unchanged at 2010 ms (2009–2014), against 2009 ms in sub-project 6:
+  - The breaker opened 8–14 s after the stop.
+  - Its half-open trials wait in the channel for the whole 2 s deadline, as the probes showed.
+  - F3 shortened every other failing submit, but those were not the p95.
+  - `ProblemServiceDown` fired at 20–28 s.
+- **c4.** No run raised `JudgeWorkerDown`, and the queue was back in 62–63 s in every run. In sub-project 6 it took
+  53, 63 and 247 s; the 247 s was the run in which the worker exited. These three runs probably did not catch a
+  verdict mid-publish, which needs a submission judged at the moment Kafka stops. The kafka probe is the test of that
+  path (§11.3). Submit's p95 during the outage, 36 ms, equals sub-project 5's figure in §6.
+- **c5.** Unchanged, as expected: history and submit fail in 6 ms, and `SubmissionServiceDown` fired at 24–25 s.
+
+| route | p50, ms | p95, ms | within range |
+|---|---|---|---|
+| problem_list | 4.6 (4.5–5.3) → 5.1 | 8.3 (8.3–9.9) → 8.8 | yes |
+| problem_detail | 4.2 (4.1–4.9) → 4.8 | 7.8 (7.8–9.3) → 8.2 | yes |
+| history | 4.5 (4.3–5.2) → 5.9 | 8.1 (8.0–9.8) → 10.2 | no |
+| submit | 14.1 (13.2–16.7) → 16.6 | 23.3 (22.1–29.2) → 26.0 | yes |
+
+`history`'s p50 is the one value outside the range: 5.9 ms against 1.1 × 5.2 = 5.73 ms.
+- This was one run, and every route in it is about 0.5 ms higher.
+- No sub-project 7 change lies on `history`'s path (gateway → submission-service → its database). F2 and F3 touch only
+  the gRPC calls to problem-service, and F1 only grpc-java's resolver.
+- Sub-project 5's E3 had the same figure (§5: 5.9 ms).
+
+It is reported as a MISS, but it is not a regression the measurements can attribute. No alert fired during the run's
+15 minutes.
+
+### 11.5 Targets
+
+From the two compare files, verbatim:
+
+- PASS no alert fired in any run (none)
+- PASS problem_list: median p50 and p95 ≤ 1.1 × the before runs' highest
+- PASS problem_detail: median p50 and p95 ≤ 1.1 × the before runs' highest
+- MISS history: median p50 and p95 ≤ 1.1 × the before runs' highest
+- PASS submit: median p50 and p95 ≤ 1.1 × the before runs' highest
+- PASS invariant held in 9/9 runs, 0 SYSTEM_ERROR
+- PASS c1: first alert ≤ 60 s after inject in every run (28, 20, 24)
+- PASS c4: first alert ≤ 60 s after inject in every run (48, 49, 49)
+- PASS c5: first alert ≤ 60 s after inject in every run (24, 25, 24)
+- PASS c1 problem_list: p95 during < 100 ms (median 6)
+- PASS c1 problem_detail: p95 during < 100 ms (median 6)
+- MISS c1 submit: p95 during < 500 ms (median 2010)
+- PASS c5 history: p95 during < 100 ms (median 6)
+- PASS c5 submit: p95 during < 100 ms (median 6)
+- PASS c4: JudgeWorkerDown in no run (0 of 3)
+- PASS c4: queue back ≤ 70 s in every run (62, 63, 63)
+
+From the probes and start checks (spec §6):
+
+- PASS kafka probe: the worker's restart count unchanged (0 → 0; before: 0 → 9)
+- MISS kafka probe: the in-flight submission terminal ≤ 15 s after Kafka's start (17 s; before: 36 s)
+- PASS stack start on the bench: no `*ServiceDown` or `JudgeWorkerDown` in the first 180 s (none; before: four)
+
+**16 of 19 met.** The three misses:
+
+- **c1 submit, p95 2010 ms against 500 ms.**
+  - Not a resolver cache (F1 changed nothing) and not a hanging connect (F2 changed nothing): the breaker's half-open
+    trials wait in the channel's buffer while it is connecting, until the 2 s deadline.
+  - What would help is follow-up 15 below.
+- **The kafka probe's 17 s.**
+  - The probe kills Kafka (SIGKILL), so the 17 s includes Kafka's log recovery, which E4's graceful stop never pays.
+  - In a full outage the worker's first wait lasts until the group coordinator answers again (kafka-python 2.0.2 does
+    not time out there), then the verdict is sent.
+  - One probe; the figure was 36 s with sub-project 6's worker.
+- **E3 history p50,** by 0.17 ms in a single run (§11.4).
+
+### 11.6 Follow-ups
+
+Continuing §10.6:
+
+- **Follow-up 12 (a submit waits 2 s while problem-service is down)** is not closed. Its cause is now known; see 15.
+- **Follow-up 13 (the worker exits when Kafka goes away)** is closed:
+  - the kafka probe: 0 restarts, scraped throughout;
+  - E4 c4: no `JudgeWorkerDown` in any run, queue back in 62–63 s.
+- **Follow-up 14 (alerts at every stack start)** is closed on the bench (the start checks show none). The live check
+  is part of the rollout.
+
+15. **The breaker's half-open trials wait out the gRPC deadline** (c1). When a trial arrives, the channel is
+    connecting again, and grpc-java holds the RPC until the deadline. Options:
+    - a shorter per-attempt deadline for these RPCs (they answer in milliseconds; 2 s only bounds the wait);
+    - failing a call at once when the channel is not READY (`ManagedChannel.getState(false)`);
+    - a breaker that keeps the circuit open while the channel is not READY.
+
+    Each needs the c1 probe and runs before and after.
+16. **`oj_verdict_publish_retries_total` counts one or two retries per Kafka outage**, not one per back-off step,
+    because the first wait lasts the whole outage. Count outages, or record the time spent waiting, if the metric is
+    to mean more.
+
+### 11.7 Threats to validity
+
+- **Bench cadence.** Detection and the start checks were measured on the bench, which evaluates every 5 s; live
+  evaluates every 15 s (§10.7).
+- **Sample sizes.** E3 is a single run, so it has no spread. E4 has three runs per fault. Each probe ran once per
+  step.
+- **The kafka probe kills Kafka; E4's c4 stops it.** E4's c4 runs may not catch a verdict mid-publish; the probe
+  does, by construction.
+- **Host load.** The 1-minute load average before a run (`run.json` `loadavg_before`) was 1.4–3.9 for E4 and 2.1
+  for E3, against 0.7–9.1 and 0.8–2.2 in sub-project 6. The host's memory was not logged.
+- **`run.json`'s `git` field** names the main checkouts' commits, as in §10.7. The `images` ids are the builds named
+  at the top of this section.
