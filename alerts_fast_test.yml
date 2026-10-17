@@ -214,3 +214,25 @@ tests:
             exp_annotations:
               summary: "submission-service is not being scraped"
               description: "Prometheus has failed to scrape submission-service for 15 seconds. Submissions are not being accepted."
+
+  # Fail-open (final review I3): with no process_start_time_seconds{job="prometheus"} — the self-scrape failing or its
+  # series stale — the *Down rules work as they did before the hold-off, instead of going silent.
+  - interval: 15s
+    input_series:
+      - series: 'up{job="problem-service", instance="problem-service:8081"}'
+        values: '0x8'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: ProblemServiceDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: problem-service, instance: "problem-service:8081"}
+            exp_annotations:
+              summary: "problem-service is not being scraped"
+              description: "Prometheus has failed to scrape problem-service for 15 seconds. Problem pages fail and submissions are refused with 503."
+      - eval_time: 30s
+        alertname: JudgeWorkerDown
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "No judge-worker is running"
+              description: "No judge-worker has answered a scrape for 15 seconds, so nothing is being judged. Check the judge-worker containers."
