@@ -402,3 +402,258 @@ Recorded, not fixed (spec §1).
   dead sandbox, a consumer-group rebalance across several workers, network partitions, slow (rather than absent)
   dependencies and full disks were not tested. The fault-window latencies in §6 come from `k6.log` by a one-off
   computation, not from `summarize`, so the analysis package does not regenerate them.
+
+## 10. After the fixes (sub-project 6)
+
+Sub-project 6 fixed what E4 found (§8, items 6–10) and ran E3 (three runs) and E4 (eighteen runs: c1–c6, three
+each) again on 2026-10-07, 18:23–21:13, with sub-project 5's parameters (§2, §5, §6). The images were built from
+the sub-project 6 commits: oj-common `0ea64b1` (0.4.0), oj-api-gateway `b7b3e6b`, oj-submission-service `0e97f36`,
+oj-identity-service `4009c3d`, oj-problem-service `01efb53` and judge-worker `25f8580`. The compose file, the alert
+rules and the bench were at judge-deployment `b1680d9`. Each run's `run.json` lists these images by id under
+`images`. Its `git` field is misleading for this session (§10.7): for the six service repos it names sub-project 5's
+commits. The runs are in `bench/results/sp6/`; the session's log is `bench/results/sessions/sp6-session.log`.
+
+The tables below are copied from `bench/results/sp6/compare-e4.md` and `bench/results/sp6/compare-e3.md`. Both were
+produced by `python -m oj_analyze compare`, which reads sub-project 5's committed runs and the new ones through the
+same code. Each cell is `before → after`, each side the median (min–max) over its runs. "Before" is the minute
+before the fault was injected, and "during" is the fault window. `compare` reproduces §6's fault-window figures
+from sub-project 5's runs, so both sides are measured the same way.
+
+`bench/probe.sh` timed a read and a submit while a dependency was down, once before the fixes (sub-project 5's
+compose file and images) and once after:
+
+- `bench/results/sessions/sp6-probe-before-dns.log` and `bench/results/sessions/sp6-probe-after-dns.log`, with
+  problem-service stopped;
+- `bench/results/sessions/sp6-probe-before-redis.log` and `bench/results/sessions/sp6-probe-after-redis.log`, with
+  Redis stopped.
+
+### 10.1 What was wrong, and what changed
+
+| E4 finding (§8) | Cause, as the probe showed it | Change |
+|---|---|---|
+| A stopped service costs 2 s per request (6) | The gateway kept dialling a cached address after Docker's DNS stopped resolving `problem-service`. Reactor Netty keeps an answer for its 600 s TTL, so reads answered 503 only after 2.0 s. | The gateway's resolver keeps an answer at most 1 s and never caches a failed lookup. Connect timeout cut from 2000 to 500 ms. The JVMs' own DNS cache is 1 s, with failed lookups not cached. This is set with Security properties: the runtime image's `java.security` overrides the `-D` flag that was tried first. |
+| Redis down: +0.6 s per request, +1.6 s per submit, a 13–48 s tail after it returns (7, 8) | Each request waited out the Redis timeouts. Lettuce's reconnect attempts came 5, 9, 8, 17 and 30 s apart, so submission-service reconnected 10 s after Redis started and the gateway 4 s after. | oj-common 0.4.0. A command sent while Lettuce is disconnected fails at once, so the fail-open path runs without waiting. Reconnect attempts are at most 1 s apart, and the JDK resolves Redis's name. |
+| The worker keeps trying a dead sandbox (10) | Dispatch started at a round-robin offset and ignored what the ping thread knew. | A health table, fed by the pings and by failed dispatches. Healthy sandboxes are tried first and marked ones last. |
+| No alert for four of the six faults; the two that fired did so after the fault (9) | The worker had no metrics. No rule watched the sandboxes, Kafka or Redis, and `*ServiceDown` waited `for: 1m`. | `/metrics` on the worker. New rules `JudgeWorkerDown`, `SandboxDown`, `KafkaUnreachable` and `RedisUnavailable`. `*ServiceDown` now waits `for: 15s`. |
+| Found while planning: Redis lost the logout blocklist and revocation cutoffs on every `down`/`up` | No persistence | An append-only file on a named volume |
+
+**The probes after the fixes:**
+
+- **problem-service stopped:** reads through the gateway answered 503 in 4–10 ms. The first took 0.52 s, the new
+  connect timeout.
+- **Redis down:** a read took 10–30 ms and a submit 22–40 ms. After Redis started, the gateway reconnected in 1.1 s
+  and submission-service in 2.4 s.
+
+One cause sat deeper than the spec put it. A submit during c1 still took 2.05 s after the fix.
+submission-service's gRPC channel to problem-service has the address `static://problem-service:9090` and keeps
+dialling the old address, which no DNS setting reaches (§10.5).
+
+### 10.2 Detection
+
+| fault | first alert, s after inject | queue back, s | failed dispatches during the fault |
+|---|---|---|---|
+| c1 | 69 (69–74) → 23 (20–24) | 3 (3–3) → 4 (2–4) | — → 0 (0–0) |
+| c2 | — → 28 (25–30) | 53 (49–54) → 55 (50–58) | — → 0 (0–0) |
+| c3 | — → 31 (29–35) | 4 (4–5) → 3 (0–5) | — → 1 (1–1) |
+| c4 | — → 49 (19–54) | 54 (54–54) → 63 (53–247) | — → 0 (0–0) |
+| c5 | 64 (64–69) → 21 (20–25) | 23 (18–23) → 24 (19–65) | — → 0 (0–0) |
+| c6 | — → 24 (23–25) | 4 (4–5) → 4 (3–5) | — → 0 (0–0) |
+
+**Every fault now raises an alert while it lasts.** Before, four of the six faults raised none, and the other two
+alerted after the 60 s fault had ended. In every run the first alert to fire was the fault's own rule
+(`results.json`, `alerts_after_s`), and no rule fired that the fault did not explain:
+
+- **c1:** `ProblemServiceDown` at 20–24 s. `ProblemServiceCircuitOpen` followed at 73–75 s; its `for: 1m` is
+  unchanged.
+- **c2:** `JudgeWorkerDown` at 25–30 s.
+- **c3:** `SandboxDown` at 29–35 s. The worker pings each sandbox every 10 s, and a ping or a failed dispatch
+  marks the sandbox down. The rule then waits 15 s.
+- **c4:** `KafkaUnreachable` at 19–54 s. This rule watches the consumers' connection count and fires once it has
+  been 0 for 15 s. The count reached 0 at different times after Kafka stopped, which explains the spread. In run
+  `20261007-201205-e4-c4`, `JudgeWorkerDown` also fired, at 59 s, because the worker itself went down (§10.3).
+- **c5:** `SubmissionServiceDown` at 20–25 s.
+- **c6:** `RedisUnavailable` at 23–25 s.
+
+These times are the bench's. It evaluates rules every 5 s and live every 15 s, so live alerts later (§10.7).
+
+**Failed dispatches.** Under c3, each run recorded exactly one failed dispatch, the one that marks the sandbox
+down. Sub-project 5's worker exported no metrics, so its side reads "—". Its `worker-log.txt` showed one failure
+every ≈ 3.3 s (§6), about 18 over the minute.
+
+**Queue back.** This column changed little, with two exceptions:
+
+- **c4:** one run took 247 s, explained in §10.3.
+- **c5:** one run took 65 s, but c5's queue never held more than two submissions. That range is the queue
+  flickering between 0 and 2, not a backlog.
+
+### 10.3 Failing fast, recovering fast
+
+| fault | route | errors during % | p95 during, ms | p95 overhead, ms | latency recovery, s |
+|---|---|---|---|---|---|
+| c1 | history | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 11 (11–14) → 12 (10–12) | 0 (-3–1) → 1 (-12–1) | 0 (0–0) → 0 (0–0) |
+|  | problem_detail | 99.0 (99.0–99.5) → 99.0 (99.0–99.5) | 2005 (2005–2006) → 6 (6–6) | 1996 (1993–1997) → -2 (-14–-2) | 15 (15–15) → 15 (0–15) |
+|  | problem_list | 99.0 (99.0–99.5) → 99.0 (98.5–99.5) | 2005 (2005–2007) → 6 (6–7) | 1996 (1992–1996) → -3 (-14–-2) | 15 (15–15) → 15 (0–15) |
+|  | submit | 100.0 (100.0–100.0) → 100.0 (100.0–100.0) | 2012 (2010–2015) → 2009 (2008–2012) | 1983 (1980–1985) → 1984 (1967–1985) | 25 (25–25) → 30 (25–55) |
+| c2 | history | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 11 (11–11) → 11 (9–11) | 0 (0–0) → 0 (-8–0) | 0 (0–0) → 0 (0–0) |
+|  | problem_detail | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 10 (10–10) → 10 (10–10) | 0 (-0–0) → 0 (-9–0) | 0 (0–0) → 0 (0–0) |
+|  | problem_list | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 11 (11–12) → 11 (10–11) | 0 (-0–0) → -0 (-11–-0) | 0 (0–0) → 0 (0–0) |
+|  | submit | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 30 (30–32) → 29 (26–32) | -0 (-1–0) → -1 (-12–1) | 0 (0–0) → 0 (0–0) |
+| c3 | history | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 10 (10–10) → 10 (9–19) | -0 (-0–0) → 0 (0–0) | 0 (0–0) → 0 (0–0) |
+|  | problem_detail | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 9 (9–10) → 9 (9–15) | 0 (-0–0) → -0 (-0–0) | 0 (0–0) → 0 (0–0) |
+|  | problem_list | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 10 (10–10) → 10 (10–17) | -0 (-0–0) → 0 (-0–3) | 0 (0–0) → 0 (0–0) |
+|  | submit | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 27 (26–28) → 26 (25–28) | -1 (-1–-0) → 0 (-0–4) | 0 (0–0) → 0 (0–0) |
+| c4 | history | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 10 (10–10) → 10 (10–12) | 0 (0–0) → -0 (-18–1) | 0 (0–0) → 0 (0–0) |
+|  | problem_detail | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 9 (9–9) → 9 (9–10) | 0 (0–0) → 0 (-8–0) | 0 (0–0) → 0 (0–0) |
+|  | problem_list | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 10 (10–10) → 10 (9–10) | 0 (0–0) → 0 (-17–0) | 0 (0–0) → 0 (0–0) |
+|  | submit | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 36 (34–37) → 31 (31–32) | 8 (7–10) → -1 (-19–6) | 0 (0–0) → 0 (0–0) |
+| c5 | history | 99.0 (99.0–99.0) → 99.5 (99.0–99.5) | 2005 (2005–2005) → 6 (5–6) | 1995 (1995–1996) → -4 (-12–-3) | 20 (20–20) → 20 (0–20) |
+|  | problem_detail | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 9 (8–9) → 8 (7–9) | 0 (-0–0) → 0 (-12–0) | 0 (0–0) → 0 (0–0) |
+|  | problem_list | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 10 (9–10) → 9 (7–10) | 0 (0–0) → 0 (-9–0) | 0 (0–0) → 0 (0–0) |
+|  | submit | 97.3 (97.3–97.3) → 100.0 (97.3–100.0) | 2005 (2005–2010) → 6 (4–6) | 1980 (1979–1985) → -18 (-21–-13) | 20 (20–20) → 20 (0–20) |
+| c6 | history | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 618 (606–644) → 11 (11–22) | 607 (594–632) → -1 (-4–-0) | 5 (5–5) → 0 (0–0) |
+|  | problem_detail | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 615 (603–640) → 8 (7–14) | 606 (594–632) → -1 (-1–-0) | 5 (5–5) → 0 (0–0) |
+|  | problem_list | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 615 (603–641) → 8 (8–15) | 606 (594–632) → -1 (-3–-0) | 5 (5–5) → 0 (0–0) |
+|  | submit | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 1661 (1658–1668) → 29 (27–64) | 1628 (1628–1638) → -2 (-2–10) | 20 (15–50) → 0 (0–0) |
+
+**How to read the columns:**
+
+- **p95 overhead:** p95 during the fault minus p95 in the minute before. It is negative when the failed requests
+  are faster than the normal ones.
+- **Latency recovery:** the end of the last slow 5 s window after the component is started again, in seconds. A
+  window is slow when its p95 is above twice the p95 before, or above 100 ms if that is larger. Only windows before
+  latency has stayed normal for 30 s count, so a lone late outlier is not taken for slow recovery.
+
+The errors column does not move, and that is expected. A stopped service still fails its requests; what changed is
+how long each failure takes.
+
+- **C1, problem-service stopped.** Reads now fail in 6 ms instead of 2005 ms. In the figure, only the first 10 s
+  window rises, to about 0.5 s: the connect timeout, paid until the cached address expires. Submit did not change
+  (p95 2009 ms against 2012 ms), and it has the same pattern as in §6:
+  - The breaker opened 9–13 s after the stop. Until then, and on every half-open probe, a submit waited out the 2 s
+    gRPC deadline.
+  - This is the gRPC channel of §10.1, untouched by the DNS settings.
+
+  Latency recovery after the restart:
+  - Reads: 15 s in two runs, problem-service's start-up and its first slow responses. In the third run, no window
+    was slow.
+  - Submit: 30 s (25–55 s), the breaker's 10 s wait on top of the start-up. The 55 s run was not examined further.
+
+  | before (sub-project 5) | after |
+  |---|---|
+  | ![C1 before: client p95 per route](results/20261007-121304-e4-c1/client_p95.png) | ![C1 after: client p95 per route](results/sp6/20261007-191232-e4-c1/client_p95.png) |
+
+- **C2, judge-worker killed, and C3, a sandbox stopped.** Unchanged for users, as before. Under C3 the worker now
+  stops sending judgements to the stopped sandbox after the first failure (§10.2).
+- **C4, Kafka stopped.** Unchanged for users (submit p95 31 ms against 36 ms). The queue was back in 53 and 63 s
+  in two runs, as before (54 s). In run `20261007-201205-e4-c4` it took 247 s:
+  - The worker's `/metrics` stopped answering during the outage, and `JudgeWorkerDown` fired 59 s after the stop.
+  - The worker resumed judging about 45 s later than in the other two runs: the queue peaked at 64 submissions,
+    235 s into the run. The other two runs peaked at 37 and 38, at 190 and 195 s.
+  - At one worker's net drain rate that backlog took four minutes to clear.
+  - The likely cause, read from the code: `worker.py` publishes each verdict with `future.get(timeout=30)` and does
+    not catch its failure. A verdict being published when Kafka stops therefore ends the process, and Docker
+    restarts the container (`restart: unless-stopped`).
+  - Not confirmed: the containers' logs were removed with the bench.
+  - No submission was lost. The message's offset had not been committed, so the submission was delivered again: the
+    run's invariant shows 217 accepted, none SYSTEM_ERROR.
+  - This code did not change in sub-project 6. Sub-project 5's three c4 runs did not show it (54 s each), and its
+    worker had no metrics that could have.
+- **C5, submission-service stopped.** History and submit now fail in 6 ms instead of 2005 ms. Latency recovery
+  (20 s in two runs) is the service's start-up, 16 s in §6.
+- **C6, Redis stopped.** Requests no longer pay for the outage:
+  - Reads: p95 8–11 ms against 615–618 ms.
+  - Submit: 29 ms against 1661 ms.
+  - Overhead: −2 to −1 ms.
+  - Latency recovery: 0 s in every run, against 5 s for reads and 15–50 s for submits. The tail of §8 item 8 is gone.
+
+  The lookups still fail open, as chosen for sub-project 6. During an outage the cooldown, the bans and logout are
+  not enforced, but `RedisUnavailable` now says so within about 25 s.
+
+  | before (sub-project 5) | after |
+  |---|---|
+  | ![C6 before: client p95 per route](results/20261007-124551-e4-c6/client_p95.png) | ![C6 after: client p95 per route](results/sp6/20261007-194516-e4-c6/client_p95.png) |
+
+  The two figures have different y-axes: before, up to 1750 ms; after, up to 31 ms.
+
+### 10.4 Normal operation (E3)
+
+| route | p50, ms | p95, ms | within range |
+|---|---|---|---|
+| problem_list | 5.7 (5.4–5.8) → 4.6 (4.5–5.3) | 8.8 (8.7–10.2) → 8.3 (8.3–9.9) | yes |
+| problem_detail | 5.4 (5.3–5.9) → 4.2 (4.1–4.9) | 8.2 (8.1–9.5) → 7.8 (7.8–9.3) | yes |
+| history | 5.9 (5.4–5.9) → 4.5 (4.3–5.2) | 8.7 (8.5–10.2) → 8.1 (8.0–9.8) | yes |
+| submit | 14.5 (14.1–20.8) → 14.1 (13.2–16.7) | 23.5 (22.0–32.2) → 23.3 (22.1–29.2) | yes |
+
+"Within range" means the new median p50 and p95 are at most 1.1 × sub-project 5's highest run. The fixes cost
+normal operation nothing. A 1 s DNS cache means more lookups, but the reads' p50 is about 1 ms lower, not higher.
+The reason was not examined: the host was less loaded before these runs (§10.7). No alert fired in any of the
+three 15-minute runs, so the new rules and the shorter `for` did not raise a false alarm under sustained load.
+
+### 10.5 Targets
+
+The targets of sub-project 6's spec (§6), copied from the two compare files:
+
+- PASS no alert fired in any run (none)
+- PASS problem_list: median p50 and p95 ≤ 1.1 × SP5's highest run
+- PASS problem_detail: median p50 and p95 ≤ 1.1 × SP5's highest run
+- PASS history: median p50 and p95 ≤ 1.1 × SP5's highest run
+- PASS submit: median p50 and p95 ≤ 1.1 × SP5's highest run
+- PASS invariant held in 18/18 runs, 0 SYSTEM_ERROR
+- PASS c1: first alert ≤ 60 s after inject in every run (23, 24, 20)
+- PASS c2: first alert ≤ 60 s after inject in every run (28, 25, 30)
+- PASS c3: first alert ≤ 60 s after inject in every run (29, 31, 35)
+- PASS c4: first alert ≤ 60 s after inject in every run (49, 19, 54)
+- PASS c5: first alert ≤ 60 s after inject in every run (25, 21, 20)
+- PASS c6: first alert ≤ 60 s after inject in every run (23, 25, 24)
+- PASS c1 problem_list: p95 during < 100 ms (median 6)
+- PASS c1 problem_detail: p95 during < 100 ms (median 6)
+- MISS c1 submit: p95 during < 500 ms (median 2009)
+- PASS c5 history: p95 during < 100 ms (median 6)
+- PASS c5 submit: p95 during < 100 ms (median 6)
+- PASS c6 history: overhead < 20 ms (median -1)
+- PASS c6 problem_detail: overhead < 20 ms (median -1)
+- PASS c6 problem_list: overhead < 20 ms (median -1)
+- PASS c6 submit: p95 during < 100 ms (median 29)
+- PASS c6 history: latency recovery < 5 s in every run (0, 0, 0)
+- PASS c6 problem_detail: latency recovery < 5 s in every run (0, 0, 0)
+- PASS c6 problem_list: latency recovery < 5 s in every run (0, 0, 0)
+- PASS c6 submit: latency recovery < 5 s in every run (0, 0, 0)
+- PASS c3: at most the one failed dispatch that marks the sandbox down, per run (1, 1, 1)
+
+**24 of 25 met.** The miss is c1's submit: p95 2009 ms, 2008–2012 ms over the three runs, against a target of
+500 ms. The spec expected the DNS fix to cut it to the gRPC retries. The after-probe showed why it did not:
+submission-service's gRPC channel to problem-service is created with `static://problem-service:9090`. It resolves
+the name once and keeps dialling that address, so a request waits out the 2 s gRPC deadline until the breaker
+opens, and again on every half-open probe. A fix needs its own design and tests (§10.6, item 12).
+
+### 10.6 Follow-ups
+
+Continuing the numbering of §8. Items 6, 8, 9 and 10 there are fixed, as above. Of item 7, the latency and the
+missing alert are fixed, and the lookups still fail open by choice.
+
+12. **A submit still waits 2 s while problem-service is down** (c1, §10.5). Give submission-service's gRPC channel
+    a short connect timeout, or move it to `dns:///` name resolution and check how quickly gRPC re-resolves.
+    Either way, test it with the c1 probe.
+13. **The worker can exit when Kafka goes away** (c4, one run in three, §10.3). Catch a failed verdict publish in
+    the worker and retry within the process. Leave the offset uncommitted, as now, so the message is still
+    redelivered if the process dies. Test this by stopping Kafka while a verdict is being published.
+14. **`JudgeWorkerDown` fires at every stack start** until the worker answers its first scrape, which takes about a
+    minute. It did not affect the runs here, which start on a running stack, but on live every `up` raises a
+    critical alert. Fix it with a grace period after the stack starts, or a longer `for` on this rule only.
+
+### 10.7 Threats to validity
+
+- **Detection was measured on the bench.** The bench evaluates rules every 5 s and live every 15 s, so on live a
+  rule with `for: 15s` fires up to about 30 s later than shown here (sub-project 6's spec §7).
+- **Host load.** Same host, load and parameters as sub-project 5. The host's memory was not logged during this
+  session, so §9's memory caveat cannot be checked for it. The 1-minute load average before a run (`run.json`
+  `loadavg_before`) ranged from 0.8 to 2.2 for E3 and from 0.7 to 9.1 for E4. In sub-project 5 it ranged from 1.4
+  to 4.2 and from 0.5 to 5.6.
+- **Sample size.** Each probe ran once before and once after: the probes show the mechanism, and the E4 runs
+  measure it. The E4 figures are three runs per fault, so the 247 s of c4 and the 55 s of c1's submit recovery are
+  each a single run.
+- **No "before" for failed dispatches.** Sub-project 5's worker exported no metrics, so the c3 comparison uses that
+  session's worker log, not the same metric.
+- **`run.json`'s `git` field.** For the six service repos it names the main checkouts' commits, which were
+  sub-project 5's, not the worktrees the images were built from. The bench reads the service repos next to the main
+  checkout. The `images` ids in the same file are the sub-project 6 builds named at the top of this section.
