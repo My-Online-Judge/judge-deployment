@@ -3,6 +3,8 @@
 # 6 §3.2 A): a resolved address kept 1 s, a failed lookup not at all. It checks the effect, not a flag: the image's
 # java.security sets networkaddress.cache.negative.ttl=10, which a -Dsun.net.inetaddr.* system property cannot
 # override (final review C1). The resolved config holds .env values, so it stays in a private temp dir; prints none.
+# grpc-java's DnsNameResolver reads networkaddress.cache.ttl as a SYSTEM property (default 30 s), which the Security
+# properties above do not set (sub-project 7 §2): grpc= is that property.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 deploy_dir=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
@@ -13,7 +15,8 @@ public class DnsPolicy {
     public static void main(String[] args) throws Exception {
         Class<?> policy = Class.forName("sun.net.InetAddressCachePolicy");
         System.out.println("positive=" + policy.getMethod("get").invoke(null)
-                + " negative=" + policy.getMethod("getNegative").invoke(null));
+                + " negative=" + policy.getMethod("getNegative").invoke(null)
+                + " grpc=" + System.getProperty("networkaddress.cache.ttl"));
     }
 }
 EOF
@@ -38,7 +41,7 @@ PY
 )
   got=$(eval docker run --rm --network none --user "$(id -u):$(id -g)" "$args" -v "$tmp:/probe:ro" --entrypoint java \
     "judge-deployment-$svc:latest" --add-exports java.base/sun.net=ALL-UNNAMED -cp /probe DnsPolicy 2>/dev/null | tail -1)
-  if [ "$got" = "positive=1 negative=0" ]; then echo "ok   $svc keeps a resolved address 1 s and never caches a failed lookup"
-  else echo "FAIL $svc: $got (want positive=1 negative=0)"; fail=1; fi
+  if [ "$got" = "positive=1 negative=0 grpc=1" ]; then echo "ok   $svc keeps a resolved address 1 s, never caches a failed lookup, and grpc-java's resolver keeps an answer 1 s"
+  else echo "FAIL $svc: $got (want positive=1 negative=0 grpc=1)"; fail=1; fi
 done
 exit $fail
