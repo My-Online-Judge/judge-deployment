@@ -841,8 +841,9 @@ Continuing §10.6:
 - **Follow-up 13 (the worker exits when Kafka goes away)** is closed:
   - the kafka probe: 0 restarts, scraped throughout;
   - E4 c4: no `JudgeWorkerDown` in any run, queue back in 62–63 s.
-- **Follow-up 14 (alerts at every stack start)** is closed on the bench (the start checks show none). The live check
-  is part of the rollout.
+- **Follow-up 14 (alerts at every stack start)** is closed on the bench (the start checks show none) and on live.
+  After the rollout's `up -d` on 2026-10-17, no alert was firing or pending in Prometheus's first 180 s (read during
+  the session from live Prometheus's `ALERTS` series).
 
 15. **The breaker's half-open trials wait out the gRPC deadline** (c1). When a trial arrives, the channel is
     connecting again, and grpc-java holds the RPC until the deadline. Options:
