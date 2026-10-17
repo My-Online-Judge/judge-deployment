@@ -1,0 +1,18 @@
+[15:07:54] t+0s Kafka killed while the worker judges f4a1a2ce-7769-406e-ba7c-d74f24f32e39
+[15:08:00] t+5s worker restarts 0, state running, scraped up: 1
+[15:08:05] t+11s worker restarts 0, state running, scraped up: 1
+[15:08:10] t+16s worker restarts 0, state running, scraped up: 1
+[15:08:15] t+21s worker restarts 0, state running, scraped up: 1
+[15:08:20] t+26s worker restarts 0, state running, scraped up: 1
+[15:08:25] t+31s worker restarts 0, state running, scraped up: 1
+[15:08:30] t+36s worker restarts 0, state running, scraped up: 1
+[15:08:35] t+41s worker restarts 0, state running, scraped up: 1
+[15:08:40] t+46s worker restarts 0, state running, scraped up: 1
+[15:08:45] t+51s worker restarts 0, state running, scraped up: 1
+[15:08:50] t+56s worker restarts 0, state running, scraped up: 1
+[15:08:55] t+61s worker restarts 0, state running, scraped up: 1
+[15:08:55] Kafka started again
+[15:09:12] t+17s after Kafka's start: submission f4a1a2ce-7769-406e-ba7c-d74f24f32e39 status -1 (6 PENDING and 7 JUDGING are not terminal)
+[15:09:12] worker restarts: 0 before, 0 after
+[15:09:12] the worker's log about Kafka since the submit:
+2026-10-17 15:08:07,493 WARNING [-] judge-worker: Verdict of submission f4a1a2ce-7769-406e-ba7c-d74f24f32e39 not published (KafkaTimeoutError('Timeout after waiting for 10 secs.')); sending it again i

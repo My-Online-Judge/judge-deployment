@@ -1,0 +1,112 @@
+{
+ "id": "20261017-150935-e4-c1",
+ "exp": "e4",
+ "dropped_iterations": 0,
+ "verdicts_counted": 167.20000000000002,
+ "fault": "c1",
+ "routes": {
+  "history": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.0,
+   "error_rate_after": 0.0,
+   "first_error_after_inject_ms": null,
+   "first_success_after_remove_ms": 122,
+   "last_error_after_remove_ms": null
+  },
+  "problem_detail": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.9901960784313726,
+   "error_rate_after": 0.07939189189189189,
+   "first_error_after_inject_ms": 635,
+   "first_success_after_remove_ms": 14543,
+   "last_error_after_remove_ms": 13818
+  },
+  "problem_list": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 0.9901960784313726,
+   "error_rate_after": 0.0777027027027027,
+   "first_error_after_inject_ms": 834,
+   "first_success_after_remove_ms": 14542,
+   "last_error_after_remove_ms": 13718
+  },
+  "submit": {
+   "error_rate_before": 0.0,
+   "error_rate_during": 1.0,
+   "error_rate_after": 0.14018691588785046,
+   "first_error_after_inject_ms": 509,
+   "first_success_after_remove_ms": 24443,
+   "last_error_after_remove_ms": 22526
+  }
+ },
+ "queue_recovery_s": 2.1510000228881836,
+ "breaker_open_after_s": 8.367000102996826,
+ "alerts_after_s": {
+  "alertname=ProblemServiceCircuitOpen": 73.36700010299683,
+  "alertname=ProblemServiceDown": 28.367000102996826
+ },
+ "fault_latency": {
+  "history": {
+   "before": {
+    "p50": 9.4,
+    "p95": 14.3,
+    "n": 200
+   },
+   "during": {
+    "p50": 11.2,
+    "p95": 14.1,
+    "n": 204
+   },
+   "overhead_p95": -0.20000000000000107,
+   "recovery_s": 0
+  },
+  "problem_detail": {
+   "before": {
+    "p50": 8,
+    "p95": 14,
+    "n": 200
+   },
+   "during": {
+    "p50": 6.5,
+    "p95": 8.5,
+    "n": 204
+   },
+   "overhead_p95": -5.5,
+   "recovery_s": 15
+  },
+  "problem_list": {
+   "before": {
+    "p50": 8.8,
+    "p95": 15.3,
+    "n": 200
+   },
+   "during": {
+    "p50": 6.5,
+    "p95": 8,
+    "n": 204
+   },
+   "overhead_p95": -7.300000000000001,
+   "recovery_s": 15
+  },
+  "submit": {
+   "before": {
+    "p50": 29.2,
+    "p95": 36.2,
+    "n": 36
+   },
+   "during": {
+    "p50": 10.8,
+    "p95": 2014.5,
+    "n": 36
+   },
+   "overhead_p95": 1978.3,
+   "recovery_s": 25
+  }
+ },
+ "dispatch_failed_during": {},
+ "invariant_ok": true,
+ "system_errors": 0,
+ "by_status": {
+  "0": 165
+ },
+ "verdict_delta": 2.2
+}

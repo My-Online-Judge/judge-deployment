@@ -1,0 +1,28 @@
+[14:32:44] before the stop: submit 200 0.042173s
+[14:32:56] problem-service stopped
+[14:32:56] t+1s submit 503 0.438347s read 503 0.017867s
+[14:33:00] t+4s submit 503 0.423083s read 503 0.010820s
+[14:33:03] t+8s submit 503 0.421790s read 503 0.005944s
+[14:33:06] t+11s submit 503 0.012336s read 503 0.004059s
+[14:33:09] t+14s submit 503 0.017397s read 503 0.004283s
+[14:33:12] t+17s submit 503 0.018492s read 503 0.005402s
+[14:33:17] t+20s submit 503 2.024232s read 503 0.005923s
+[14:33:21] t+25s submit 503 0.424686s read 503 0.006099s
+[14:33:24] t+29s submit 503 0.020388s read 503 0.004015s
+[14:33:27] t+32s submit 503 0.016497s read 503 0.005373s
+[14:33:30] t+35s submit 503 0.015907s read 503 0.004654s
+[14:33:33] t+38s submit 503 0.434795s read 503 0.004283s
+[14:33:36] t+41s submit 503 0.010841s read 503 0.004540s
+[14:33:39] t+44s submit 503 0.014525s read 503 0.004252s
+[14:33:42] t+47s submit 503 0.016571s read 503 0.004439s
+[14:33:47] t+50s submit 503 2.020687s read 503 0.007721s
+[14:33:51] t+55s submit 503 0.419662s read 503 0.006181s
+[14:33:54] t+59s submit 503 0.014825s read 503 0.004702s
+[14:33:57] submission-service's failed GetJudgeSpec calls since the stop, by gRPC status:
+      2 code=DEADLINE_EXCEEDED
+      4 code=UNAVAILABLE
+[14:33:57] problem-service started again
+[14:34:13] t+15s after the start: submit 200 0.597772s
+[14:34:28] t+31s after the start: submit 200 0.035516s
+[14:34:43] t+46s after the start: submit 200 0.045483s
+[14:34:58] t+61s after the start: submit 200 0.037403s

@@ -1,0 +1,4 @@
+ApiGatewayDown 30 s
+IdentityServiceDown 25 s
+ProblemServiceDown 30 s
+SubmissionServiceDown 25 s

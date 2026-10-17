@@ -1,0 +1,44 @@
+[14:34:58] t+0s Kafka killed while the worker judges f4eb7df9-9b16-4966-9421-628282f5c6bd
+[14:35:03] t+5s worker restarts 0, state running, scraped up: 1
+[14:35:08] t+10s worker restarts 0, state running, scraped up: 1
+[14:35:13] t+15s worker restarts 0, state running, scraped up: 1
+[14:35:18] t+20s worker restarts 0, state running, scraped up: 1
+[14:35:23] t+25s worker restarts 0, state running, scraped up: 1
+[14:35:28] t+30s worker restarts 0, state running, scraped up: 1
+[14:35:34] t+35s worker restarts 4, state running, scraped up: 1
+[14:35:39] t+41s worker restarts 6, state restarting, scraped up: 0
+[14:35:44] t+46s worker restarts 7, state restarting, scraped up: 0
+[14:35:49] t+51s worker restarts 8, state restarting, scraped up: 0
+[14:35:54] t+56s worker restarts 8, state restarting, scraped up: 0
+[14:35:59] t+61s worker restarts 8, state restarting, scraped up: 0
+[14:35:59] Kafka started again
+[14:36:35] t+36s after Kafka's start: submission f4eb7df9-9b16-4966-9421-628282f5c6bd status -1 (6 PENDING and 7 JUDGING are not terminal)
+[14:36:35] worker restarts: 0 before, 9 after
+[14:36:35] the worker's log about Kafka since the submit:
+Traceback (most recent call last):
+    raise Errors.KafkaTimeoutError(
+kafka.errors.KafkaTimeoutError: KafkaTimeoutError: Timeout after waiting for 30 secs.
+Traceback (most recent call last):
+    raise Errors.NoBrokersAvailable()
+kafka.errors.NoBrokersAvailable: NoBrokersAvailable
+Traceback (most recent call last):
+    raise Errors.NoBrokersAvailable()
+kafka.errors.NoBrokersAvailable: NoBrokersAvailable
+Traceback (most recent call last):
+    raise Errors.NoBrokersAvailable()
+kafka.errors.NoBrokersAvailable: NoBrokersAvailable
+Traceback (most recent call last):
+    raise Errors.NoBrokersAvailable()
+kafka.errors.NoBrokersAvailable: NoBrokersAvailable
+Traceback (most recent call last):
+    raise Errors.NoBrokersAvailable()
+kafka.errors.NoBrokersAvailable: NoBrokersAvailable
+Traceback (most recent call last):
+    raise Errors.NoBrokersAvailable()
+kafka.errors.NoBrokersAvailable: NoBrokersAvailable
+Traceback (most recent call last):
+    raise Errors.NoBrokersAvailable()
+kafka.errors.NoBrokersAvailable: NoBrokersAvailable
+Traceback (most recent call last):
+    raise Errors.NoBrokersAvailable()
+kafka.errors.NoBrokersAvailable: NoBrokersAvailable

@@ -1,0 +1,13 @@
+series,t,value
+alertname=SubmissionServiceDown,1792227888,1
+alertname=SubmissionServiceDown,1792227893,1
+alertname=SubmissionServiceDown,1792227898,1
+alertname=SubmissionServiceDown,1792227903,1
+alertname=SubmissionServiceDown,1792227908,1
+alertname=SubmissionServiceDown,1792227913,1
+alertname=SubmissionServiceDown,1792227918,1
+alertname=SubmissionServiceDown,1792227923,1
+alertname=SubmissionServiceDown,1792227928,1
+alertname=SubmissionServiceDown,1792227933,1
+alertname=SubmissionServiceDown,1792227938,1
+alertname=SubmissionServiceDown,1792227943,1

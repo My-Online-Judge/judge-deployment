@@ -1,0 +1,8 @@
+# submission-service's failed GetJudgeSpec calls during probe.sh grpc with F1+F2 (SP7 images), full gRPC status, in order
+2026-10-17T14:53:02.180+07:00	Status{code=UNAVAILABLE, description=io exception, cause=io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection refused: problem-service/172.18.0.12:9090
+2026-10-17T14:53:05.657+07:00	Status{code=UNAVAILABLE, description=io exception, cause=io.netty.channel.ConnectTimeoutException: connection timed out after 500 ms: problem-service/172.18.0.12:9090
+2026-10-17T14:53:09.124+07:00	Status{code=UNAVAILABLE, description=Unable to resolve host problem-service, cause=java.lang.RuntimeException: java.net.UnknownHostException: problem-service: Try again
+2026-10-17T14:53:23.275+07:00	Status{code=DEADLINE_EXCEEDED, description=CallOptions deadline exceeded after 1.999817220s. Name resolution delay 0.000000000 seconds. [closed=[], open=[[buffered_nanos=2001878449, waiting_for_connection]]], cause=null
+2026-10-17T14:53:39.289+07:00	Status{code=UNAVAILABLE, description=Unable to resolve host problem-service, cause=java.lang.RuntimeException: java.net.UnknownHostException: problem-service: Try again
+2026-10-17T14:53:53.464+07:00	Status{code=DEADLINE_EXCEEDED, description=CallOptions deadline exceeded after 1.999696173s. Name resolution delay 0.000000000 seconds. [closed=[], open=[[buffered_nanos=2002541168, waiting_for_connection]]], cause=null
+2026-10-17T14:54:18.568+07:00	Status{code=UNAVAILABLE, description=io exception, cause=io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection refused: problem-service/172.18.0.12:9090
