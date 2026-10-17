@@ -8,6 +8,12 @@ rule_files:
   - /etc/prometheus/alerts.yml
 
 scrape_configs:
+  - job_name: prometheus
+    # Prometheus itself: process_start_time_seconds{job="prometheus"} tells the *Down rules (alerts.yml) that the
+    # stack has just started, so a JVM still booting is not reported down (sub-project 7 §3.3).
+    static_configs:
+      - targets: ['localhost:9090']
+
   - job_name: submission-service
     metrics_path: /actuator/prometheus
     static_configs:

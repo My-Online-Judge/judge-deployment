@@ -11,6 +11,8 @@ tests:
   # The *ServiceDown rules fire on the second failed scrape...
   - interval: 15s
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="problem-service", instance="problem-service:8081"}'
         values: '0x8'
       - series: 'up{job="submission-service", instance="submission-service:8081"}'
@@ -52,6 +54,8 @@ tests:
   # JudgeWorkerDown: no worker is scraped at all (a stopped replica drops out of DNS discovery)...
   - interval: 15s
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="api-gateway", instance="api-gateway:8081"}'
         values: '1x8'
     alert_rule_test:
@@ -66,6 +70,8 @@ tests:
   # ...or the only one fails its scrapes...
   - interval: 15s
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="judge-worker", instance="172.18.0.9:9100"}'
         values: '0x8'
     alert_rule_test:
@@ -80,6 +86,8 @@ tests:
   # ...but one replica of two being down is not "no worker" (Review Focus 5).
   - interval: 15s
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="judge-worker", instance="172.18.0.9:9100"}'
         values: '0x8'
       - series: 'up{job="judge-worker", instance="172.18.0.10:9100"}'
@@ -136,3 +144,73 @@ tests:
             exp_annotations:
               summary: "api-gateway cannot reach Redis"
               description: "Requests are let through without the ban, revocation and cooldown checks (fail-open). Check oj-redis."
+
+  # Sub-project 7 §3.3: the stack starting. Prometheus starts at 0 s; problem-service answers its first scrape at 75 s
+  # (up 0 for five scrapes) and the worker at 75 s (no series before). Nothing fires: the *Down rules wait until
+  # Prometheus has run 120 s.
+  - interval: 15s
+    input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '0x20'
+      - series: 'up{job="problem-service", instance="problem-service:8081"}'
+        values: '0x4 1x15'
+      - series: 'up{job="judge-worker", instance="172.18.0.9:9100"}'
+        values: '_x5 1x14'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: ProblemServiceDown
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: ProblemServiceDown
+        exp_alerts: []
+      - eval_time: 60s
+        alertname: JudgeWorkerDown
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: JudgeWorkerDown
+        exp_alerts: []
+
+  # A service (and a worker) that never comes up after the stack starts still alerts: true from 135 s, firing at 150 s.
+  - interval: 15s
+    input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '0x20'
+      - series: 'up{job="problem-service", instance="problem-service:8081"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 135s
+        alertname: ProblemServiceDown
+        exp_alerts: []
+      - eval_time: 150s
+        alertname: ProblemServiceDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: problem-service, instance: "problem-service:8081"}
+            exp_annotations:
+              summary: "problem-service is not being scraped"
+              description: "Prometheus has failed to scrape problem-service for 15 seconds. Problem pages fail and submissions are refused with 503."
+      - eval_time: 150s
+        alertname: JudgeWorkerDown
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "No judge-worker is running"
+              description: "No judge-worker has answered a scrape for 15 seconds, so nothing is being judged. Check the judge-worker containers."
+
+  # A service that dies once the stack has run five minutes alerts as before: down at 300 s, firing at 315 s.
+  - interval: 15s
+    input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '0x30'
+      - series: 'up{job="submission-service", instance="submission-service:8081"}'
+        values: '1x19 0x10'
+    alert_rule_test:
+      - eval_time: 300s
+        alertname: SubmissionServiceDown
+        exp_alerts: []
+      - eval_time: 315s
+        alertname: SubmissionServiceDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: submission-service, instance: "submission-service:8081"}
+            exp_annotations:
+              summary: "submission-service is not being scraped"
+              description: "Prometheus has failed to scrape submission-service for 15 seconds. Submissions are not being accepted."

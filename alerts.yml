@@ -18,11 +18,14 @@ groups:
   - name: judge-availability
     rules:
       # The four *ServiceDown rules fire on the second failed scrape live (15 s), so a service that is down for a
-      # minute is reported while it is down (sub-project 6, R6; it took 64–74 s in sub-project 5's E4).
+      # minute is reported while it is down (sub-project 6, R6; it took 64–74 s in sub-project 5's E4). They, and
+      # JudgeWorkerDown, hold off until Prometheus has run 120 s (`and on() (time() - process_start_time_seconds…)`):
+      # at a stack start every JVM is unscrapable for about a minute, which raised all of them (sub-project 7 §3.3).
+      # A service that never comes up still fires, at about 150 s; one restarted on its own fires after 15 s as before.
       - alert: SubmissionServiceDown
         # The scrape itself failing covers every way submission-service can die — crash, OOM, hung thread
         # pool — without needing a metric from inside the process that just stopped producing them.
-        expr: up{job="submission-service"} == 0
+        expr: up{job="submission-service"} == 0 and on() (time() - process_start_time_seconds{job="prometheus"} > 120)
         for: 15s
         labels:
           severity: critical
@@ -33,7 +36,7 @@ groups:
       - alert: ApiGatewayDown
         # The gateway is the only public entry point: while it is down the portal reaches no API at
         # all, even with every service behind it healthy.
-        expr: up{job="api-gateway"} == 0
+        expr: up{job="api-gateway"} == 0 and on() (time() - process_start_time_seconds{job="prometheus"} > 120)
         for: 15s
         labels:
           severity: critical
@@ -44,7 +47,7 @@ groups:
       - alert: IdentityServiceDown
         # Login, refresh and every admin screen for users, roles and bans go through identity-service;
         # submission-service and problem-service also fetch their token-signing key from it.
-        expr: up{job="identity-service"} == 0
+        expr: up{job="identity-service"} == 0 and on() (time() - process_start_time_seconds{job="prometheus"} > 120)
         for: 15s
         labels:
           severity: critical
@@ -55,7 +58,7 @@ groups:
       - alert: ProblemServiceDown
         # Problem lists and pages, test-case editing and the statistics consumer live in problem-service;
         # submission-service asks it for every submission's limits and test-case version.
-        expr: up{job="problem-service"} == 0
+        expr: up{job="problem-service"} == 0 and on() (time() - process_start_time_seconds{job="prometheus"} > 120)
         for: 15s
         labels:
           severity: critical
@@ -187,7 +190,7 @@ groups:
         # No judge-worker answers its /metrics scrape. Workers are found through DNS (prometheus.yml), so a stopped
         # one drops out of the targets instead of reporting up == 0: the rule asks whether ANY worker is up. One dead
         # worker among several is not caught here (spec §1, out of scope).
-        expr: absent(up{job="judge-worker"} == 1)
+        expr: absent(up{job="judge-worker"} == 1) and on() (time() - process_start_time_seconds{job="prometheus"} > 120)
         for: 15s
         labels:
           severity: critical

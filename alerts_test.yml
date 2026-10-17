@@ -95,6 +95,8 @@ tests:
   # SubmissionServiceDown: a submission-service that cannot be scraped for 15 seconds must fire...
   - interval: 1m
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="submission-service", instance="submission-service:8081"}'
         values: '0x5'
     alert_rule_test:
@@ -112,6 +114,8 @@ tests:
   # ...and a healthy submission-service must stay silent.
   - interval: 1m
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="submission-service", instance="submission-service:8081"}'
         values: '1x5'
     alert_rule_test:
@@ -122,6 +126,8 @@ tests:
   # ApiGatewayDown: a gateway that cannot be scraped for 15 seconds must fire...
   - interval: 1m
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="api-gateway", instance="api-gateway:8081"}'
         values: '0x5'
     alert_rule_test:
@@ -139,6 +145,8 @@ tests:
   # ...and a healthy gateway must stay silent.
   - interval: 1m
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="api-gateway", instance="api-gateway:8081"}'
         values: '1x5'
     alert_rule_test:
@@ -149,6 +157,8 @@ tests:
   # IdentityServiceDown: an identity-service that cannot be scraped for 15 seconds must fire...
   - interval: 1m
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="identity-service", instance="identity-service:8081"}'
         values: '0x5'
     alert_rule_test:
@@ -166,6 +176,8 @@ tests:
   # ...and a healthy identity-service must stay silent.
   - interval: 1m
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="identity-service", instance="identity-service:8081"}'
         values: '1x5'
     alert_rule_test:
@@ -203,6 +215,8 @@ tests:
   # ProblemServiceDown: a problem-service that cannot be scraped for 15 seconds must fire...
   - interval: 1m
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="problem-service", instance="problem-service:8081"}'
         values: '0x5'
     alert_rule_test:
@@ -220,6 +234,8 @@ tests:
   # ...and a healthy problem-service must stay silent.
   - interval: 1m
     input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
       - series: 'up{job="problem-service", instance="problem-service:8081"}'
         values: '1x5'
     alert_rule_test:
