@@ -637,9 +637,21 @@ missing alert are fixed, and the lookups still fail open by choice.
 13. **The worker can exit when Kafka goes away** (c4, one run in three, §10.3). Catch a failed verdict publish in
     the worker and retry within the process. Leave the offset uncommitted, as now, so the message is still
     redelivered if the process dies. Test this by stopping Kafka while a verdict is being published.
-14. **`JudgeWorkerDown` fires at every stack start** until the worker answers its first scrape, which takes about a
-    minute. It did not affect the runs here, which start on a running stack, but on live every `up` raises a
-    critical alert. Fix it with a grace period after the stack starts, or a longer `for` on this rule only.
+14. **Every stack start raises critical alerts for about a minute.** On live, the first `down`/`up` after the
+    rollout raised `IdentityServiceDown`, `ProblemServiceDown` and `SubmissionServiceDown` while the JVMs started.
+    problem-service answered its first scrape about a minute after its container started. All three alerts
+    resolved on their own.
+    - `JudgeWorkerDown` did not fire, because the worker answers within seconds. The final review had expected
+      this rule to be the one that fires.
+    - `for: 15s` is far shorter than a JVM's start-up, which is about a minute; the old `for: 1m` was about as long as it.
+    - None of this affected the runs here, which start on a running stack.
+    - No Alertmanager sends the alerts anywhere yet, so they show only in Prometheus.
+
+    Fix options:
+    - a silence or an inhibition in an Alertmanager during a deploy;
+    - rules that ignore a target until it has answered once since it started.
+
+    A longer `for` would slow detection again. Whichever fix is chosen, pin it in `alerts_test.yml`.
 
 ### 10.7 Threats to validity
 
