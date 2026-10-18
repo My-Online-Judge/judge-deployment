@@ -1,0 +1,74 @@
+[21:10:16] before the stop: submit 200 0.033429s
+[21:10:28] problem-service stopped
+[21:10:28] t+1s submit 503 0.650814s read 503 0.026445s
+[21:10:32] t+4s submit 503 0.121826s read 503 0.013386s
+[21:10:35] t+8s submit 503 0.134460s read 503 0.004363s
+[21:10:38] t+11s submit 503 0.013236s read 503 0.004457s
+[21:10:41] t+14s submit 503 0.019356s read 503 0.004100s
+[21:10:44] t+17s submit 503 0.011110s read 503 0.005355s
+[21:10:47] t+20s submit 503 0.126210s read 503 0.005873s
+[21:10:50] t+23s submit 503 0.021257s read 503 0.006993s
+[21:10:53] t+26s submit 503 0.014478s read 503 0.005058s
+[21:10:56] t+29s submit 503 0.014024s read 503 0.004427s
+[21:11:01] t+32s submit 503 2.016175s read 503 0.008451s
+[21:11:04] t+37s submit 503 0.120742s read 503 0.007109s
+[21:11:07] t+40s submit 503 0.015989s read 503 0.004390s
+[21:11:10] t+43s submit 503 0.015666s read 503 0.006828s
+[21:11:13] t+46s submit 503 0.014908s read 503 0.004581s
+[21:11:17] t+49s submit 503 0.116029s read 503 0.005795s
+[21:11:20] t+53s submit 503 0.011584s read 503 0.004738s
+[21:11:23] t+56s submit 503 0.011978s read 503 0.005887s
+[21:11:26] t+59s submit 503 0.009605s read 503 0.003933s
+[21:11:29] submission-service's failed GetJudgeSpec calls since the stop, by gRPC status:
+      1 code=DEADLINE_EXCEEDED
+      5 code=UNAVAILABLE
+[21:11:29] channel trace since the stop:
+2026-10-18T21:10:27.580+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-4] [] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] NettyClientTransport<4>: (problem-service/172.18.0
+2026-10-18T21:10:27.587+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-4] [] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering IDLE state with picker: io.grpc.internal.Pic
+2026-10-18T21:10:27.589+07:00 TRACE 1 --- [submission-service] [ault-executor-0] [] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Resolved address: [[[problem-service/172.18.0.12:9090
+2026-10-18T21:10:27.596+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-4] [] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] NettyClientTransport<4>: (problem-service/172.18.0
+2026-10-18T21:10:28.245+07:00 DEBUG 1 --- [submission-service] [nio-8000-exec-9] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] CONNECTING as requ
+2026-10-18T21:10:28.246+07:00 DEBUG 1 --- [submission-service] [nio-8000-exec-9] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering CONNECTING s
+2026-10-18T21:10:28.247+07:00 TRACE 1 --- [submission-service] [-worker-ELG-4-6] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [NettyClientTransport<5>: (problem-service/172.18.0.12:909
+2026-10-18T21:10:28.247+07:00 DEBUG 1 --- [submission-service] [nio-8000-exec-9] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] Started transport 
+2026-10-18T21:10:28.749+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-6] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] NettyClientTranspo
+2026-10-18T21:10:28.754+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-6] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering TRANSIENT_FA
+2026-10-18T21:10:28.756+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-6] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] TRANSIENT_FAILURE 
+2026-10-18T21:10:28.768+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-6] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] NettyClientTranspo
+2026-10-18T21:10:29.401+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-8] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] CONNECTING after b
+2026-10-18T21:10:29.402+07:00 TRACE 1 --- [submission-service] [-worker-ELG-4-4] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [NettyClientTransport<6>: (problem-service/172.18.0.12:909
+2026-10-18T21:10:29.402+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-8] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] Started transport 
+2026-10-18T21:10:29.903+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-4] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] NettyClientTranspo
+2026-10-18T21:10:29.903+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-4] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering TRANSIENT_FA
+2026-10-18T21:10:29.904+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-4] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] TRANSIENT_FAILURE 
+2026-10-18T21:10:29.904+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-4] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] NettyClientTranspo
+2026-10-18T21:10:31.008+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-3] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] CONNECTING after b
+2026-10-18T21:10:31.010+07:00 TRACE 1 --- [submission-service] [-worker-ELG-4-5] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [NettyClientTransport<7>: (problem-service/172.18.0.12:909
+2026-10-18T21:10:31.011+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-3] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] Started transport 
+2026-10-18T21:10:31.512+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-5] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] NettyClientTranspo
+2026-10-18T21:10:31.513+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-5] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering TRANSIENT_FA
+2026-10-18T21:10:31.513+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-5] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] TRANSIENT_FAILURE 
+2026-10-18T21:10:31.513+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-5] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] NettyClientTranspo
+2026-10-18T21:10:33.776+07:00 DEBUG 1 --- [submission-service] [ault-executor-0] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Failed to resolve nam
+2026-10-18T21:10:33.781+07:00 DEBUG 1 --- [submission-service] [ault-executor-0] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering TRANSIENT_FA
+2026-10-18T21:10:33.976+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-6] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] CONNECTING after b
+2026-10-18T21:10:33.977+07:00 TRACE 1 --- [submission-service] [-worker-ELG-4-3] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [NettyClientTransport<8>: (problem-service/172.18.0.12:909
+2026-10-18T21:10:33.977+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-6] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] Started transport 
+2026-10-18T21:10:34.478+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-3] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] NettyClientTranspo
+2026-10-18T21:10:34.478+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-3] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering TRANSIENT_FA
+2026-10-18T21:10:34.479+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-3] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] TRANSIENT_FAILURE 
+2026-10-18T21:10:34.479+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-3] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] NettyClientTranspo
+2026-10-18T21:10:38.796+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-2] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Subchannel<3>: (problem-service:9090)] Terminated
+2026-10-18T21:10:39.494+07:00 DEBUG 1 --- [submission-service] [ault-executor-0] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering TRANSIENT_FA
+2026-10-18T21:10:46.315+07:00 DEBUG 1 --- [submission-service] [ault-executor-0] [85dfa57a5d58e28ca3bd704266f6902c] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering TRANSIENT_FA
+2026-10-18T21:10:48.782+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-1] [d53f40fd2d8159433063084a73f73b39] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering IDLE state
+2026-10-18T21:10:59.672+07:00 DEBUG 1 --- [submission-service] [io-8000-exec-10] [f0cbf4e1e83057d9309ae4225426ec3a] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Exiting idle mode
+2026-10-18T21:11:04.679+07:00 DEBUG 1 --- [submission-service] [ault-executor-0] [f0cbf4e1e83057d9309ae4225426ec3a] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering TRANSIENT_FA
+2026-10-18T21:11:10.604+07:00 DEBUG 1 --- [submission-service] [ault-executor-0] [f0cbf4e1e83057d9309ae4225426ec3a] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering TRANSIENT_FA
+2026-10-18T21:11:17.114+07:00 DEBUG 1 --- [submission-service] [ault-executor-0] [f0cbf4e1e83057d9309ae4225426ec3a] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering TRANSIENT_FA
+2026-10-18T21:11:21.677+07:00 DEBUG 1 --- [submission-service] [-worker-ELG-4-8] [f0cbf4e1e83057d9309ae4225426ec3a] [] io.grpc.ChannelLogger                    : [Channel<1>: (problem-service:9090)] Entering IDLE state
+[21:11:29] problem-service started again
+[21:11:45] t+15s after the start: submit 200 0.824998s
+[21:12:00] t+31s after the start: submit 200 0.048044s
+[21:12:15] t+46s after the start: submit 200 0.036645s
+[21:12:30] t+61s after the start: submit 200 0.032297s
