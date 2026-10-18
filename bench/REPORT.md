@@ -868,3 +868,162 @@ Continuing §10.6:
   for E3, against 0.7–9.1 and 0.8–2.2 in sub-project 6. The host's memory was not logged.
 - **`run.json`'s `git` field** names the main checkouts' commits, as in §10.7. The `images` ids are the builds named
   at the top of this section.
+
+## 12. The c1 submit's half-open wait (sub-project 8)
+
+Sub-project 8 took on follow-up 15 of §11.6 (the c1 submit still waited 2 s) and follow-up 16 (what the worker's
+resend metric means).
+
+This time the probe watched the gRPC channel itself: the `bench/compose.grpc-trace.yml` overlay turns on grpc-java's
+ChannelLogger in submission-service, for the probes only. E4 c1 (three runs) and E3 (one run) were then measured
+again on 2026-10-18, without the trace.
+
+The images were built from:
+
+- oj-submission-service `3279a8b`: G1 `5e7b098` and G2 `3279a8b` below;
+- judge-worker `18e1d2b`;
+- judge-deployment `e9f96dd`.
+
+In each run's `run.json` they are submission-service `b08c8d204d74` and judge-worker `cabcb396b83e`. The tables are
+`bench/results/sp8/compare-e4.md` (against sub-project 7's c1 runs) and `bench/results/sp8/compare-e3.md` (against
+sub-project 6's three E3 runs and sub-project 7's one).
+
+### 12.1 What the channel trace showed
+
+`bench/results/sessions/sp8-probe-before-grpc.log` (sub-project 7's images) records each 2 s trial and the channel
+around it. For the first one:
+
+| time | channel event |
+|---|---|
+| 20:59:18 | last successful call |
+| 20:59:29 | problem-service stopped: TRANSIENT_FAILURE, calls fail fast |
+| 20:59:35 | `Failed to resolve name` |
+| **20:59:38** | **`Entering IDLE state`**, 20 s after the last call in use |
+| 20:59:43 | the old subchannel `Terminated` |
+| 20:59:48.3 | the breaker's half-open trial: **`Exiting idle mode`**, a fresh name resolution |
+| **20:59:53.3** | **`Entering TRANSIENT_FAILURE`**, 5.0 s later |
+
+Two settings together make the 2 s:
+
+- **Spring gRPC's idle timeout.** The channel has `idleTimeout` 20 s, Spring gRPC 0.12's default (grpc-java's own is
+  30 minutes). Calls that fail fast do not keep a channel in use, so while the breaker holds the circuit open the
+  channel goes IDLE.
+- **A fresh lookup of a stopped container's name.** The next trial takes the channel out of idle mode and starts that
+  lookup, which takes 5 s to fail. Meanwhile the trial waits in the channel until its 2 s deadline.
+
+This is why §11's F1 (the resolver cache) and F2 (the connect timeout) changed nothing: no cached answer and no
+connect is involved. It also corrects §11.2's reading, "the channel was connecting when the trial arrived": it was
+coming out of idle mode.
+
+### 12.2 What changed
+
+- **G1: `pick_first` for the problem-service channel.** There is one problem-service, so `round_robin` gains nothing.
+  This alone did not remove the wait: `sp8-probe-g1-grpc.log` shows the same IDLE → exit → 5 s sequence and one
+  2.02 s trial. It is kept because the fixes are cumulative and G2 was measured on top of it.
+- **G2: `ChannelRecovery`.** It watches the channel's state. From TRANSIENT_FAILURE until READY, it refuses a call at
+  once with `UNAVAILABLE` (the breaker counts the refusal) and asks the channel to connect. An IDLE channel after a
+  failure therefore resolves in the background instead of in front of a request. A channel that never failed (at
+  start-up) is not affected.
+- **Not needed:** G3, a shorter per-attempt deadline.
+- **The worker (follow-up 16).** `oj_verdict_publish_wait_seconds_total` counts the seconds verdicts waited for
+  Kafka. In a full outage the retry counter reads only one or two, because the first wait lasts the whole outage.
+
+### 12.3 The probes, step by step
+
+`probe.sh grpc`: 60 s with problem-service stopped, a submit every 3 s.
+
+| step | file | failing submits | half-open trials | gRPC statuses |
+|---|---|---|---|---|
+| before | `sp8-probe-before-grpc.log` | 0.12–0.13 s | 2.03 s (×2) | 2 DEADLINE_EXCEEDED, 4 UNAVAILABLE |
+| G1 | `sp8-probe-g1-grpc.log` | 0.12–0.13 s | 2.02 s (×1) | 1 DEADLINE_EXCEEDED, 5 UNAVAILABLE |
+| G1+G2 | `sp8-probe-g2-grpc.log` | 0.01–0.13 s | refused in 0.12 s | 7 UNAVAILABLE |
+
+With G1+G2, the submit at the stop itself (t+0) took 0.65 s: the 500 ms connect timeout as the container went away.
+That is outside the criterion's window, which starts at t+2 s.
+
+After the restart, one submit was refused. At t+15 s the channel had gone IDLE again while problem-service was
+still starting, so the submit was refused, and its connection request made the channel READY 110 ms later, just
+after the submit's two 50 ms retries. The next submit succeeded. E4's latency-recovery column measures this cost.
+
+`probe.sh kafka` (`sp8-probe-after-kafka.log`):
+- the worker's restart count stayed at 0;
+- the in-flight submission was terminal 17 s after Kafka started;
+- `publish wait: 63.7 s over the outage`, for an outage of about 60 s.
+
+`sp8-startcheck-after.log`: no alert fired in the first 180 s.
+
+### 12.4 E4 c1 against sub-project 7, and E3
+
+| fault | route | errors during % | p95 during, ms | p95 overhead, ms | latency recovery, s |
+|---|---|---|---|---|---|
+| c1 | history | 0.0 (0.0–0.0) → 0.0 (0.0–0.0) | 12 (11–14) → 11 (10–13) | 1 (-0–1) → 1 (-0–1) | 0 (0–0) → 0 (0–0) |
+|  | problem_detail | 99.5 (99.0–99.5) → 99.0 (99.0–100.0) | 6 (6–8) → 6 (6–7) | -3 (-6–-2) → -4 (-5–-3) | 15 (15–20) → 15 (15–15) |
+|  | problem_list | 99.5 (99.0–99.5) → 99.5 (99.0–99.5) | 6 (6–8) → 6 (6–7) | -3 (-7–-2) → -5 (-6–-4) | 15 (15–20) → 15 (15–15) |
+|  | submit | 100.0 (100.0–100.0) → 100.0 (97.3–100.0) | 2010 (2009–2014) → 110 (108–134) | 1979 (1978–1980) → 80 (76–99) | 25 (25–30) → 30 (30–30) |
+
+| fault | first alert, s after inject | queue back, s | failed dispatches during the fault |
+|---|---|---|---|
+| c1 | 24 (20–28) → 24 (23–29) | 3 (2–4) → 2 (2–3) | 0 (0–0) → 0 (0–0) |
+
+- **Submit's p95 during the fault:** 110 ms (108–134), against 2010 ms. The failing submits now all fail the same
+  way: refused, retried twice 50 ms apart, then 503.
+- **Reads, detection, invariant:** unchanged.
+- **Submit's latency recovery:** 30 s, against 25 s (25–30). This is the one refused submit after problem-service
+  returns (§12.3), followed by the breaker's wait before it tries again.
+
+| route | p50, ms | p95, ms | within range |
+|---|---|---|---|
+| problem_list | 4.9 (4.5–5.3) → 5.3 | 8.6 (8.3–9.9) → 9.3 | yes |
+| problem_detail | 4.5 (4.1–4.9) → 5.0 | 8.0 (7.8–9.3) → 8.6 | yes |
+| history | 4.8 (4.3–5.9) → 4.7 | 9.0 (8.0–10.2) → 8.3 | yes |
+| submit | 15.4 (13.2–16.7) → 15.8 | 24.7 (22.1–29.2) → 25.9 | yes |
+
+Every route is within 1.1 × the highest of the four earlier runs, and no alert fired. Normal operation does not pay
+for the change.
+
+### 12.5 Targets
+
+From the two compare files, verbatim:
+
+- PASS no alert fired in any run (none)
+- PASS problem_list: median p50 and p95 ≤ 1.1 × the before runs' highest
+- PASS problem_detail: median p50 and p95 ≤ 1.1 × the before runs' highest
+- PASS history: median p50 and p95 ≤ 1.1 × the before runs' highest
+- PASS submit: median p50 and p95 ≤ 1.1 × the before runs' highest
+- PASS invariant held in 3/3 runs, 0 SYSTEM_ERROR
+- PASS c1: first alert ≤ 60 s after inject in every run (23, 29, 24)
+- PASS c1 problem_list: p95 during < 100 ms (median 6)
+- PASS c1 problem_detail: p95 during < 100 ms (median 6)
+- PASS c1 submit: p95 during < 500 ms (median 110)
+
+From the probes:
+
+- PASS c1 probe: every submit from t+2 s answers in under 0.5 s (G1+G2: 0.01–0.13 s)
+- PASS kafka probe: the worker's restart count unchanged (0 → 0)
+- PASS kafka probe: the publish wait over the outage within ±10 s of its length (63.7 s for ~60 s)
+- PASS stack start on the bench: no alert in the first 180 s
+
+**14 of 14 met.**
+
+### 12.6 Follow-ups
+
+- **Follow-up 12** (a submit waits 2 s while problem-service is down) and **follow-up 15** (the half-open trials
+  wait out the deadline) are closed by G2.
+- **Follow-up 16** (the retry counter's meaning) is closed by `oj_verdict_publish_wait_seconds_total`.
+- **New, 17:** the first submit after problem-service returns can be refused while its connection request revives an
+  IDLE channel (110 ms in the probe; recovery 30 s against 25 s in E4).
+  - Option A: when a refusal finds the channel IDLE, wait briefly for READY.
+  - Option B: raise the channel's idle timeout so that it does not go IDLE between the breaker's trials.
+
+  Either needs the c1 probe again.
+
+### 12.7 Threats to validity
+
+- **The trace's own cost.** The trace was on for the probes only; the E4 and E3 runs ran without it.
+- **Sample size.** E3 is a single run. E4 has three runs. Each probe ran once per step.
+- **The 5 s lookup belongs to this host's Docker DNS.** A stopped container's name is forwarded to an upstream
+  resolver that times out. Elsewhere it may fail faster or slower; G2 does not depend on it.
+- **Bench cadence.** Detection and the start check were measured on the bench, which evaluates every 5 s; live
+  evaluates every 15 s.
+- **`run.json`'s `git` field** names the main checkouts' commits (§10.7). The `images` ids are the builds named
+  above.
