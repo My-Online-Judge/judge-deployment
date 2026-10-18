@@ -1,7 +1,8 @@
 # Sub-project 8 §3.1: grpc-java's channel trace in submission-service (state changes, resolution, connect errors, idle
 # mode), for probe.sh grpc. Only with BENCH_EXTRA_COMPOSE=bench/compose.grpc-trace.yml bench/env.sh up — never in
-# measured runs, never on live.
+# measured runs, never on live. SPRING_APPLICATION_JSON, not LOGGING_LEVEL_IO_GRPC_CHANNELLOGGER: Spring Boot binds an
+# env var's name in lower case (io.grpc.channellogger), and logger names are case-sensitive.
 services:
   submission-service:
     environment:
-      LOGGING_LEVEL_IO_GRPC_CHANNELLOGGER: TRACE
+      SPRING_APPLICATION_JSON: '{"logging":{"level":{"io.grpc.ChannelLogger":"TRACE"}}}'

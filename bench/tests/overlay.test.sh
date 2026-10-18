@@ -54,10 +54,14 @@ if [ "$(diff "$BENCH_DIR/../prometheus.yml" "$BENCH_GEN/prometheus.yml" | grep -
 else bad "the generated prometheus.yml differs from the real one in the two global intervals only"; fi
 
 # Sub-project 8 §3.1: BENCH_EXTRA_COMPOSE adds an overlay; compose.grpc-trace.yml traces submission-service's channel.
+# Through SPRING_APPLICATION_JSON: an env var LOGGING_LEVEL_IO_GRPC_CHANNELLOGGER is lowercased by Spring Boot's binder
+# (io.grpc.channellogger), and logger names are case-sensitive (final review I1).
+traced() { python3 -c "import json,sys; e=json.loads(sys.argv[1] or '{}'); sys.exit(0 if e.get('logging',{}).get('level',{}).get('io.grpc.ChannelLogger') == 'TRACE' else 1)" "$1"; }
 check "without BENCH_EXTRA_COMPOSE no service is traced" \
-  "not any('LOGGING_LEVEL_IO_GRPC_CHANNELLOGGER' in (x.get('environment') or {}) for x in s.values())"
+  "not any('io.grpc.ChannelLogger' in ((x.get('environment') or {}).get('SPRING_APPLICATION_JSON') or '') for x in s.values())"
 if BENCH_EXTRA_COMPOSE=bench/compose.grpc-trace.yml bench_compose config --format json > "$tmp/traced.json" 2>/dev/null \
-  && python3 -c "import json,sys; t=json.load(open('$tmp/traced.json'))['services']; k='LOGGING_LEVEL_IO_GRPC_CHANNELLOGGER'; sys.exit(0 if t['submission-service']['environment'].get(k) == 'TRACE' and not any(k in (x.get('environment') or {}) for n, x in t.items() if n != 'submission-service') else 1)"; then
-  ok "BENCH_EXTRA_COMPOSE=bench/compose.grpc-trace.yml traces submission-service's gRPC channel, and nothing else"
-else bad "BENCH_EXTRA_COMPOSE=bench/compose.grpc-trace.yml traces submission-service's gRPC channel, and nothing else"; fi
+  && traced "$(python3 -c "import json; print(json.load(open('$tmp/traced.json'))['services']['submission-service']['environment'].get('SPRING_APPLICATION_JSON', ''))")" \
+  && python3 -c "import json,sys; t=json.load(open('$tmp/traced.json'))['services']; sys.exit(0 if not any('io.grpc.ChannelLogger' in ((x.get('environment') or {}).get('SPRING_APPLICATION_JSON') or '') for n, x in t.items() if n != 'submission-service') else 1)"; then
+  ok "BENCH_EXTRA_COMPOSE=bench/compose.grpc-trace.yml sets logger io.grpc.ChannelLogger (case kept) to TRACE in submission-service only"
+else bad "BENCH_EXTRA_COMPOSE=bench/compose.grpc-trace.yml sets logger io.grpc.ChannelLogger (case kept) to TRACE in submission-service only"; fi
 exit $fail
