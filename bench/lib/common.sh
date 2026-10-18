@@ -18,9 +18,13 @@ BUILT_SERVICES=(submission-service identity-service problem-service api-gateway 
 die() { echo "bench: $*" >&2; exit 1; }
 log() { echo "[$(date +%H:%M:%S)] $*" >&2; }
 
-bench_compose() {
+bench_compose() { # BENCH_EXTRA_COMPOSE=<file> adds one more overlay (relative to the checkout), e.g. bench/compose.grpc-trace.yml
+  local extra=()
+  if [ -n "${BENCH_EXTRA_COMPOSE:-}" ]; then
+    case "$BENCH_EXTRA_COMPOSE" in /*) extra=(-f "$BENCH_EXTRA_COMPOSE") ;; *) extra=(-f "$BENCH_DIR/../$BENCH_EXTRA_COMPOSE") ;; esac
+  fi
   BENCH_DIR="$BENCH_DIR" docker compose -p "$BENCH_PROJECT" --project-directory "$DEPLOY_DIR" \
-    -f "$BENCH_DIR/../docker-compose.yml" -f "$BENCH_DIR/compose.bench.yml" "$@"
+    -f "$BENCH_DIR/../docker-compose.yml" -f "$BENCH_DIR/compose.bench.yml" "${extra[@]}" "$@"
 }
 
 ensure_analyze_image() {

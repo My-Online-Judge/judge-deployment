@@ -3,6 +3,7 @@
 # names only — a resolved config holds .env values, so it is written to a private temp dir and deleted.
 set -euo pipefail
 source "$(dirname "$0")/../lib/common.sh"
+unset BENCH_EXTRA_COMPOSE   # the checks below are of the plain bench; the traced one is checked on its own
 tmp=$(mktemp -d); chmod 700 "$tmp"; trap 'rm -rf "$tmp"' EXIT
 fail=0
 ok() { echo "ok   $1"; }
@@ -51,4 +52,12 @@ if [ "$(diff "$BENCH_DIR/../prometheus.yml" "$BENCH_GEN/prometheus.yml" | grep -
   && grep -q '^  scrape_interval: 5s$' "$BENCH_GEN/prometheus.yml" && grep -q '^  evaluation_interval: 5s$' "$BENCH_GEN/prometheus.yml"; then
   ok "the generated prometheus.yml differs from the real one in the two global intervals only"
 else bad "the generated prometheus.yml differs from the real one in the two global intervals only"; fi
+
+# Sub-project 8 §3.1: BENCH_EXTRA_COMPOSE adds an overlay; compose.grpc-trace.yml traces submission-service's channel.
+check "without BENCH_EXTRA_COMPOSE no service is traced" \
+  "not any('LOGGING_LEVEL_IO_GRPC_CHANNELLOGGER' in (x.get('environment') or {}) for x in s.values())"
+if BENCH_EXTRA_COMPOSE=bench/compose.grpc-trace.yml bench_compose config --format json > "$tmp/traced.json" 2>/dev/null \
+  && python3 -c "import json,sys; t=json.load(open('$tmp/traced.json'))['services']; k='LOGGING_LEVEL_IO_GRPC_CHANNELLOGGER'; sys.exit(0 if t['submission-service']['environment'].get(k) == 'TRACE' and not any(k in (x.get('environment') or {}) for n, x in t.items() if n != 'submission-service') else 1)"; then
+  ok "BENCH_EXTRA_COMPOSE=bench/compose.grpc-trace.yml traces submission-service's gRPC channel, and nothing else"
+else bad "BENCH_EXTRA_COMPOSE=bench/compose.grpc-trace.yml traces submission-service's gRPC channel, and nothing else"; fi
 exit $fail

@@ -1,0 +1,7 @@
+# Sub-project 8 §3.1: grpc-java's channel trace in submission-service (state changes, resolution, connect errors, idle
+# mode), for probe.sh grpc. Only with BENCH_EXTRA_COMPOSE=bench/compose.grpc-trace.yml bench/env.sh up — never in
+# measured runs, never on live.
+services:
+  submission-service:
+    environment:
+      LOGGING_LEVEL_IO_GRPC_CHANNELLOGGER: TRACE

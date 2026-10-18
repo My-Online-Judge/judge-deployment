@@ -9,10 +9,12 @@
 #   grpc   stops problem-service for 60 s: every 3 s a submit (four users in turn, past the 10 s cooldown) and a read,
 #          each with its HTTP status and time; then submission-service's failed GetJudgeSpec calls by gRPC status
 #          (DEADLINE_EXCEEDED: the call waited on a connect; UNAVAILABLE: the channel failed fast); then a submit every
-#          15 s for a minute after the restart (sub-project 7 §3.1).
+#          15 s for a minute after the restart (sub-project 7 §3.1); then submission-service's channel trace lines
+#          (ChannelLogger, with BENCH_EXTRA_COMPOSE=bench/compose.grpc-trace.yml; ChannelRecovery) since the stop (sub-project 8).
 #   kafka  submits a solution that sleeps 2.5 s per test, kills Kafka the moment the worker logs that it is judging
 #          it, holds Kafka down 60 s and starts it: the worker's restart count before and after, whether Prometheus
-#          scraped a worker meanwhile, how long after Kafka's start the submission was terminal (sub-project 7 §3.2).
+#          scraped a worker meanwhile, how long after Kafka's start the submission was terminal (sub-project 7 §3.2),
+#          and how many seconds the worker spent waiting to resend (oj_verdict_publish_wait_seconds_total, sub-project 8).
 # Uses seeded bench users. Never prints a token: the cookie jars live in a private temporary directory.
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
@@ -48,6 +50,8 @@ submit_id() { # submit_id <user> <slug> <python source> — prints the new submi
     "$API/submissions" | jq -r '.data.id // empty'
 }
 status_of() { curl -s -b "$jars/$1" "$API/submissions/$2" | jq -r '.data.status // empty'; }  # 6 PENDING, 7 JUDGING
+publish_wait() { curl -s -G "$PROM_URL/api/v1/query" --data-urlencode 'query=sum(oj_verdict_publish_wait_seconds_total) or vector(0)' \
+  | jq -r '.data.result[0].value[1] // "0"'; }
 worker_up() { curl -s -G "$PROM_URL/api/v1/query" --data-urlencode 'query=max(up{job="judge-worker"})' \
   | jq -r '.data.result[0].value[1] // "absent"'; }
 
@@ -110,6 +114,8 @@ probe_grpc() {
   log "submission-service's failed GetJudgeSpec calls since the stop, by gRPC status:"
   docker logs --since "$t0" oj-submission-service 2>&1 | grep 'could not give the judge spec' \
     | grep -oE 'code=[A-Z_]+' | sort | uniq -c >&2 || true
+  log "channel trace since the stop:"
+  docker logs --since "$t0" oj-submission-service 2>&1 | grep -E 'ChannelLogger|ChannelRecovery' | cut -c1-220 >&2 || true
   "$BENCH_DIR/chaos/fault.sh" c1 remove >/dev/null
   t1=$(date +%s)
   log "problem-service started again"
@@ -117,7 +123,7 @@ probe_grpc() {
 }
 
 probe_kafka() {
-  local worker id t0 t1 st before after seen=
+  local worker id t0 t1 st before after w0 seen=
   worker=$(docker ps --filter "label=com.docker.compose.project=$BENCH_PROJECT" \
     --filter label=com.docker.compose.service=judge-worker --format '{{.Names}}' | sort | head -1)
   [ -n "$worker" ] || die "no judge-worker is running in $BENCH_PROJECT"
@@ -133,6 +139,7 @@ probe_kafka() {
     sleep 0.1
   done
   [ -n "$seen" ] || die "the worker did not start judging $id within 10 s"
+  w0=$(publish_wait)
   docker kill oj-kafka >/dev/null
   t1=$(date +%s)
   log "$(since "$t0") Kafka killed while the worker judges $id"
@@ -148,6 +155,8 @@ probe_kafka() {
     st=$(status_of bench_u020 "$id"); case "$st" in 6|7|'') sleep 1 ;; *) break ;; esac
   done
   log "$(since "$t1") after Kafka's start: submission $id status $st (6 PENDING and 7 JUDGING are not terminal)"
+  sleep 6   # one bench scrape (5 s) after the verdict
+  log "publish wait: $(awk -v a="$w0" -v b="$(publish_wait)" 'BEGIN { printf "%.1f", b - a }') s over the outage"
   after=$(docker inspect --format '{{.RestartCount}}' "$worker")
   log "worker restarts: $before before, $after after"
   log "the worker's log about Kafka since the submit:"
