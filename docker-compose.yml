@@ -533,6 +533,8 @@ services:
       SPRING_PROFILES_INCLUDE: tls
       OTEL_SERVICE_NAME: identity-service
       JAVA_TOOL_OPTIONS: *java-tool-options
+      # Browsers reach the API only over https (the edge): the auth cookies carry Secure (and always SameSite=Lax).
+      APP_COOKIE_SECURE: "true"
     # JWT signing keys, Google OAuth, identity-db credentials — only the identity containers read it.
     env_file:
       - .env.identity
@@ -648,6 +650,8 @@ services:
       JAVA_TOOL_OPTIONS: *java-tool-options
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      # The browsers' origin, https://${OJ_PUBLIC_HOST}, is a CORS origin the gateway allows (application-tls.yml).
+      OJ_PUBLIC_HOST: ${OJ_PUBLIC_HOST:-localhost}
     volumes:
       - type: volume
         source: tls
@@ -656,10 +660,8 @@ services:
         volume:
           subpath: api-gateway
     mem_limit: 512m
-    ports:
-      # The only public API port; actuator (8081) stays inside oj-net. Must stay 8000: judge-portal
-      # is built against VITE_API_BASE_URL=http://localhost:8000/api/v1.
-      - "8000:8000"
+    # No host port: the API (8000) serves TLS inside oj-net and answers only the edge's certificate (tls profile), so
+    # browsers reach it as https://${OJ_PUBLIC_HOST}/api/ through the edge; the actuator (8081) stays inside oj-net.
     healthcheck:
       # Mutual TLS with the gateway's own certificate (curl: busybox wget cannot present one).
       test: ["CMD-SHELL", "curl -fsS --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key https://localhost:8081/actuator/health | grep -q UP"]
@@ -794,15 +796,56 @@ services:
           subpath: judge-server-2
 
   judge-portal:
-    build: ../judge-portal
+    build:
+      context: ../judge-portal
+      args:
+        # Relative: the portal and the API share the edge's origin.
+        VITE_API_BASE_URL: /api/v1
     container_name: oj-judge-portal
     restart: unless-stopped
     environment: *tz-env
     depends_on:
+      tls-init:
+        condition: service_completed_successfully
       api-gateway:
         condition: service_started
+    # No host port: HTTPS on 443 inside oj-net with the judge-portal certificate, for the edge's certificate only.
+    volumes:
+      - ./portal/nginx-tls.conf:/etc/nginx/nginx.conf:ro
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: judge-portal
+    networks: [oj-net]
+
+  # ---- the HTTPS edge (sub-project 10) ----------------------------------------
+  # The only service on public host ports. edge/Caddyfile: one origin, /api/* to api-gateway:8000 and the rest to
+  # judge-portal:443, both over mutual TLS with the edge certificate; http on 80 redirects to https. The site
+  # certificate is the edge leaf (its SAN carries OJ_PUBLIC_HOST, pki/identities.txt), signed by the private CA.
+  edge:
+    image: caddy:2.10.0-alpine
+    container_name: oj-edge
+    restart: unless-stopped
+    environment:
+      <<: *tz-env
+      OJ_PUBLIC_HOST: ${OJ_PUBLIC_HOST:-localhost}
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./edge/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: edge
     networks: [oj-net]
 
 configs:
@@ -840,3 +883,4 @@ volumes:
   promdata:
   kafkadata:
   tls:
+  caddydata:

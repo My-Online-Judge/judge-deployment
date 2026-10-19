@@ -81,5 +81,8 @@ c_silent=$'CONNECTED(00000003)\n40:error:0A000126:SSL routines::unexpected eof w
 [[ $(_handshake_result $tag-silent:9092 tls-probe) == error && $(_handshake_result $tag-silent:9092 none) == error ]] && pass "silent plaintext server -> error with and without a client cert" || fail "silent plaintext server -> error with and without a client cert (got $(_handshake_result $tag-silent:9092 tls-probe)/$(_handshake_result $tag-silent:9092 none))"
 # the same server for the HTTP probe: no HTTP answer, but no TLS either -> error, never `none` (which `probe_http … none none` accepts)
 [[ $(_http_status https://$tag-silent:9092/ tls-probe) == error && $(_http_status https://$tag-silent:9092/ none) == error ]] && pass "http probe: silent plaintext server -> error with and without a client cert" || fail "http probe: silent plaintext server -> error with and without a client cert (got $(_http_status https://$tag-silent:9092/ tls-probe)/$(_http_status https://$tag-silent:9092/ none))"
+# a server that answers before s_client has printed its session summary (Caddy): the status line starts mid-line
+s_fast=$'CONNECTED(00000003)\n    Start Time: 1792440052HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n    Timeout   : 7200 (sec)'
+[[ $(_status_from_s_client "$s_fast") == 200 && $(_status_from_s_client $'CONNECTED(00000003)\nclosed') == none ]] && pass "http status: found mid-line, none without an answer" || fail "http status: found mid-line, none without an answer (got $(_status_from_s_client "$s_fast"))"
 # NOT self-tested: -starttls postgres (openssl s_server cannot speak the postgres SSLRequest); it is used by the Postgres task.
 tls_probe_exit

@@ -1,0 +1,30 @@
+# The HTTPS edge (sub-project 10): the stack's only public listener (80, 443). One origin for the browser:
+# /api/* goes to api-gateway:8000, everything else to judge-portal:443, both over mutual TLS with the edge's certificate
+# (the gateway and the portal answer no other). Port 80 only redirects to https.
+# The site certificate is the edge leaf (pki/identities.txt: SAN ${OJ_PUBLIC_HOST} and edge), signed by the private CA.
+# No trusted_proxies: Caddy discards a client's X-Forwarded-For and writes the client's address, which the gateway
+# trusts as the first hop (its tls profile, oj.gateway.edge.trust-forwarded-for).
+{$OJ_PUBLIC_HOST:localhost}, edge {
+	tls /etc/oj/tls/tls.crt /etc/oj/tls/tls.key
+	encode gzip
+	header Strict-Transport-Security "max-age=31536000"
+	handle /api/* {
+		reverse_proxy https://api-gateway:8000 {
+			flush_interval -1
+			transport http {
+				tls_client_auth /etc/oj/tls/tls.crt /etc/oj/tls/tls.key
+				tls_trust_pool file /etc/oj/tls/ca.crt
+				tls_server_name api-gateway
+			}
+		}
+	}
+	handle {
+		reverse_proxy https://judge-portal:443 {
+			transport http {
+				tls_client_auth /etc/oj/tls/tls.crt /etc/oj/tls/tls.key
+				tls_trust_pool file /etc/oj/tls/ca.crt
+				tls_server_name judge-portal
+			}
+		}
+	}
+}

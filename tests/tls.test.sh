@@ -172,6 +172,24 @@ probe_handshake jaeger:4318 none fail
 probe_handshake jaeger:4318 rogue fail
 probe_handshake jaeger:4318 tls-probe ok
 
+# ---- edge: the HTTPS edge is the way in; the gateway and the portal answer only its certificate (task 14) ---------
+# tls-probe's certificate passes TLS on api-gateway:8000 and judge-portal:443 (signed by the CA), but its CN is not edge:
+# 403 before any routing. Without a certificate the gateway refuses at TLS, and nginx answers 400. Through the edge a
+# client needs no certificate, only trust in the edge's (here the CA; the probe connects by the name edge, in its SAN).
+probe_handshake api-gateway:8000 tls-probe ok
+probe_http https://api-gateway:8000/api/v1/problems tls-probe 403
+probe_handshake api-gateway:8000 none fail
+probe_http https://judge-portal:443/ tls-probe 403
+probe_http https://judge-portal:443/ none 400
+probe_http https://edge/api/v1/problems none 200
+probe_http https://edge/ none 200
+# Plain http on 80 only redirects, permanently, to the same URL on https.
+got=$(docker --context default run --rm --network "${OJ_NET:-oj-net}" "$PROBE_IMAGE" sh -c \
+  "printf 'GET /problems HTTP/1.1\r\nHost: edge\r\nConnection: close\r\n\r\n' | timeout 5 nc -w 3 edge 80" 2>&1 | tr -d '\r')
+if grep -q '^HTTP/1.1 308 ' <<< "$got" && grep -qi '^Location: https://edge/problems$' <<< "$got"; then
+  pass "edge: http://edge/problems -> 308 https://edge/problems"
+else fail "edge: http://edge/problems -> 308 https://edge/problems: got: $(head -c 200 <<< "$got" | tr '\n' ' ')"; fi
+
 # (sections follow)
 
 tls_probe_exit

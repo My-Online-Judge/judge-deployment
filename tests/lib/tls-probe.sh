@@ -63,8 +63,16 @@ _http_status() {
   out=$(_probe_run "$2" "(printf 'GET $path HTTP/1.1\r\nHost: ${hostport%:*}\r\nConnection: close\r\n\r\n'; sleep 1) | timeout 10 openssl s_client -connect '$hostport' -servername '${hostport%:*}' -CAfile /t/ca.crt -verify_return_error \$CERT_ARGS 2>&1")
   grep -q 'CONNECTED(' <<< "$out" || { echo error; return; }
   grep -q 'no peer certificate available' <<< "$out" && { echo error; return; }
-  out=$(grep -m1 -E '^HTTP/[0-9.]+ [0-9]{3}' <<< "$out" | tr -d '\r' | awk '{print $2}')
-  echo "${out:-none}"
+  _status_from_s_client "$out"
+}
+
+# _status_from_s_client <s_client output> -> the response's status code, or "none"
+#   The status line is matched anywhere in a line: a server that answers before s_client has printed its session summary
+#   (Caddy) starts it mid-line, as in "Start Time: 1792440052HTTP/1.1 200 OK".
+_status_from_s_client() {
+  local status
+  status=$(tr -d '\r' <<< "$1" | grep -m1 -oE 'HTTP/[0-9.]+ [0-9]{3}' | head -n1 | awk '{print $2}')
+  echo "${status:-none}"
 }
 
 probe_http() { # <https-url> <tls-probe|none> <expected-status|none>

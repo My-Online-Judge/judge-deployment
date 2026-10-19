@@ -152,6 +152,24 @@ otlp_tls="{'OTEL_EXPORTER_OTLP_ENDPOINT': 'https://jaeger:4318', 'OTEL_EXPORTER_
 check "the gateway, the three services and the worker export OTLP/HTTP to https://jaeger:4318 with the CA and their own certificate" \
   "sorted(n for n, x in s.items() if 'OTEL_SERVICE_NAME' in (x.get('environment') or {})) == ['api-gateway', 'identity-service', 'judge-worker', 'problem-service', 'submission-service'] and all({k: x['environment'].get(k) for k in $otlp_tls} == $otlp_tls and any(m.get('source') == 'tls' for m in x.get('volumes', [])) for x in s.values() if 'OTEL_SERVICE_NAME' in (x.get('environment') or {}))"
 
+# The HTTPS edge (task 14): Caddy is the one service on non-loopback host ports (80, 443). The portal and the gateway
+# publish nothing; on oj-net they serve TLS and answer only the edge's certificate (portal/nginx-tls.conf; the gateway's
+# tls profile). The portal calls the API on its own origin, and identity's cookies are Secure.
+check "only edge publishes non-loopback host ports" \
+  "{n for n, x in s.items() for p in x.get('ports', []) if p.get('host_ip') not in ('127.0.0.1', '::1')} == {'edge'}"
+check "api-gateway and judge-portal publish nothing" \
+  "not s['api-gateway'].get('ports') and not s['judge-portal'].get('ports')"
+check "every Java service runs with SPRING_PROFILES_INCLUDE=tls" \
+  "all('tls' in s[n]['environment'].get('SPRING_PROFILES_INCLUDE', '').split(',') for n in $java_services)"
+check "edge runs caddy:2.10.0-alpine on 80 and 443 with edge/Caddyfile, the caddydata volume and the edge tls subpath" \
+  "(lambda e: e['image'] == 'caddy:2.10.0-alpine' and sorted((str(p['published']), p['target']) for p in e.get('ports', [])) == [('443', 443), ('80', 80)] and any(m.get('type') == 'bind' and m['source'].endswith('/edge/Caddyfile') and m['target'] == '/etc/caddy/Caddyfile' and m.get('read_only') is True for m in e['volumes']) and any(m.get('source') == 'caddydata' and m['target'] == '/data' for m in e['volumes']) and 'caddydata' in v and any(m.get('volume', {}).get('subpath') == 'edge' for m in e['volumes'] if m.get('source') == 'tls'))(s.get('edge', {'image': None}))"
+check_raw "edge and api-gateway get OJ_PUBLIC_HOST, default localhost (the site address; the gateway's CORS origin)" \
+  "all(s.get(n, {}).get('environment', {}).get('OJ_PUBLIC_HOST') == '\${OJ_PUBLIC_HOST:-localhost}' for n in ('edge', 'api-gateway'))"
+check "judge-portal serves portal/nginx-tls.conf with the judge-portal tls subpath, built with VITE_API_BASE_URL=/api/v1" \
+  "(lambda p: (p['build'].get('args') or {}).get('VITE_API_BASE_URL') == '/api/v1' and any(m.get('type') == 'bind' and m['source'].endswith('/portal/nginx-tls.conf') and m['target'] == '/etc/nginx/nginx.conf' and m.get('read_only') is True for m in p.get('volumes', [])) and any(m.get('volume', {}).get('subpath') == 'judge-portal' for m in p.get('volumes', []) if m.get('source') == 'tls'))(s['judge-portal'])"
+check "identity-service marks its cookies Secure (APP_COOKIE_SECURE)" \
+  "s['identity-service']['environment'].get('APP_COOKIE_SECURE') == 'true'"
+
 # The mock sandbox speaks plain HTTP: its overlay points the worker at http:// and nothing expects TLS of the mock.
 mock=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" -f "$PWD/docker-compose.mock.yml" config --format json)
 _check "$mock" "with docker-compose.mock.yml the worker calls both mock sandboxes over http, and their healthcheck and SERVICE_URL expect no TLS" \
