@@ -28,10 +28,10 @@ x-mock-health: &mock-health
 services:
   judge-server:
     image: mock-judge-server
-    build: ../mock-judge-server
+    build: ./mock-judge-server
     healthcheck: *mock-health
 
   judge-server-2:
     image: mock-judge-server
-    build: ../mock-judge-server
+    build: ./mock-judge-server
     healthcheck: *mock-health
