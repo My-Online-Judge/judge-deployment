@@ -37,11 +37,26 @@ restic() {
 rm -rf "$staging"; mkdir -p "$staging/minio"
 trap 'rm -rf "$staging"' EXIT
 
-# 1. Postgres dumps (credentials expanded inside the container).
+# 1. Postgres dumps. Each table is counted just before and just after its service's dump; the drill accepts
+#    anything in [min, max] because the live system keeps writing.
+count() { # <svc> <table>
+  "${docker[@]}" exec "oj-$1-db" sh -c "psql -At -U \"\$POSTGRES_USER\" \"\$POSTGRES_DB\" -c 'select count(*) from $2'"
+}
+: > "$staging/counts.tsv"
 for svc in identity problem submission; do
   c="oj-$svc-db"
+  tables=(); before=()
+  for pair in $BACKUP_COUNT_TABLES; do
+    [ "${pair%%:*}" = "$svc" ] || continue
+    tables+=("${pair#*:}"); before+=("$(count "$svc" "${pair#*:}")")
+  done
   echo "dump $c"
   "${docker[@]}" exec "$c" sh -c 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$staging/$svc.dump"
+  for i in "${!tables[@]}"; do
+    after="$(count "$svc" "${tables[$i]}")"; b="${before[$i]}"
+    lo=$(( b < after ? b : after )); hi=$(( b > after ? b : after ))
+    printf '%s\t%s\t%s\n' "${tables[$i]}" "$lo" "$hi" >> "$staging/counts.tsv"
+  done
 done
 
 # 2. Test-case bucket, mirrored inside oj-minio with an alias built from its own root credentials.
@@ -52,18 +67,12 @@ echo "mirror bucket $bucket"
 "${docker[@]}" cp oj-minio:/tmp/oj-backup/minio/. "$staging/minio/"
 "${docker[@]}" exec oj-minio rm -rf /tmp/oj-backup
 
-# 3. Row counts for the restore drill.
-: > "$staging/counts.tsv"
-for pair in $BACKUP_COUNT_TABLES; do
-  svc="${pair%%:*}"; tbl="${pair#*:}"
-  n="$("${docker[@]}" exec "oj-$svc-db" sh -c "psql -At -U \"\$POSTGRES_USER\" \"\$POSTGRES_DB\" -c 'select count(*) from $tbl'")"
-  printf '%s\t%s\n' "$tbl" "$n" >> "$staging/counts.tsv"
-done
-printf 'minio_objects\t%s\n' "$(find "$staging/minio" -type f | wc -l)" >> "$staging/counts.tsv"
+# 3. Bucket object count (exact).
+n="$(find "$staging/minio" -type f | wc -l)"
+printf 'minio_objects\t%s\t%s\n' "$n" "$n" >> "$staging/counts.tsv"
 
 # 4. restic snapshot: staging, env files, pki/out, backups/.
-"${docker[@]}" run --rm --user "$(id -u):$(id -g)" -v "$BACKUP_REPO":/repo -v "$RESTIC_PASSWORD_FILE":/pw:ro \
-  -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD_FILE=/pw "$RESTIC_IMAGE" cat config >/dev/null 2>&1 || restic init
+[ -f "$BACKUP_REPO/config" ] || restic init
 paths=(/data)
 for f in "$deploy"/.env*; do
   [ -f "$f" ] || continue

@@ -27,6 +27,13 @@ mkdir -p "$tmp/restore"
 data="$tmp/restore/data"
 [ -f "$data/counts.tsv" ] || { echo "snapshot has no counts.tsv" >&2; exit 1; }
 
+# Snapshot age: restic keeps file mtimes, and counts.tsv is written at backup time.
+snap=$(stat -c %Y "$data/counts.tsv")
+echo "snapshot taken $(date -d "@$snap" '+%F %T')"
+if [ $(( $(date +%s) - snap )) -gt $(( 36 * 3600 )) ]; then
+  echo "FAIL snapshot is older than 36 hours" >&2; exit 1
+fi
+
 # 2. Restore each dump into an isolated postgres and count rows.
 : > "$tmp/actual.tsv"
 for svc in identity problem submission; do
