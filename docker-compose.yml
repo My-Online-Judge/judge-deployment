@@ -20,8 +20,14 @@ x-tz-env: &tz-env
 
 # OpenTelemetry export for every traced service (Java agent + judge-worker SDK). Jaeger is optional:
 # exporters drop spans when it is unreachable, they never block a request or a judge.
+# Over mutual TLS (sub-project 10): Jaeger's OTLP receivers require a client certificate from the CA
+# (jaeger/config.yaml), and each service presents the one of its own tls subpath, so every service that merges
+# this block mounts tls. The Java agent and OTel Python 1.45 both read these variables.
 x-otel-env: &otel-env
-  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+  OTEL_EXPORTER_OTLP_ENDPOINT: https://jaeger:4318
+  OTEL_EXPORTER_OTLP_CERTIFICATE: /etc/oj/tls/ca.crt
+  OTEL_EXPORTER_OTLP_CLIENT_KEY: /etc/oj/tls/tls.key
+  OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE: /etc/oj/tls/tls.crt
   OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
   OTEL_METRICS_EXPORTER: none
   OTEL_LOGS_EXPORTER: none
@@ -668,8 +674,23 @@ services:
     container_name: oj-jaeger
     restart: unless-stopped
     environment: *tz-env
-    # OTLP receivers (4317 gRPC, 4318 HTTP) stay inside oj-net. 16686 = UI + query API (/api/v3),
-    # loopback only; storage is in-memory, so traces are lost on restart.
+    # Upstream's all-in-one config with OTLP over mutual TLS and OTLP as the only ingest (tests/jaeger-config.test.sh).
+    command: ["--config", "file:/etc/jaeger/config.yaml"]
+    volumes:
+      - ./jaeger/config.yaml:/etc/jaeger/config.yaml:ro
+      # The OTLP receivers' certificate, and the CA the clients' certificates must chain to.
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: jaeger
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+    # OTLP receivers (4317 gRPC, 4318 HTTP; TLS, a client certificate from the CA required) stay inside oj-net.
+    # 16686 = UI + query API (/api/v3), plain HTTP, loopback only; storage is in-memory (at most 100000 traces), so
+    # traces are lost on restart.
     ports:
       - "127.0.0.1:16686:16686"
     networks: [oj-net]

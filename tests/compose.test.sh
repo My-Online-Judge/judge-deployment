@@ -20,7 +20,8 @@ check() { _check "$config" "$@"; }
 check_raw() { _check "$raw" "$@"; }
 
 worker_allowlist="['JUDGE_SERVER_TOKEN','JUDGE_SERVER_URL','KAFKA_BROKERS','MINIO_ACCESS_KEY','MINIO_BUCKET','MINIO_ENDPOINT',
-  'MINIO_SECRET_KEY','OJ_TLS_DIR','OTEL_EXPORTER_OTLP_ENDPOINT','OTEL_EXPORTER_OTLP_PROTOCOL','OTEL_LOGS_EXPORTER',
+  'MINIO_SECRET_KEY','OJ_TLS_DIR','OTEL_EXPORTER_OTLP_CERTIFICATE','OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE',
+  'OTEL_EXPORTER_OTLP_CLIENT_KEY','OTEL_EXPORTER_OTLP_ENDPOINT','OTEL_EXPORTER_OTLP_PROTOCOL','OTEL_LOGS_EXPORTER',
   'OTEL_METRICS_EXPORTER','OTEL_SERVICE_NAME','SANDBOX_HEARTBEAT_URL','TZ']"
 # The resolved config inlines an env_file into environment, so this one check also catches an env_file coming back.
 check "judge-worker gets exactly the variables it reads" "sorted(s['judge-worker']['environment']) == $worker_allowlist"
@@ -141,6 +142,16 @@ SANDBOX_HEALTH='import hashlib,os,ssl,urllib.request as u; c=ssl.create_default_
   "all(s[n]['healthcheck']['test'] == ['CMD', 'python3', '-c', __import__('os').environ['SANDBOX_HEALTH']] for n in $sandboxes)"
 check_raw "judge-worker calls both sandboxes over https, never http:// (a literal, not from .env)" \
   "s['judge-worker']['environment'].get('JUDGE_SERVER_URL') == 'https://judge-server:8080,https://judge-server-2:8080' and 'http://' not in s['judge-worker']['environment']['JUDGE_SERVER_URL']"
+# OTLP to Jaeger over mutual TLS (task 13): Jaeger runs jaeger/config.yaml (tests/jaeger-config.test.sh) with the
+# certificate of its own tls subpath, and every traced service exports over https with the CA and its own certificate.
+check "jaeger runs jaeger/config.yaml, mounted read-only at /etc/jaeger/config.yaml, with the jaeger tls subpath" \
+  "s['jaeger'].get('command') == ['--config', 'file:/etc/jaeger/config.yaml'] and any(m.get('type') == 'bind' and m['source'].endswith('/jaeger/config.yaml') and m['target'] == '/etc/jaeger/config.yaml' and m.get('read_only') is True for m in s['jaeger'].get('volumes', [])) and any(m.get('volume', {}).get('subpath') == 'jaeger' for m in s['jaeger'].get('volumes', []) if m.get('source') == 'tls')"
+otlp_tls="{'OTEL_EXPORTER_OTLP_ENDPOINT': 'https://jaeger:4318', 'OTEL_EXPORTER_OTLP_PROTOCOL': 'http/protobuf',
+  'OTEL_EXPORTER_OTLP_CERTIFICATE': '/etc/oj/tls/ca.crt', 'OTEL_EXPORTER_OTLP_CLIENT_KEY': '/etc/oj/tls/tls.key',
+  'OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE': '/etc/oj/tls/tls.crt'}"
+check "the gateway, the three services and the worker export OTLP/HTTP to https://jaeger:4318 with the CA and their own certificate" \
+  "sorted(n for n, x in s.items() if 'OTEL_SERVICE_NAME' in (x.get('environment') or {})) == ['api-gateway', 'identity-service', 'judge-worker', 'problem-service', 'submission-service'] and all({k: x['environment'].get(k) for k in $otlp_tls} == $otlp_tls and any(m.get('source') == 'tls' for m in x.get('volumes', [])) for x in s.values() if 'OTEL_SERVICE_NAME' in (x.get('environment') or {}))"
+
 # The mock sandbox speaks plain HTTP: its overlay points the worker at http:// and nothing expects TLS of the mock.
 mock=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" -f "$PWD/docker-compose.mock.yml" config --format json)
 _check "$mock" "with docker-compose.mock.yml the worker calls both mock sandboxes over http, and their healthcheck and SERVICE_URL expect no TLS" \

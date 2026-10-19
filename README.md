@@ -29,7 +29,7 @@ Browser
                                                                       │  HTTP POST /judge                → submission-service:8000
                                                                       │  (sandbox-net: internal, worker + sandboxes only)   /api/judge_server_heartbeat/
                                                                       └→ judge-server ×2 (qduoj sandbox: no privileged, 6 caps, read-only)
-Traces: api-gateway, submission-service, identity-service, problem-service, judge-worker ──OTLP──→ jaeger (UI http://127.0.0.1:16686)
+Traces: api-gateway, submission-service, identity-service, problem-service, judge-worker ──OTLP, mutual TLS──→ jaeger (UI http://127.0.0.1:16686)
 ```
 
 ## Services
@@ -44,7 +44,7 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 | `identity-db`  | `postgres:16`            | — (internal) | identity-service's database (`identity`) |
 | `problem-service` | build `../oj-problem-service` | — (internal) | Problems, test cases, statistics; gRPC API for submission-service; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |
 | `problem-db`   | `postgres:16`            | — (internal) | problem-service's database (`problem`) |
-| `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI + OTLP collector |
+| `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI (plain HTTP) + OTLP collector (`jaeger/config.yaml`): `:4317`/`:4318` TLS + client certificate, in-memory, at most 100000 traces |
 | `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge; relays sandbox status to the registry (mutual TLS); `/metrics` `:9100` TLS + client certificate |
 | `judge-server` | `qduoj/judge-server`     | —         | Code sandbox (×2) on the internal `sandbox-net`; least privilege, see `x-sandbox`; API `:8080` TLS + client certificate (the worker's) |
 | `judge-portal` | build `../judge-portal`  | 80        | Vue 3 frontend (nginx)           |

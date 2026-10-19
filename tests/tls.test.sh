@@ -165,6 +165,13 @@ for js in judge-server judge-server-2; do
   OJ_NET=${OJ_SANDBOX_NET:-oj-sandbox-net} probe_plain_refused "$js:8080"
 done
 
+# ---- otlp: Jaeger's OTLP/HTTP receiver (4318) requires a CA-signed client certificate (task 13) -------------------
+# Every traced service exports to https://jaeger:4318 with its own certificate (x-otel-env). Jaeger checks the CA, not
+# the CN: tls-probe's certificate passes TLS, and the receiver answers the probe's GET / with a 404.
+probe_handshake jaeger:4318 none fail
+probe_handshake jaeger:4318 rogue fail
+probe_handshake jaeger:4318 tls-probe ok
+
 # (sections follow)
 
 tls_probe_exit
