@@ -9,7 +9,11 @@
 # a username that does not exist (no IP counter is touched) and removes it again. Prints no credentials.
 set -euo pipefail
 : "${PROBE_USERNAME:?an existing USER account}" "${PROBE_PASSWORD:?its password}"
-API=${API:-http://localhost:8000/api/v1}
+API=${API:-https://localhost/api/v1}   # the HTTPS edge; trust the private CA with CA_CERT (default pki/out/ca/ca.crt)
+CA_CERT=${CA_CERT:-$(dirname "$0")/../pki/out/ca/ca.crt}
+curl() { command curl --cacert "$CA_CERT" "$@"; }
+# redis-cli over mutual TLS with the identity oj-redis itself carries (its tls subpath: ca.crt, tls.crt, tls.key)
+redis_cli() { docker exec oj-redis redis-cli --tls --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key "$@"; }
 JAR=$(mktemp); OUT=$(mktemp); trap 'rm -f "$JAR" "$OUT"' EXIT
 LOCKED=sp3a-locked-probe
 
@@ -40,7 +44,7 @@ show "200 empty problem page"     "$API/problems?page=0&size=1&search=sp3a-match
 SUBMIT='{"sourceCode":"print(3)","languageIdentifier":"python3","problemSlug":"simple-a-plus-b"}'
 curl -s -o /dev/null -b "$JAR" -H 'Content-Type: application/json' -d "$SUBMIT" "$API/submissions"
 show "cooldown 429"               -b "$JAR" -H 'Content-Type: application/json' -d "$SUBMIT" "$API/submissions"
-docker exec oj-redis redis-cli SET "oj:rl:lock:username:$LOCKED" 1 EX 900 > /dev/null
+redis_cli SET "oj:rl:lock:username:$LOCKED" 1 EX 900 > /dev/null
 show "429 login locked"           -H 'Content-Type: application/json' -d "{\"username\":\"$LOCKED\",\"password\":\"x\"}" "$API/auth/login"
-docker exec oj-redis redis-cli DEL "oj:rl:lock:username:$LOCKED" > /dev/null
+redis_cli DEL "oj:rl:lock:username:$LOCKED" > /dev/null
 show "unclaimed api path"         "$API/sp3a-unclaimed"

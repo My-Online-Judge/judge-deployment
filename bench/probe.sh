@@ -23,7 +23,9 @@ case "$what" in dns|redis|grpc|kafka) ;; *) die "usage: probe.sh dns|redis|grpc|
 [ -n "$(docker ps -q --filter "label=com.docker.compose.project=$BENCH_PROJECT" --filter label=com.docker.compose.service=api-gateway)" ] \
   || die "oj-bench is not running (bench/env.sh up first)"
 
-API=http://127.0.0.1:8000/api/v1
+API=https://localhost/api/v1   # the edge (sub-project 10); the gateway has no host port
+[ -f "$OJ_CA" ] || die "the CA certificate is missing: $OJ_CA (pki/pki.sh init-ca, or set OJ_CA)"
+curl() { command curl --cacert "$OJ_CA" "$@"; }
 PASSWORD=BenchPass2026   # = USER_PASSWORD in k6/lib/config.js, bench users only
 jars=$(mktemp -d); chmod 700 "$jars"; trap 'rm -rf "$jars"' EXIT
 

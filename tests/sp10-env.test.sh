@@ -87,4 +87,24 @@ for f in .env .env.identity .env.problem; do
     check "restore gives back $f byte for byte" "$(cmp "$work/$f" "$work/orig/$f" && echo same)" same
 done
 check "restore prints no value" "$(printf '%s\n' "$out3" | grep -cF "${args[@]}" || true)" 0
+
+# A URL key whose value is not a plain http(s)://host... (quoted, no scheme, an export prefix) is left alone and said so:
+# the rewrite must not claim "set" for a line it did not change.
+w2=$(mktemp -d)
+trap 'rm -rf "$work" "$w2"' EXIT
+mkdir "$w2/migrations"
+cp "$here/migrations/sp10-env.sh" "$w2/migrations/"
+printf 'JUDGE_SERVER_TOKEN=%s\nMINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD=p\n' "$(printf 'a%.0s' $(seq 48))" > "$w2/.env"
+cat > "$w2/.env.identity" <<'ENV'
+POSTGRES_DB=identity
+POSTGRES_USER=identity
+POSTGRES_PASSWORD=identity-db-secret
+APP_BASE_URL="http://localhost"
+export GOOGLE_REDIRECT_URI=http://localhost:8000/cb
+ENV
+out4=$("$w2/migrations/sp10-env.sh" create)
+check "a quoted URL is left unchanged and reported" "$(grep -c '^left APP_BASE_URL unchanged (unexpected format)$' <<< "$out4" || true)" 1
+check "an export-prefixed URL is left unchanged and reported" "$(grep -c '^left GOOGLE_REDIRECT_URI unchanged (unexpected format)$' <<< "$out4" || true)" 1
+check "no false 'set' line for them" "$(grep -c '^set ' <<< "$out4" || true)" 0
+check "the quoted line is untouched" "$(grep -c '^APP_BASE_URL="http://localhost"$' "$w2/.env.identity" || true)" 1
 exit "$fail"

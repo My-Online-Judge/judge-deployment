@@ -14,8 +14,9 @@ reference the sibling repos (`../oj-submission-service`, `../oj-identity-service
 
 ```
 Browser
-  ├─ http://localhost        → judge-portal   (nginx:80, static Vue 3 build)
-  └─ http://localhost:8000   → api-gateway    (Spring Cloud Gateway: CORS, client-IP boundary)
+  └─ https://localhost  (80 → 308 to https)  → edge (Caddy, private-CA certificate; the only public listener)
+        ├─ /api/*  → api-gateway   (Spring Cloud Gateway: CORS, client-IP boundary; accepts only CN=edge)
+        └─ the rest → judge-portal (nginx, static Vue 3 build; accepts only CN=edge)
                                    ├─ /api/v1/{auth,users,roles,permissions,security}/** → identity-service ── identity-db
                                    ├─ /api/v1/problems/** → problem-service ── problem-db, MinIO (test cases)
                                    │                              ↑ gRPC :9090 (GetJudgeSpec, GetSampleTestCases)
@@ -37,17 +38,18 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 | Service        | Image / Build            | Host port | Purpose                          |
 |----------------|--------------------------|-----------|----------------------------------|
 | `kafka`        | `apache/kafka:3.8.1`     | — (internal) | Submission event bus (KRaft): `kafka:29092` TLS + client certificate; `127.0.0.1:9092` PLAINTEXT only inside the container |
-| `api-gateway`  | build `../oj-api-gateway`| 8000      | Public API entry (CORS, client IP); calls the services over mutual TLS; actuator `:8081` TLS + client certificate |
+| `edge`         | `caddy:2.10.0-alpine`    | 80, 443   | The one public listener: HTTPS with the private-CA certificate, `/api/*` to the gateway, the rest to the portal, both over mutual TLS (`edge/Caddyfile`) |
+| `api-gateway`  | build `../oj-api-gateway`| — (internal) | API entry behind the edge (CORS, client IP from the edge's `X-Forwarded-For`); answers only CN=`edge`; calls the services over mutual TLS; actuator `:8081` TLS + client certificate |
 | `submission-service` | build `../oj-submission-service` | — (internal) | Submissions, judging, languages, judge servers; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |
 | `submission-db` | `postgres:16`           | — (internal) | submission-service's database (`submission`) |
 | `identity-service` | build `../oj-identity-service` | — (internal) | Login, users, roles, bans; issues the tokens; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |
 | `identity-db`  | `postgres:16`            | — (internal) | identity-service's database (`identity`) |
 | `problem-service` | build `../oj-problem-service` | — (internal) | Problems, test cases, statistics; gRPC API for submission-service; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |
 | `problem-db`   | `postgres:16`            | — (internal) | problem-service's database (`problem`) |
-| `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI (plain HTTP) + OTLP collector (`jaeger/config.yaml`): `:4317`/`:4318` TLS + client certificate, in-memory, at most 100000 traces |
+| `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI (plain HTTP, loopback only) + OTLP collector (`jaeger/config.yaml`): `:4317`/`:4318` TLS + client certificate, in-memory, at most 100000 traces |
 | `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge; relays sandbox status to the registry (mutual TLS); `/metrics` `:9100` TLS + client certificate |
 | `judge-server` | `qduoj/judge-server`     | —         | Code sandbox (×2) on the internal `sandbox-net`; least privilege, see `x-sandbox`; API `:8080` TLS + client certificate (the worker's) |
-| `judge-portal` | build `../judge-portal`  | 80        | Vue 3 frontend (nginx)           |
+| `judge-portal` | build `../judge-portal`  | — (internal) | Vue 3 frontend (nginx, TLS, answers only CN=`edge`) |
 
 ## Run
 
@@ -77,12 +79,56 @@ docker compose down -v
 
 | What        | URL                              |
 |-------------|----------------------------------|
-| Portal      | http://localhost                 |
-| API         | http://localhost:8000/api/v1     |
-| Swagger UI  | http://localhost:8000/swagger-ui/index.html (dev profile only) |
-| Jaeger UI   | http://127.0.0.1:16686           |
+| Portal      | https://localhost (`OJ_PUBLIC_HOST`; http:// answers 308 to it) |
+| API         | https://localhost/api/v1         |
+| Swagger UI  | not published (the gateway has no host port; dev profile only) |
+| Jaeger UI   | http://127.0.0.1:16686 (plain HTTP, loopback only) |
+| Prometheus  | http://127.0.0.1:9090 (loopback only; scrapes the actuators over mutual TLS) |
+| MinIO       | https://127.0.0.1:9000 (API), https://127.0.0.1:9001 (console); loopback only |
 | Kafka       | kafka:29092 inside oj-net (no host port) |
 | Postgres    | identity-db, problem-db, submission-db inside oj-net (no host port) |
+
+Clients trust the private CA: `curl --cacert pki/out/ca/ca.crt https://localhost/api/v1/languages`. Browsers need
+`pki/out/ca/ca.crt` imported once (or accept the warning for local use).
+
+## TLS everywhere (sub-project 10)
+
+Every hop is mutual TLS with certificates from the private CA in `pki/` (`pki/README.md`); the services admit callers by
+certificate CN (`oj.tls.allowed-clients`), not by shared tokens. Only the edge is public.
+
+### Deploy order (from `judge-deployment/`, once, before the first `up`)
+
+1. If the site is not `localhost`, set `OJ_PUBLIC_HOST=<host>` in `.env` **first**: the edge certificate's SAN and the
+   identity URLs below are built from it.
+2. `pki/pki.sh init-ca` (once; refuses to overwrite) then `pki/pki.sh issue-all` (every leaf; the edge leaf names
+   `OJ_PUBLIC_HOST`). `pki/pki.sh status` lists id, days left and serial.
+3. `migrations/sp10-env.sh create`: backs up each `.env*` to `<file>.pre-sp10`, writes `.env.identity-db` (identity-db no
+   longer receives the JWT and Google secrets), one MinIO account per service, a 48-character `JUDGE_SERVER_TOKEN`, drops
+   the keys compose no longer reads (`PROBLEM_RPC_TOKEN`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_ENDPOINT`,
+   `JUDGE_SERVER_URL`) and moves `APP_BASE_URL` / `GOOGLE_REDIRECT_URI` to `https://<OJ_PUBLIC_HOST>`. It prints names only.
+4. Register the new redirect URI (`https://<OJ_PUBLIC_HOST>/api/v1/auth/outbound/google/callback`) in the Google console.
+5. `docker compose up -d --build`: `tls-init` copies the certificates into the `tls` volume, then everything starts.
+6. Import `pki/out/ca/ca.crt` into the browser or OS trust store, open `https://<OJ_PUBLIC_HOST>`.
+7. Verify with `bash tests/tls.test.sh` (the matrix: wrong or missing client certificates must be refused on every hop).
+
+### Rotation
+
+Leaves live 365 days (alert `TlsCertificateExpiringSoon` names the service 30 days ahead). Re-issue with the same CA:
+`pki/pki.sh issue-all`, then `docker compose up -d --force-recreate tls-init`, then restart the services
+(`docker compose restart`): a subpath mount keeps the old directory until the container restarts. One service only:
+`pki/pki.sh issue <id>`, re-run `tls-init`, `docker compose restart <id>`.
+
+### The CA key is backed up
+
+`pki/out/` holds the only copy of the CA key. `backup/backup.sh` includes `pki/out` in the nightly restic snapshot
+(with the `.env*` files; `restore-drill.sh` checks the databases only, so restore `pki/out` from the snapshot by hand). Losing the CA means re-issuing everything and
+re-importing the CA in every browser. A leaked CA key: `pki/pki.sh init-ca --force`, `issue-all`, redo the rotation.
+
+### Rollback
+
+`migrations/sp10-env.sh restore` puts the `.env*` files back from `<file>.pre-sp10`; then check out the previous commits of
+this repo and of each service and `docker compose up -d --build --remove-orphans`. No data migration is involved; the
+`tls` volume and `pki/out` can stay.
 
 ## Upgrading to the gateway (sub-project 0)
 
@@ -94,7 +140,7 @@ no CORS headers and publishes no host port, so it only works behind `api-gateway
    (without it, `docker compose up --build` fails with "path ../oj-api-gateway not found").
 2. Pull `main` of `judge-api`, `judge-worker`, `oj-api-gateway` and this repo.
 3. Deploy everything in one step: `docker compose up -d --build`.
-4. Check: `curl http://localhost:8000/api/v1/languages` → 200 through the gateway, and
+4. Check: `curl --cacert pki/out/ca/ca.crt https://localhost/api/v1/languages` (from sub-project 10 on; originally `http://localhost:8000/...`) → 200 through the gateway, and
    `docker compose ps` shows `oj-api-gateway` and `oj-judge-api` healthy.
 
 Rollback: check out the previous commit of this repo and of `judge-api`, then
@@ -267,7 +313,7 @@ Cutover runbook (all from `judge-deployment/`):
    `docker exec oj-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 --describe --group judge-api-results`
    lists every partition with a consumer and `LAG` 0.
 5. **Smoke test**: log in, submit; the verdict arrives over SSE through the gateway; the problem's accepted count
-   goes up; old submission histories list completely. In Jaeger (<http://localhost:16686>, service `api-gateway`)
+   goes up; old submission histories list completely. In Jaeger (<http://127.0.0.1:16686>, service `api-gateway`)
    the submission's trace spans api-gateway, submission-service, problem-service and judge-worker. Nothing was
    flipped to SYSTEM_ERROR by the window:
    `docker exec oj-submission-db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM t_submissions WHERE status = 5"`
@@ -313,7 +359,7 @@ Copy `.env.example` → `.env` to start from a clean template.
 Notes:
 - `api-gateway` does **not** load `.env`; compose passes it only the service URIs, the profile and
   the OpenTelemetry settings. submission-service is not published on the host — everything goes
-  through the gateway on :8000.
+  through the HTTPS edge (`https://localhost/api/v1`; the gateway has no host port).
 - `.env` holds **container-network** addresses (`kafka:29092`). The worker's sandbox URLs are fixed in compose
   (`https://judge-server:8080,https://judge-server-2:8080`).
 - `.env` and every `.env.<service>` hold secrets: keep them mode 600 (`chmod 600 .env`).
@@ -325,7 +371,7 @@ Notes:
 - `submission-service` runs the profile in `.env.submission` (the image's default is **dev**, baked in via
   `pom.xml`); both serve the API on **8000** and actuator on **8081**.
 - `GOOGLE_REDIRECT_URI` must match the Google console. It points at the Vite dev origin
-  (`:5173`); if you drive OAuth through the containerized portal (`http://localhost`), update
+  (`:5173`); if you drive OAuth through the containerized portal (`https://<OJ_PUBLIC_HOST>`), update
   both the `.env` value and the console.
 
 ## Host notes (this machine)

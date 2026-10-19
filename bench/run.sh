@@ -123,7 +123,7 @@ image_ids() {
 }
 k6_run() { # k6_run <script> [-e K=V…] — output in RUN_DIR; remote write tagged testid=RUN_ID
   local script=$1; shift
-  x docker run --rm --name "oj-bench-k6-$RUN_ID" --network oj-net --cpus 1 --user "$(id -u):$(id -g)" \
+  x docker run --rm --name "oj-bench-k6-$RUN_ID" --network oj-net --cpus 1 --user "$(id -u):$(id -g)" "${K6_TLS[@]}" \
     -v "$BENCH_DIR/k6:/scripts:ro" -v "$BENCH_DIR/data:/data:ro" -v "$BENCH_GEN:/gen:ro" -v "$RUN_DIR:/out" \
     -e K6_PROMETHEUS_RW_SERVER_URL=http://prometheus:9090/api/v1/write -e 'K6_PROMETHEUS_RW_TREND_STATS=p(50),p(95),p(99),count' \
     "$@" "$K6_IMAGE" run --quiet --tag "testid=$RUN_ID" --log-output=file=/out/k6.log --log-format=json \
@@ -173,7 +173,7 @@ meta_set --arg d "$outcome" '.drain = $d'
 [ "$outcome" = timeout ] && log "the judge queue did not empty — the invariant check will list what is stuck"
 meta_set --argjson t "$(date +%s)" '.ended_at = $t'
 
-x docker run --rm --network oj-net --user "$(id -u):$(id -g)" -v "$BENCH_DIR/k6:/scripts:ro" -v "$BENCH_GEN:/gen:ro" \
+x docker run --rm --network oj-net --user "$(id -u):$(id -g)" "${K6_TLS[@]}" -v "$BENCH_DIR/k6:/scripts:ro" -v "$BENCH_GEN:/gen:ro" \
   -v "$RUN_DIR:/out" "$K6_IMAGE" run --quiet /scripts/check.js >&2
 REL=${RUN_DIR#"$BENCH_DIR"/}
 x analyze invariant "$REL" >&2

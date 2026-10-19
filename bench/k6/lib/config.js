@@ -1,5 +1,7 @@
 // Where the bench talks to and who it is (k6 only: reads __ENV, opens files in the init context).
-export const BASE = __ENV.BASE_URL || 'http://api-gateway:8000';
+// The HTTPS edge (sub-project 10): the gateway answers only the edge's certificate, so the bench enters where a browser does.
+// The k6 container trusts the private CA through SSL_CERT_FILE (bench/lib/common.sh k6_tls); the edge asks no client certificate.
+export const BASE = __ENV.BASE_URL || 'https://edge';
 export const PROM = __ENV.PROM_URL || 'http://prometheus:9090';
 export const ADMIN_USER = 'admin';
 // The root admin a fresh identity-db seeds (identity V2 migration). The bench stack is throwaway.

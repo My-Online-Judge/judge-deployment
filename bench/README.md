@@ -18,6 +18,16 @@ bench/env.sh down
 docker compose up -d
 ```
 
+## TLS (sub-project 10)
+
+The bench stack is the production compose file, so it needs `pki/out` (`pki/pki.sh init-ca` and `issue-all`; its `tls-init`
+fills the project's own `oj-bench_tls` volume). k6 enters through the edge, as a browser does: `BASE` is `https://edge`
+(the gateway admits only CN=`edge`, so a direct call from the k6 container is refused), and the k6 containers mount the
+`tls-probe` subpath of `oj-bench_tls` and set `SSL_CERT_FILE=/etc/oj/tls/ca.crt` (k6 reads it on Linux; checked against the
+pinned image) to trust the private CA. `bench/probe.sh` calls `https://localhost/api/v1` with `curl --cacert
+pki/out/ca/ca.crt` (override with `OJ_CA`). Prometheus stays plain HTTP on `127.0.0.1:9090`; the edge's ports 80/443 are
+published by the bench stack too, hence the live stack must be down.
+
 ## Runs
 
 | command | what |

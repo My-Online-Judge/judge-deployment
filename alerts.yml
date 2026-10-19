@@ -248,10 +248,10 @@ groups:
       - alert: TlsCertificateExpiringSoon
         # Spring Boot's SSL bundle metric (bundle "oj"), one series per certificate in the chain. Leaves live 365 days:
         # re-issue with pki/pki.sh and restart. An absent series is no data, so the rule is inactive.
-        expr: min(ssl_chain_expiry_seconds) < 30 * 86400
+        expr: min by (job, instance) (ssl_chain_expiry_seconds) < 30 * 86400
         for: 1h
         labels:
           severity: warning
         annotations:
-          summary: "A service certificate expires within 30 days"
-          description: "The soonest-expiring certificate in an SSL bundle has under 30 days left (ssl_chain_expiry_seconds). Re-issue with pki/pki.sh issue-all and restart the services."
+          summary: "{{ $labels.job }} certificate expires within 30 days"
+          description: "The soonest-expiring certificate in {{ $labels.instance }}'s SSL bundle has under 30 days left (ssl_chain_expiry_seconds). Re-issue with pki/pki.sh issue-all, run tls-init (docker compose up -d) and restart {{ $labels.job }}."

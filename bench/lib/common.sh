@@ -11,6 +11,13 @@ BENCH_GEN="$BENCH_DIR/.gen"
 K6_IMAGE='grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34'
 ANALYZE_IMAGE='oj-bench-analyze:1'
 PROM_URL='http://127.0.0.1:9090'
+# k6 reaches the API through the edge (https://edge), whose certificate comes from our private CA: the container mounts
+# the tls-probe subpath of the stack's tls volume (CA + a probe leaf, never presented) and k6 (Go) reads SSL_CERT_FILE.
+K6_TLS=(--mount "type=volume,src=${BENCH_PROJECT}_tls,dst=/etc/oj/tls,readonly,volume-subpath=tls-probe" -e SSL_CERT_FILE=/etc/oj/tls/ca.crt)
+# The CA for host-side curl (bench/probe.sh): $OJ_CA, else this checkout's pki/out, else the main checkout's.
+if [ -n "${OJ_CA:-}" ]; then :
+elif [ -f "$BENCH_DIR/../pki/out/ca/ca.crt" ]; then OJ_CA="$BENCH_DIR/../pki/out/ca/ca.crt"
+else OJ_CA="$DEPLOY_DIR/pki/out/ca/ca.crt"; fi
 MAX_SUBMIT_RATE=18   # = maxSubmitRate() in k6/lib/pure.js: 200 users, 10 s cooldown, 10 % margin
 # Built from source in production; the overlay runs the live stack's images of these, never a rebuild.
 BUILT_SERVICES=(submission-service identity-service problem-service api-gateway judge-worker)

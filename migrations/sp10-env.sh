@@ -69,9 +69,11 @@ case "${1:-}" in
         host=${host:-localhost}
         [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "OJ_PUBLIC_HOST is not a host name" >&2; exit 1; }
         for k in APP_BASE_URL GOOGLE_REDIRECT_URI; do
-            if grep -qE "^$k=" .env.identity; then
+            if grep -qE "^$k=https?://[^/]" .env.identity; then
                 sed -i -E "s|^($k=)https?://[^/]*|\1https://$host|" .env.identity
                 echo "set $k to https://<public host>"
+            elif grep -qE "^(export[[:space:]]+)?$k=" .env.identity; then
+                echo "left $k unchanged (unexpected format)"
             fi
         done
         chmod 600 .env .env.identity

@@ -12,7 +12,7 @@ for slug in bench-ab bench-sum; do
 done
 rm -f "$BENCH_GEN/users.json" "$BENCH_GEN/seed-report.json"
 log "seeding (history=$history)"
-docker run --rm --network oj-net --user "$(id -u):$(id -g)" \
+docker run --rm --network oj-net --user "$(id -u):$(id -g)" "${K6_TLS[@]}" \
   -v "$BENCH_DIR/k6:/scripts:ro" -v "$BENCH_DIR/data:/data:ro" -v "$BENCH_GEN:/gen" \
   -e HISTORY="$history" "$K6_IMAGE" run --quiet /scripts/seed.js
 [ -s "$BENCH_GEN/users.json" ] || die "the seed did not write users.json (see the k6 error above)"

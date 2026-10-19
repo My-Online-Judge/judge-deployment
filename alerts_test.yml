@@ -416,9 +416,11 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: warning
+              job: problem-service
+              instance: problem-service:8081
             exp_annotations:
-              summary: "A service certificate expires within 30 days"
-              description: "The soonest-expiring certificate in an SSL bundle has under 30 days left (ssl_chain_expiry_seconds). Re-issue with pki/pki.sh issue-all and restart the services."
+              summary: "problem-service certificate expires within 30 days"
+              description: "The soonest-expiring certificate in problem-service:8081's SSL bundle has under 30 days left (ssl_chain_expiry_seconds). Re-issue with pki/pki.sh issue-all, run tls-init (docker compose up -d) and restart problem-service."
 
   # ...is silent at 31 days (2678400 s)...
   - interval: 1m

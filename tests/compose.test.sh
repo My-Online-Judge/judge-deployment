@@ -3,14 +3,17 @@
 # Run from anywhere: tests/compose.test.sh — needs the gitignored .env* files beside docker-compose.yml.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-# The checkout that owns the .env files: in a worktree, the main checkout (as bench/lib/common.sh resolves it).
-deploy_dir=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+# The directory that holds the .env files: $OJ_ENV_DIR (an override), else this checkout when it has a .env (a worktree
+# the files were copied into), else the main checkout (as bench/lib/common.sh resolves it). Same order as tests/tls.test.sh.
+if [[ -n ${OJ_ENV_DIR:-} ]]; then deploy_dir=$OJ_ENV_DIR
+elif [[ -f .env ]]; then deploy_dir=$PWD
+else deploy_dir=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); fi
 config=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
 # The same file before interpolation: which ${VARIABLE} a value names, not what it resolves to.
 raw=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --no-interpolate --format json)
 fail=0
 _check() { # _check <json> <description> <python expression over s = services, v = volumes>
-  if python3 -c "import json,sys; c=json.load(sys.stdin); s=c['services']; v=c.get('volumes',{}); sys.exit(0 if ($3) else 1)" <<< "$1"; then
+  if python3 -c "import json,re,sys; c=json.load(sys.stdin); s=c['services']; v=c.get('volumes',{}); sys.exit(0 if ($3) else 1)" <<< "$1"; then
     echo "ok   $2"
   else
     echo "FAIL $2"; fail=1
@@ -171,6 +174,11 @@ check "judge-portal serves portal/nginx-tls.conf with the judge-portal tls subpa
   "(lambda p: (p['build'].get('args') or {}).get('VITE_API_BASE_URL') == '/api/v1' and any(m.get('type') == 'bind' and m['source'].endswith('/portal/nginx-tls.conf') and m['target'] == '/etc/nginx/nginx.conf' and m.get('read_only') is True for m in p.get('volumes', [])) and any(m.get('volume', {}).get('subpath') == 'judge-portal' for m in p.get('volumes', []) if m.get('source') == 'tls'))(s['judge-portal'])"
 check "identity-service marks its cookies Secure (APP_COOKIE_SECURE)" \
   "s['identity-service']['environment'].get('APP_COOKIE_SECURE') == 'true'"
+
+# No hop is left on plain HTTP (task 16): no compose environment value names a service by an http:// URL. The mock
+# sandbox overlay is the one exception and is checked below, with its own overlay.
+check "no environment value in docker-compose.yml is an http:// URL of a stack service" \
+  "not any(re.search(r'http://(identity|problem|submission)-service|http://api-gateway|http://minio|http://jaeger|http://judge-server', str(val)) for x in s.values() for val in (x.get('environment') or {}).values())"
 
 # The mock sandbox speaks plain HTTP: its overlay points the worker at http:// and nothing expects TLS of the mock.
 mock=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" -f "$PWD/docker-compose.mock.yml" config --format json)
