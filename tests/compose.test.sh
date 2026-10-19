@@ -26,11 +26,11 @@ check "kafka keeps its logs on the named volume kafkadata" \
 check "kafka has a fixed cluster id" "s['kafka']['environment'].get('CLUSTER_ID') == 'LL99FafWSZyhNAgsibWLog'"
 
 check "api-gateway waits only for the back-ends to start, and for redis to be healthy" \
-  "{k: d['condition'] for k, d in s['api-gateway']['depends_on'].items()} == {'submission-service': 'service_started', 'identity-service': 'service_started', 'problem-service': 'service_started', 'redis': 'service_healthy'}"
+  "{k: d['condition'] for k, d in s['api-gateway']['depends_on'].items()} == {'tls-init': 'service_completed_successfully', 'submission-service': 'service_started', 'identity-service': 'service_started', 'problem-service': 'service_started', 'redis': 'service_healthy'}"
 check "problem-service gets KAFKA_PARTITIONS" "s['problem-service']['environment'].get('KAFKA_PARTITIONS') == '6'"
 
 check "redis keeps an append-only file on the named volume redisdata (revocations survive down/up)" \
-  "s['redis'].get('command') == ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec'] and any(m.get('source') == 'redisdata' and m.get('target') == '/data' for m in s['redis'].get('volumes', [])) and 'redisdata' in v"
+  "'--appendonly' in s['redis']['command'] and s['redis']['command'][s['redis']['command'].index('--appendonly') + 1] == 'yes' and s['redis']['command'][s['redis']['command'].index('--appendfsync') + 1] == 'everysec' and any(m.get('source') == 'redisdata' and m.get('target') == '/data' for m in s['redis'].get('volumes', [])) and 'redisdata' in v"
 java_services="('api-gateway', 'identity-service', 'problem-service', 'submission-service')"
 check "the JVM services load the jvm-dns-security config as Security properties and set grpc-java's resolver cache to 1 s, agent kept (effect: tests/jvm-dns.test.sh)" \
   "all({'-Djava.security.properties=/opt/oj/jvm-dns.security', '-Dnetworkaddress.cache.ttl=1', '-javaagent:/otel/opentelemetry-javaagent.jar'} <= set(s[n]['environment']['JAVA_TOOL_OPTIONS'].split()) and {'source': 'jvm-dns-security', 'target': '/opt/oj/jvm-dns.security'} in [{k: x[k] for k in ('source', 'target')} for x in s[n].get('configs', [])] for n in $java_services) and c['configs']['jvm-dns-security']['content'].split() == ['networkaddress.cache.ttl=1', 'networkaddress.cache.negative.ttl=0']"
@@ -64,5 +64,13 @@ check "each database serves TLS with the pg-hba file (hostssl only, clientcert=v
   "all('ssl=on' in s[n]['command'] and 'hba_file=/etc/oj/pg_hba.conf' in s[n]['command'] and {'ssl_cert_file=/etc/oj/tls/tls.crt', 'ssl_key_file=/etc/oj/tls/tls.key', 'ssl_ca_file=/etc/oj/tls/ca.crt'} <= set(s[n]['command']) and 'timezone=Asia/Ho_Chi_Minh' in s[n]['command'] and {'source': 'pg-hba', 'target': '/etc/oj/pg_hba.conf'} in [{k: x[k] for k in ('source', 'target')} for x in s[n].get('configs', [])] and any(m.get('volume', {}).get('subpath') == n for m in s[n]['volumes'] if m.get('source') == 'tls') for n in ('identity-db', 'problem-db', 'submission-db')) and [' '.join(l.split()) for l in c['configs']['pg-hba']['content'].splitlines()] == ['local all all trust', 'hostssl all all 0.0.0.0/0 scram-sha-256 clientcert=verify-ca', 'hostssl all all ::/0 scram-sha-256 clientcert=verify-ca']"
 check "identity, problem and submission services run with SPRING_PROFILES_INCLUDE=tls" \
   "all('tls' in s[n]['environment'].get('SPRING_PROFILES_INCLUDE', '').split(',') and any(m.get('source') == 'tls' for m in s[n]['volumes']) for n in ('identity-service', 'problem-service', 'submission-service'))"
+
+# Redis over mTLS (task 5): plaintext port off, a CA-signed client certificate required, health probe uses the same certificate.
+check "redis serves TLS only (--port 0), requires client certificates, and keeps the keys of its own tls subpath" \
+  "(lambda c: c[:1] == ['redis-server'] and c[c.index('--port') + 1] == '0' and c[c.index('--tls-port') + 1] == '6379' and c[c.index('--tls-auth-clients') + 1] == 'yes' and c[c.index('--tls-cert-file') + 1] == '/etc/oj/tls/tls.crt' and c[c.index('--tls-key-file') + 1] == '/etc/oj/tls/tls.key' and c[c.index('--tls-ca-cert-file') + 1] == '/etc/oj/tls/ca.crt')(s['redis']['command']) and any(m.get('volume', {}).get('subpath') == 'redis' for m in s['redis']['volumes'] if m.get('source') == 'tls')"
+check "redis healthcheck pings over TLS with its own certificate" \
+  "s['redis']['healthcheck']['test'] == ['CMD', 'redis-cli', '--tls', '--cacert', '/etc/oj/tls/ca.crt', '--cert', '/etc/oj/tls/tls.crt', '--key', '/etc/oj/tls/tls.key', 'ping']"
+check "api-gateway, identity-service and submission-service reach redis over TLS (tls profile + tls mount; gateway mounts the api-gateway subpath)" \
+  "all('tls' in s[n]['environment'].get('SPRING_PROFILES_INCLUDE', '').split(',') and any(m.get('volume', {}).get('subpath') == n for m in s[n]['volumes'] if m.get('source') == 'tls') for n in ('api-gateway', 'identity-service', 'submission-service'))"
 
 exit $fail

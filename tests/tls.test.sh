@@ -24,6 +24,28 @@ for db in identity-db problem-db submission-db; do
   expect_psql "$db: plaintext is refused" "$db" nocert disable "no pg_hba.conf entry"
 done
 
+# ---- redis: TLS only, a CA-signed client certificate required (task 5) -----------------------------------------
+# _redis_cli <cert|nocert|plain> [tls-probe|rogue] -> redis-cli's answer to PING (or its error text). A rejected client
+# certificate shows up as a connection error, never PONG.
+_redis_cli() {
+  local args="--tls --cacert /t/ca.crt"
+  [[ $1 == cert ]] && args="$args --cert /t/tls.crt --key /t/tls.key"
+  [[ $1 == plain ]] && args=""
+  PROBE_IMAGE=redis:7-alpine _probe_run "${2:-tls-probe}" "redis-cli -h redis $args ping 2>&1 || true"
+}
+expect_redis() { # <description> <cert|nocert|plain> <PONG|error> [tls-probe|rogue]
+  local got; got=$(_redis_cli "$2" "${4:-tls-probe}")
+  if [[ $3 == PONG ]]; then
+    if grep -q '^PONG' <<< "$got"; then pass "$1"; else fail "$1: wanted PONG, got: $(head -c 200 <<< "$got" | tr '\n' ' ')"; fi
+  else
+    if grep -q 'PONG' <<< "$got" || [[ -z $got ]]; then fail "$1: wanted an error, got: $(head -c 200 <<< "$got" | tr '\n' ' ')"; else pass "$1"; fi
+  fi
+}
+expect_redis "redis: a client certificate from the CA gets PONG" cert PONG
+expect_redis "redis: no client certificate is refused" nocert error
+expect_redis "redis: a client certificate from a foreign CA is refused" cert error rogue
+expect_redis "redis: plaintext is refused" plain error
+
 # (sections follow)
 
 tls_probe_exit

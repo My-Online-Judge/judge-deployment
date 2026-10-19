@@ -266,12 +266,22 @@ services:
     image: redis:7-alpine
     container_name: oj-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    # TLS only (--port 0 closes the plaintext port): every client must present a certificate signed by the private CA.
+    command: ["redis-server", "--port", "0", "--tls-port", "6379", "--tls-cert-file", "/etc/oj/tls/tls.crt", "--tls-key-file", "/etc/oj/tls/tls.key", "--tls-ca-cert-file", "/etc/oj/tls/ca.crt", "--tls-auth-clients", "yes", "--appendonly", "yes", "--appendfsync", "everysec"]
     environment: *tz-env
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
     volumes:
       - redisdata:/data
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: redis
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--tls", "--cacert", "/etc/oj/tls/ca.crt", "--cert", "/etc/oj/tls/tls.crt", "--key", "/etc/oj/tls/tls.key", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -483,6 +493,8 @@ services:
     container_name: oj-api-gateway
     restart: unless-stopped
     depends_on:
+      tls-init:
+        condition: service_completed_successfully
       # Started, not healthy: a back-end that is down answers 503 through the gateway, and the other routes keep
       # working — the gateway itself must not wait for every service. Redis is needed from the first request.
       submission-service:
@@ -497,6 +509,7 @@ services:
     environment:
       <<: [*tz-env, *otel-env]
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
+      SPRING_PROFILES_INCLUDE: tls
       SUBMISSION_URI: http://submission-service:8000
       IDENTITY_URI: http://identity-service:8000
       PROBLEM_URI: http://problem-service:8000
@@ -504,6 +517,13 @@ services:
       JAVA_TOOL_OPTIONS: *java-tool-options
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+    volumes:
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: api-gateway
     mem_limit: 512m
     ports:
       # The only public API port; actuator (8081) stays inside oj-net. Must stay 8000: judge-portal
