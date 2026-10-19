@@ -117,12 +117,19 @@ expect_grpcurl "grpc: problem-service:9090 refuses tls-probe's CN with Permissio
 expect_grpcurl "grpc: problem-service:9090 refuses a caller without a client certificate" none "tls: certificate required"
 
 # ---- minio: TLS with the minio certificate, and the worker's key may read the bucket but not write it (task 11) ----
-# mc in MinIO's image verifies minio:9000 against the CA (SSL_CERT_FILE) and the name minio. The keys come from the
-# stack's env file (${OJ_ENV_FILE:-.env}) and reach the container through its environment, never the command line;
-# nothing prints them. S3's AccessDenied, which mc cp words "Insufficient permissions to access this path", can only come
-# after TLS and the key's signature were accepted (an unknown key reads "The Access Key Id you provided does not exist").
-_env_value() { # <name> -> the value of <name> in the env file (last assignment wins, quotes dropped)
-  grep -E "^$1=" "${OJ_ENV_FILE:-.env}" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"'
+# mc in MinIO's image verifies minio:9000 against the CA (SSL_CERT_FILE) and the name minio. The keys come from the env
+# file of the checkout the stack runs from: $OJ_ENV_FILE if set, else this checkout's .env (a worktree deployed from, as in
+# sub-project 10's rollout), else the main checkout's (found as tests/compose.test.sh finds it). They reach the container
+# through its environment, never the command line; nothing prints them, and an empty key fails here instead of letting mc
+# go anonymous. S3's AccessDenied, which mc cp words "Insufficient permissions to access this path", can only come after
+# TLS and the key's signature were accepted (an unknown key reads "The Access Key Id you provided does not exist").
+minio_env=${OJ_ENV_FILE:-}
+if [[ -z $minio_env ]]; then
+  if [[ -f .env ]]; then minio_env=$PWD/.env
+  else minio_env=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)")/.env; fi
+fi
+_env_value() { # <name> -> the value of <name> in $minio_env (last assignment wins, quotes dropped)
+  grep -E "^$1=" "$minio_env" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"'
 }
 _mc_worker() { # <sh script using mc and $BUCKET> -> its output, with the alias oj = minio:9000 as the worker's MinIO user
   MC_AK=$(_env_value MINIO_WORKER_ACCESS_KEY) MC_SK=$(_env_value MINIO_WORKER_SECRET_KEY) BUCKET=$(_env_value MINIO_BUCKET) \
@@ -131,13 +138,21 @@ _mc_worker() { # <sh script using mc and $BUCKET> -> its output, with the alias 
     --entrypoint /bin/sh ghcr.io/my-online-judge/minio:RELEASE.2025-09-07T16-13-09Z \
     -c "export SSL_CERT_FILE=/t/ca.crt MC_HOST_oj=\"https://\$MC_AK:\$MC_SK@minio:9000\"; $1" 2>&1
 }
-got=$(_mc_worker 'mc ls "oj/$BUCKET" >/dev/null && echo LISTED')
-if grep -q '^LISTED$' <<< "$got"; then pass "minio: the worker's key lists the test-case bucket over verified TLS"
-else fail "minio: the worker's key lists the test-case bucket over verified TLS: got: $(head -c 300 <<< "$got" | tr '\n' ' ')"; fi
-got=$(_mc_worker 'echo tls-probe > /tmp/probe && mc cp /tmp/probe "oj/$BUCKET/tls-probe/denied" || true')
-if grep -qE 'Insufficient permissions to access this path|Access Denied' <<< "$got"; then
-  pass "minio: the worker's key may not write to the test-case bucket (Access Denied)"
-else fail "minio: the worker's key may not write to the test-case bucket: wanted Access Denied, got: $(head -c 300 <<< "$got" | tr '\n' ' ')"; fi
+minio_missing=""
+for v in MINIO_WORKER_ACCESS_KEY MINIO_WORKER_SECRET_KEY MINIO_BUCKET; do
+  [[ -n $(_env_value "$v") ]] || minio_missing+=" $v"
+done
+if [[ -n $minio_missing ]]; then
+  fail "minio: not probed, empty or missing in $minio_env:$minio_missing"
+else
+  got=$(_mc_worker 'mc ls "oj/$BUCKET" >/dev/null && echo LISTED')
+  if grep -q '^LISTED$' <<< "$got"; then pass "minio: the worker's key lists the test-case bucket over verified TLS"
+  else fail "minio: the worker's key lists the test-case bucket over verified TLS: got: $(head -c 300 <<< "$got" | tr '\n' ' ')"; fi
+  got=$(_mc_worker 'echo tls-probe > /tmp/probe && mc cp /tmp/probe "oj/$BUCKET/tls-probe/denied" || true')
+  if grep -qE 'Insufficient permissions to access this path|Access Denied' <<< "$got"; then
+    pass "minio: the worker's key may not write to the test-case bucket (Access Denied)"
+  else fail "minio: the worker's key may not write to the test-case bucket: wanted Access Denied, got: $(head -c 300 <<< "$got" | tr '\n' ' ')"; fi
+fi
 
 # (sections follow)
 
