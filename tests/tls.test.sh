@@ -71,6 +71,9 @@ _kafka_produce() { # <topic> -> kafka-console-producer.sh's output, as tls-probe
 got=$(_kafka_produce submission.judged)
 if grep -q 'TopicAuthorizationException' <<< "$got"; then pass "kafka-acl: tls-probe may not publish to submission.judged"
 else fail "kafka-acl: tls-probe may not publish to submission.judged: wanted TopicAuthorizationException, got: $(tail -c 300 <<< "$got" | tr '\n' ' ')"; fi
+got=$(_kafka_produce submission.started)
+if grep -q 'TopicAuthorizationException' <<< "$got"; then pass "kafka-acl: tls-probe may not publish to submission.started"
+else fail "kafka-acl: tls-probe may not publish to submission.started: wanted TopicAuthorizationException, got: $(tail -c 300 <<< "$got" | tr '\n' ' ')"; fi
 
 # ---- apis: the services' API (8000) and actuator (8081) ports require a CA-signed client certificate (task 8) ------
 # On the API port only allow-listed CNs get past the certificate check: tls-probe's CN is in no list, so 403 (before any

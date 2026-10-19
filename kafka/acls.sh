@@ -50,6 +50,15 @@ User:judge-worker Topic submission.judged Write
 User:judge-worker Topic submission.judged Describe
 User:judge-worker Topic submission.judged Create
 User:judge-worker Group judge-workers Read
+User:judge-worker Topic submission.started Write
+User:judge-worker Topic submission.started Describe
+User:judge-worker Topic submission.started Create
+User:submission-service Topic submission.started Read
+User:submission-service Topic submission.started Describe
+User:submission-service Topic submission.started Create
+User:submission-service Topic submission.started Alter
+User:submission-service Topic submission.started DescribeConfigs
+User:submission-service Group submission-started Read
 RULES
 )
 

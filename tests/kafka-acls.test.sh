@@ -49,7 +49,16 @@ User:judge-worker Topic submission.requested Create
 User:judge-worker Topic submission.judged Write
 User:judge-worker Topic submission.judged Describe
 User:judge-worker Topic submission.judged Create
-User:judge-worker Group judge-workers Read'
+User:judge-worker Group judge-workers Read
+User:judge-worker Topic submission.started Write
+User:judge-worker Topic submission.started Describe
+User:judge-worker Topic submission.started Create
+User:submission-service Topic submission.started Read
+User:submission-service Topic submission.started Describe
+User:submission-service Topic submission.started Create
+User:submission-service Topic submission.started Alter
+User:submission-service Topic submission.started DescribeConfigs
+User:submission-service Group submission-started Read'
 
 # The table is the here-doc between <<'RULES' and RULES in acls.sh; comment and blank lines are not rules.
 actual=$(sed -n "/<<'RULES'/,/^RULES\$/{/<<'RULES'/d;/^RULES\$/d;p}" kafka/acls.sh 2>/dev/null | sed 's/#.*//;s/[[:space:]]\{1,\}/ /g;s/^ //;s/ $//' | grep -v '^$' || true)

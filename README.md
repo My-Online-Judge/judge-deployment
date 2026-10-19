@@ -227,8 +227,9 @@ Cutover runbook (all from `judge-deployment/`):
 3. **Maintenance window.** `docker compose stop api-gateway` (no new submissions), then wait until no
    submission is waiting for its verdict —
    `docker exec oj-db psql -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -tAc "SELECT count(*) FROM t_submissions WHERE status IN (6, 7)"`
-   prints `0` (values from `.env`). Otherwise a window longer than `JUDGE_STUCK_TIMEOUT_MIN` (5 minutes)
-   lets judge-api's reconcile job mark them SYSTEM_ERROR before their verdicts are read back. Then
+   prints `0` (values from `.env`). Otherwise a window longer than `JUDGE_JUDGING_TIMEOUT` (3 minutes; a
+   PENDING row waits `JUDGE_PENDING_TIMEOUT`, 30 minutes) lets judge-api's reconcile job mark them SYSTEM_ERROR
+   before their verdicts are read back. Then
    `docker compose stop judge-api` and `migrations/run-sp2-problem.sh` — the problem tables are copied and
    the statistics seeded from the terminal submissions in one transaction, then verified; it exits
    non-zero on any mismatch.
@@ -373,6 +374,38 @@ Notes:
 - `GOOGLE_REDIRECT_URI` must match the Google console. It points at the Vite dev origin
   (`:5173`); if you drive OAuth through the containerized portal (`https://<OJ_PUBLIC_HOST>`), update
   both the `.env` value and the console.
+
+### Overload and verdict-correctness knobs (sub-project 11)
+
+Defaults are in the services; none of these needs setting. submission-service reads the first three from
+`.env.submission` (its `env_file`); the worker's is not passed by compose, so changing it means adding
+`JUDGE_INFRA_RETRY_SECONDS` to the `judge-worker` `environment` (and to the allowlist in `tests/compose.test.sh`).
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `JUDGE_JUDGING_TIMEOUT` | `3m` | A JUDGING submission older than this is marked SYSTEM_ERROR (`Judging timed out`). Replaces `JUDGE_STUCK_TIMEOUT_MIN`. |
+| `JUDGE_PENDING_TIMEOUT` | `30m` | A PENDING submission older than this is marked SYSTEM_ERROR (`Judging request lost`). |
+| `JUDGE_MAX_QUEUE_DEPTH` | `500` | PENDING + JUDGING submissions allowed at once; beyond it a submit gets 503 `QUEUE_FULL` with `Retry-After: 30`. |
+| `JUDGE_INFRA_RETRY_SECONDS` | `300` | Worker: how long it retries MinIO / sandbox failures (2 s, 4 s, 8 s ... capped at 60 s) before giving up with `Judge infrastructure unavailable`. |
+
+### Replaying a dead-letter topic
+
+Alert `VerdictDeadLettered` (verdicts on `submission.judged.dlq` not applied) and `ProblemStatsDeadLettered`
+(records on `oj.submission.events.dlq` not counted) mean a consumer gave up on a record. Fix the cause first
+(the service log names it), then copy the records back:
+
+    scripts/replay-dlq.sh submission.judged.dlq submission.judged
+    scripts/replay-dlq.sh oj.submission.events.dlq oj.submission.events [--max N]
+
+The script runs in `oj-kafka` (override with `KAFKA_CONTAINER`) on its loopback listener, keeps record keys, and
+prints `replayed <n> record(s) from <dlq> to <target>`. Its consumer group `dlq-replay` commits offsets, so a
+second run copies only records not copied before. It reads for 10 s after the last record, so it takes a little
+longer than the copy itself. A replayed record that fails again returns to the dead-letter topic.
+
+**Warning.** Replaying `oj.submission.events.dlq` is safe for first verdicts. A REJUDGE event replayed after a newer
+rejudge of the same submission moves the statistics back to the older verdict (the event has no ordering field).
+Replay rejudge events only when no newer rejudge happened for those submissions, or run `scripts/stats-check.sh`
+afterwards.
 
 ## Host notes (this machine)
 

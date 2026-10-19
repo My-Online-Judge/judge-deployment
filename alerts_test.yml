@@ -320,6 +320,58 @@ tests:
         alertname: ProblemStatsDeadLettered
         exp_alerts: []
 
+  # VerdictDeadLettered: a verdict on submission.judged.dlq was not applied. A brand-new counter series is not
+  # scraped while zero, so increase() reads 0 over its first sample: the second clause catches that case.
+  # a new series (first sample 1) fires
+  - interval: 1m
+    input_series:
+      - series: 'oj_verdict_dead_lettered_total{job="submission-service", instance="submission-service:8081"}'
+        values: '_ _ 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: VerdictDeadLettered
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "submission-service dead-lettered verdicts"
+              description: "Verdicts on submission.judged.dlq were not applied. Fix the cause, then run scripts/replay-dlq.sh submission.judged.dlq submission.judged."
+
+  # ...a steady counter stays silent...
+  - interval: 1m
+    input_series:
+      - series: 'oj_verdict_dead_lettered_total{job="submission-service", instance="submission-service:8081"}'
+        values: '2x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: VerdictDeadLettered
+        exp_alerts: []
+
+  # ...an increase within 10m fires...
+  - interval: 1m
+    input_series:
+      - series: 'oj_verdict_dead_lettered_total{job="submission-service", instance="submission-service:8081"}'
+        values: '2x15 3x10'
+    alert_rule_test:
+      - eval_time: 17m
+        alertname: VerdictDeadLettered
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "submission-service dead-lettered verdicts"
+              description: "Verdicts on submission.judged.dlq were not applied. Fix the cause, then run scripts/replay-dlq.sh submission.judged.dlq submission.judged."
+
+  # ...and an absent counter stays silent.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="submission-service", instance="submission-service:8081"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: VerdictDeadLettered
+        exp_alerts: []
+
   # KafkaConsumerLagging: a consumer five minutes behind. records_lag_max of the verdict consumer stays at 11.
   - interval: 1m
     input_series:
