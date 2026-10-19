@@ -231,3 +231,16 @@ groups:
         annotations:
           summary: "{{ $labels.job }} cannot reach Redis"
           description: "Requests are let through without the ban, revocation and cooldown checks (fail-open). Check oj-redis."
+
+  - name: oj-security
+    rules:
+      - alert: DefaultAdminPassword
+        # identity evaluates the gauge at startup and after every password change (never on scrape). An absent series
+        # is no data, so the rule is inactive.
+        expr: max(oj_identity_default_admin_password) == 1
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The root admin still uses the published seed password"
+          description: "User 'admin' still has the seed password from the repository. Change it: PUT /api/v1/users/me/password."

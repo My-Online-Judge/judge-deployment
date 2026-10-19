@@ -366,3 +366,38 @@ tests:
       - eval_time: 2m
         alertname: KafkaConsumerLagging
         exp_alerts: []
+
+  # DefaultAdminPassword fires while the gauge is 1...
+  - interval: 1m
+    input_series:
+      - series: 'oj_identity_default_admin_password{job="identity-service", instance="identity-service:8081"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: DefaultAdminPassword
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The root admin still uses the published seed password"
+              description: "User 'admin' still has the seed password from the repository. Change it: PUT /api/v1/users/me/password."
+
+  # ...is silent once the password was changed (0)...
+  - interval: 1m
+    input_series:
+      - series: 'oj_identity_default_admin_password{job="identity-service", instance="identity-service:8081"}'
+        values: '1 1 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: DefaultAdminPassword
+        exp_alerts: []
+
+  # ...and silent when the series is absent (identity down: IdentityServiceDown covers that).
+  - interval: 1m
+    input_series:
+      - series: 'up{job="identity-service", instance="identity-service:8081"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: DefaultAdminPassword
+        exp_alerts: []
