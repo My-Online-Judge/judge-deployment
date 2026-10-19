@@ -6,6 +6,12 @@ cd "$(dirname "$0")/.."
 docker run --rm --network none --entrypoint promtool \
   -v "$PWD/prometheus.yml:/etc/prometheus/prometheus.yml:ro" -v "$PWD/alerts.yml:/etc/prometheus/alerts.yml:ro" \
   prom/prometheus:v3.1.0 check config /etc/prometheus/prometheus.yml
+# The alert rules' unit tests, with alerts.yml where each test file's rule_files expects it.
+for t in alerts_test.yml alerts_fast_test.yml; do
+  docker run --rm --network none --entrypoint promtool \
+    -v "$PWD/alerts.yml:/etc/prometheus/alerts.yml:ro" -v "$PWD/$t:/etc/prometheus/$t:ro" \
+    prom/prometheus:v3.1.0 test rules "/etc/prometheus/$t"
+done
 python3 - <<'EOF'
 import sys, yaml
 jobs = {j["job_name"]: j for j in yaml.safe_load(open("prometheus.yml"))["scrape_configs"]}
