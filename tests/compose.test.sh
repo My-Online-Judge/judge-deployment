@@ -90,9 +90,15 @@ check "judge-worker finds its certificates at OJ_TLS_DIR=/etc/oj/tls, the judge-
 
 # Service APIs and actuators over mTLS (task 8): the healthcheck presents the service's own certificate to the actuator;
 # Prometheus scrapes with the certificate of its own tls subpath.
-check "identity, problem and submission healthchecks call the actuator over mutual TLS with their own certificate" \
-  "all(s[n]['healthcheck']['test'] == ['CMD-SHELL', 'curl -fsS --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key https://localhost:8081/actuator/health | grep -q UP'] for n in ('identity-service', 'problem-service', 'submission-service'))"
+check "identity, problem, submission and api-gateway healthchecks call the actuator over mutual TLS with their own certificate" \
+  "all(s[n]['healthcheck']['test'] == ['CMD-SHELL', 'curl -fsS --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key https://localhost:8081/actuator/health | grep -q UP'] for n in ('identity-service', 'problem-service', 'submission-service', 'api-gateway'))"
 check "prometheus mounts the prometheus tls subpath (its scrape client certificate)" \
   "any(m.get('volume', {}).get('subpath') == 'prometheus' for m in s['prometheus'].get('volumes', []) if m.get('source') == 'tls')"
+
+# The gateway and the worker call the services over mTLS (task 9): https URIs, their own certificates (tls subpaths above).
+check "api-gateway routes to the services over https on :8000" \
+  "{k: s['api-gateway']['environment'].get(k) for k in ('SUBMISSION_URI', 'IDENTITY_URI', 'PROBLEM_URI')} == {'SUBMISSION_URI': 'https://submission-service:8000', 'IDENTITY_URI': 'https://identity-service:8000', 'PROBLEM_URI': 'https://problem-service:8000'}"
+check "judge-worker relays the sandbox heartbeats to submission-service over https" \
+  "s['judge-worker']['environment'].get('SANDBOX_HEARTBEAT_URL') == 'https://submission-service:8000/api/judge_server_heartbeat/'"
 
 exit $fail

@@ -74,12 +74,14 @@ else fail "kafka-acl: tls-probe may not publish to submission.judged: wanted Top
 
 # ---- apis: the services' API (8000) and actuator (8081) ports require a CA-signed client certificate (task 8) ------
 # On the API port only allow-listed CNs get past the certificate check: tls-probe's CN is in no list, so 403 (before any
-# routing; 8000 serves no actuator). The actuator port has no CN allowlist (Prometheus, the healthcheck).
+# routing; 8000 serves no actuator). The actuator port has no CN allowlist (Prometheus, the healthcheck), but it too
+# demands a client certificate.
 for svc in identity-service problem-service submission-service; do
   probe_http "https://$svc:8000/actuator/health" tls-probe 403
   probe_handshake "$svc:8000" none fail
   probe_plain_refused "$svc:8000"
   probe_http "https://$svc:8081/actuator/health" tls-probe 200
+  probe_handshake "$svc:8081" none fail
 done
 
 # (sections follow)

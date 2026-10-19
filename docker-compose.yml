@@ -432,8 +432,8 @@ services:
         volume:
           subpath: submission-service
     mem_limit: 1g
-    # No host port: the API is public only through api-gateway; the sandboxes reach submission-service:8000 for
-    # heartbeats inside oj-net; Prometheus scrapes the actuator on 8081.
+    # No host port: the API is public only through api-gateway; judge-worker posts the sandboxes' heartbeats to
+    # submission-service:8000 (mutual TLS, as judge-worker); Prometheus scrapes the actuator on 8081.
     healthcheck:
       # Mutual TLS with the service's own certificate (curl: busybox wget cannot present one).
       test: ["CMD-SHELL", "curl -fsS --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key https://localhost:8081/actuator/health | grep -q UP"]
@@ -567,9 +567,10 @@ services:
       <<: [*tz-env, *otel-env]
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
       SPRING_PROFILES_INCLUDE: tls
-      SUBMISSION_URI: http://submission-service:8000
-      IDENTITY_URI: http://identity-service:8000
-      PROBLEM_URI: http://problem-service:8000
+      # Mutual TLS: the gateway presents its certificate (api-gateway subpath) and verifies each service's.
+      SUBMISSION_URI: https://submission-service:8000
+      IDENTITY_URI: https://identity-service:8000
+      PROBLEM_URI: https://problem-service:8000
       OTEL_SERVICE_NAME: api-gateway
       JAVA_TOOL_OPTIONS: *java-tool-options
       REDIS_HOST: redis
@@ -587,7 +588,8 @@ services:
       # is built against VITE_API_BASE_URL=http://localhost:8000/api/v1.
       - "8000:8000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP"]
+      # Mutual TLS with the gateway's own certificate (curl: busybox wget cannot present one).
+      test: ["CMD-SHELL", "curl -fsS --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key https://localhost:8081/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 6
@@ -639,7 +641,8 @@ services:
     environment:
       <<: [*tz-env, *otel-env]
       OTEL_SERVICE_NAME: judge-worker
-      # Kafka over TLS with the worker's certificate (judge-worker subpath, mounted above).
+      # The worker's certificate (judge-worker subpath, mounted above): Kafka over TLS, the heartbeat to
+      # submission-service over mutual TLS, and /metrics on 9100 over HTTPS for clients with a CA-signed certificate.
       OJ_TLS_DIR: /etc/oj/tls
       JUDGE_SERVER_TOKEN: ${JUDGE_SERVER_TOKEN}
       JUDGE_SERVER_URL: ${JUDGE_SERVER_URL}
@@ -649,7 +652,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
       # The sandboxes cannot reach submission-service, so the worker relays their /ping there.
-      SANDBOX_HEARTBEAT_URL: http://submission-service:8000/api/judge_server_heartbeat/
+      SANDBOX_HEARTBEAT_URL: https://submission-service:8000/api/judge_server_heartbeat/
     # oj-net for Kafka/MinIO/the registry, sandbox-net for the sandboxes — the only service on both.
     networks: [oj-net, sandbox-net]
 

@@ -37,7 +37,7 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 | Service        | Image / Build            | Host port | Purpose                          |
 |----------------|--------------------------|-----------|----------------------------------|
 | `kafka`        | `apache/kafka:3.8.1`     | — (internal) | Submission event bus (KRaft): `kafka:29092` TLS + client certificate; `127.0.0.1:9092` PLAINTEXT only inside the container |
-| `api-gateway`  | build `../oj-api-gateway`| 8000      | Public API entry (CORS, client IP)|
+| `api-gateway`  | build `../oj-api-gateway`| 8000      | Public API entry (CORS, client IP); calls the services over mutual TLS; actuator `:8081` TLS + client certificate |
 | `submission-service` | build `../oj-submission-service` | — (internal) | Submissions, judging, languages, judge servers; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |
 | `submission-db` | `postgres:16`           | — (internal) | submission-service's database (`submission`) |
 | `identity-service` | build `../oj-identity-service` | — (internal) | Login, users, roles, bans; issues the tokens; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |
@@ -45,7 +45,7 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 | `problem-service` | build `../oj-problem-service` | — (internal) | Problems, test cases, statistics; gRPC API for submission-service; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |
 | `problem-db`   | `postgres:16`            | — (internal) | problem-service's database (`problem`) |
 | `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI + OTLP collector |
-| `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge; relays sandbox status to the registry |
+| `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge; relays sandbox status to the registry (mutual TLS); `/metrics` `:9100` TLS + client certificate |
 | `judge-server` | `qduoj/judge-server`     | —         | Code sandbox (×2) on the internal `sandbox-net`; least privilege, see `x-sandbox` |
 | `judge-portal` | build `../judge-portal`  | 80        | Vue 3 frontend (nginx)           |
 

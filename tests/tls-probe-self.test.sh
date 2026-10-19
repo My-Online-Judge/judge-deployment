@@ -9,7 +9,7 @@ source tests/lib/tls-probe.sh
 tag=tlsself$$; work=$(mktemp -d)
 export OJ_NET=$tag-net TLS_VOLUME=$tag-tls
 cleanup() {
-  docker --context default rm -f $tag-mtls $tag-open $tag-plain $tag-silent $tag-tlsonly >/dev/null 2>&1
+  docker --context default rm -f $tag-mtls $tag-open $tag-plain $tag-silent $tag-tlsonly $tag-plain400 >/dev/null 2>&1
   docker --context default network rm "$OJ_NET" >/dev/null 2>&1
   docker --context default volume rm "$TLS_VOLUME" >/dev/null 2>&1
   docker --context default run --rm -v "$work:/w" alpine:3.22 rm -rf /w/out >/dev/null 2>&1
@@ -39,6 +39,9 @@ docker --context default run -d --name $tag-silent --network "$OJ_NET" "$PROBE_I
 # Tomcat's answer to plaintext on its TLS port (TLSClientHelloExtractor.USE_TLS_RESPONSE), byte for byte
 docker --context default run -d --name $tag-tlsonly --network "$OJ_NET" "$PROBE_IMAGE" \
   sh -c 'while true; do printf "HTTP/1.1 400 \r\nContent-Type: text/plain;charset=UTF-8\r\nConnection: close\r\n\r\nBad Request\r\nThis combination of host and port requires TLS.\r\n" | nc -l -p 8443; done' >/dev/null
+# a plain HTTP server that answers 400 for its own reasons: it served HTTP, so that is no refusal
+docker --context default run -d --name $tag-plain400 --network "$OJ_NET" "$PROBE_IMAGE" \
+  sh -c 'while true; do printf "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: 12\r\nConnection: close\r\n\r\nmissing name" | nc -l -p 8080; done' >/dev/null
 sleep 3
 
 # server that requires a client certificate (TLS 1.3 only: rejection arrives after the handshake)
@@ -56,6 +59,8 @@ probe_plain_refused $tag-mtls:4433
 [[ $(_plain_result $tag-plain:8080) == answered ]] && pass "plain HTTP server is reported as answering" || fail "plain HTTP server is reported as answering"
 # Tomcat writes its fixed 400 before reading any request: the API was not served, so that is a refusal
 [[ $(_plain_result $tag-tlsonly:8443) == refused ]] && pass "Tomcat's 'requires TLS' 400 is reported as refused" || fail "Tomcat's 'requires TLS' 400 is reported as refused (got $(_plain_result $tag-tlsonly:8443))"
+# ...but only that answer: any other 400 is plain HTTP being served
+[[ $(_plain_result $tag-plain400:8080) == answered ]] && pass "a non-Tomcat plain 400 is reported as answering" || fail "a non-Tomcat plain 400 is reported as answering (got $(_plain_result $tag-plain400:8080))"
 # the raw results, so a helper that always says ok (or always fail) cannot hide behind a matching expectation
 [[ $(_handshake_result $tag-mtls:4433 none) == fail && $(_handshake_result $tag-mtls:4433 tls-probe) == ok ]] && pass "handshake results differ with and without a client cert" || fail "handshake results differ with and without a client cert"
 # hostname verification

@@ -14,8 +14,8 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  # The service actuators require a CA-signed client certificate (no CN allowlist): Prometheus presents its own, from
-  # the tls volume (subpath prometheus).
+  # The service actuators and the worker's /metrics require a CA-signed client certificate (no CN allowlist): Prometheus
+  # presents its own, from the tls volume (subpath prometheus).
   - job_name: submission-service
     metrics_path: /actuator/prometheus
     scheme: https
@@ -32,6 +32,8 @@ scrape_configs:
 
   - job_name: api-gateway
     metrics_path: /actuator/prometheus
+    scheme: https
+    tls_config: {ca_file: /etc/oj/tls/ca.crt, cert_file: /etc/oj/tls/tls.crt, key_file: /etc/oj/tls/tls.key}
     static_configs:
       - targets: ['api-gateway:8081']
 
@@ -45,6 +47,9 @@ scrape_configs:
   - job_name: judge-worker
     # One target per worker replica (docker compose --scale judge-worker=N): the name resolves to every replica.
     # A stopped worker drops out at the next refresh; JudgeWorkerDown asks whether any worker is still up.
+    # The targets are IP addresses, so server_name names the host the worker's certificate is checked against.
+    scheme: https
+    tls_config: {ca_file: /etc/oj/tls/ca.crt, cert_file: /etc/oj/tls/tls.crt, key_file: /etc/oj/tls/tls.key, server_name: judge-worker}
     dns_sd_configs:
       - names: ['judge-worker']
         type: A

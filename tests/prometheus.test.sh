@@ -29,7 +29,11 @@ ok2 = prom == ["localhost:9090"]
 print(("ok   " if ok2 else "FAIL ") + "prometheus scrapes itself (process_start_time_seconds guards the *Down rules)")
 tls = {"ca_file": "/etc/oj/tls/ca.crt", "cert_file": "/etc/oj/tls/tls.crt", "key_file": "/etc/oj/tls/tls.key"}
 ok3 = all(jobs.get(n, {}).get("scheme") == "https" and jobs.get(n, {}).get("tls_config") == tls
-          for n in ("identity-service", "problem-service", "submission-service"))
-print(("ok   " if ok3 else "FAIL ") + "prometheus scrapes the identity, problem and submission actuators over mutual TLS")
-sys.exit(0 if ok and ok2 and ok3 else 1)
+          for n in ("identity-service", "problem-service", "submission-service", "api-gateway"))
+print(("ok   " if ok3 else "FAIL ") + "prometheus scrapes the identity, problem, submission and api-gateway actuators over mutual TLS")
+# The worker replicas are scraped by IP (DNS-SD): without server_name the judge-worker certificate fails verification.
+worker = jobs.get("judge-worker", {})
+ok4 = worker.get("scheme") == "https" and worker.get("tls_config") == dict(tls, server_name="judge-worker")
+print(("ok   " if ok4 else "FAIL ") + "prometheus scrapes the judge-worker replicas over mutual TLS, verifying the name judge-worker")
+sys.exit(0 if ok and ok2 and ok3 and ok4 else 1)
 EOF
