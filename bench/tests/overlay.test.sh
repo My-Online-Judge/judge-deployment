@@ -45,8 +45,8 @@ check "prometheus evaluates this checkout's alerts.yml (in a worktree, not the m
   "any(__import__('os').path.normpath(m['source']) == '$(cd "$BENCH_DIR/.." && pwd)/alerts.yml' and m['target'] == '/etc/prometheus/alerts.yml' for m in s['prometheus']['volumes'])"
 check "prometheus keeps its data volume" \
   "[m for m in s['prometheus']['volumes'] if m['target'] == '/prometheus'] == [m for m in b['prometheus']['volumes'] if m['target'] == '/prometheus']"
-check "relative paths resolve against the main checkout (../judge-server/log)" \
-  "any(m.get('source') == '$OJ_ROOT/judge-server/log' for m in s['judge-server'].get('volumes', []))"
+check "relative paths resolve against the main checkout (build context ../oj-submission-service)" \
+  "s['submission-service']['build']['context'] == '$OJ_ROOT/oj-submission-service'"
 
 if [ "$(diff "$BENCH_DIR/../prometheus.yml" "$BENCH_GEN/prometheus.yml" | grep -c '^>' || true)" = 2 ] \
   && grep -q '^  scrape_interval: 5s$' "$BENCH_GEN/prometheus.yml" && grep -q '^  evaluation_interval: 5s$' "$BENCH_GEN/prometheus.yml"; then

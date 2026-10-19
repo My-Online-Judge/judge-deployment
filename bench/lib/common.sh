@@ -2,7 +2,7 @@
 # Sourced, never executed. Never prints a value from .env.
 BENCH_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # The checkout that owns the .env files and sits beside the sibling repositories. In a worktree it is the main
-# checkout, so ./alerts.yml, ../judge-server/log and the build contexts resolve as they do for the live stack.
+# checkout, so ./alerts.yml and the ../ build contexts resolve as they do for the live stack.
 DEPLOY_DIR=$(dirname "$(git -C "$BENCH_DIR" rev-parse --path-format=absolute --git-common-dir)")
 OJ_ROOT=$(dirname "$DEPLOY_DIR")
 BENCH_PROJECT=oj-bench
