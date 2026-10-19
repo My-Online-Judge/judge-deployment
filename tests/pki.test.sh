@@ -83,6 +83,17 @@ new=$(openssl x509 -in "$PKI_OUT/redis/tls.crt" -noout -serial)
 inst=$(docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 cat /tls/redis/tls.crt | openssl x509 -noout -serial)
 [[ $new == "$inst" ]] && ok "re-issued leaf is what is installed" || bad "re-issued leaf is what is installed"
 [[ -z $(docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 ls /tls/redis | grep stale) ]] && ok "no stale file after re-install" || bad "no stale file after re-install"
+# a container already running with the identity directory mounted (as volume.subpath does) must see a re-install
+holder=$(docker --context default run -d --rm -v "$tlsdir/redis:/t:ro" alpine:3.22 sleep 120 2>/dev/null)
+docker --context default run --rm -v "$tlsdir:/tls" alpine:3.22 touch /tls/redis/gone >/dev/null 2>&1
+"$pki" issue redis >/dev/null 2>&1
+install_run >/dev/null 2>&1
+new=$(openssl x509 -in "$PKI_OUT/redis/tls.crt" -noout -serial)
+seen=$(docker --context default exec "$holder" cat /t/tls.crt 2>/dev/null | openssl x509 -noout -serial 2>/dev/null)
+[[ -n $seen && $new == "$seen" ]] && ok "a running container mounting the directory reads the re-installed leaf" || bad "a running container mounting the directory reads the re-installed leaf"
+docker --context default exec "$holder" ls /t 2>/dev/null | grep -qx gone && bad "a file removed from the source disappears" || ok "a file removed from the source disappears"
+docker --context default exec "$holder" ls /t 2>/dev/null | grep -q tmp-install && bad "no temp file is left behind" || ok "no temp file is left behind"
+docker --context default rm -f "$holder" >/dev/null 2>&1
 rm -rf "$PKI_OUT/problem-db"
 install_run >/dev/null 2>&1; [[ $? != 0 ]] && ok "install.sh fails when a listed id has no source" || bad "install.sh fails when a listed id has no source"
 printf 'ca 0:0\n' > "$work/badids"

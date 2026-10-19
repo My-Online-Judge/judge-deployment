@@ -82,6 +82,32 @@ x-sandbox: &sandbox
 # java.security sets networkaddress.cache.negative.ttl=10, which a -Dsun.net.inetaddr.* flag cannot override.
 # grpc-java's own resolver (submission-service → problem-service) reads networkaddress.cache.ttl as a SYSTEM property,
 # 30 s when unset: -Dnetworkaddress.cache.ttl=1 (sub-project 7 §3.1 F1). The JDK ignores that system property.
+x-postgres-tls: &postgres-tls
+  # TLS (sub-project 10): server certificate, client certificates required (pg-hba), plaintext refused. The three
+  # databases share this block; each adds its own tls volume mount (subpath = its service name).
+  command:
+    - postgres
+    - -c
+    - timezone=Asia/Ho_Chi_Minh
+    - -c
+    - log_timezone=Asia/Ho_Chi_Minh
+    - -c
+    - ssl=on
+    - -c
+    - ssl_cert_file=/etc/oj/tls/tls.crt
+    - -c
+    - ssl_key_file=/etc/oj/tls/tls.key
+    - -c
+    - ssl_ca_file=/etc/oj/tls/ca.crt
+    - -c
+    - hba_file=/etc/oj/pg_hba.conf
+  configs:
+    - source: pg-hba
+      target: /etc/oj/pg_hba.conf
+  depends_on:
+    tls-init:
+      condition: service_completed_successfully
+
 x-java-tool-options: &java-tool-options >-
   -javaagent:/otel/opentelemetry-javaagent.jar -XX:MaxRAMPercentage=75
   -Djava.security.properties=/opt/oj/jvm-dns.security -Dnetworkaddress.cache.ttl=1
@@ -110,29 +136,7 @@ services:
     image: postgres:16
     container_name: oj-identity-db
     restart: unless-stopped
-    # TLS (sub-project 10): server certificate, client certificates required (pg-hba), plaintext refused.
-    command:
-      - postgres
-      - -c
-      - timezone=Asia/Ho_Chi_Minh
-      - -c
-      - log_timezone=Asia/Ho_Chi_Minh
-      - -c
-      - ssl=on
-      - -c
-      - ssl_cert_file=/etc/oj/tls/tls.crt
-      - -c
-      - ssl_key_file=/etc/oj/tls/tls.key
-      - -c
-      - ssl_ca_file=/etc/oj/tls/ca.crt
-      - -c
-      - hba_file=/etc/oj/pg_hba.conf
-    configs:
-      - source: pg-hba
-        target: /etc/oj/pg_hba.conf
-    depends_on:
-      tls-init:
-        condition: service_completed_successfully
+    <<: *postgres-tls
     environment:
       <<: *tz-env
     # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD. Nothing outside the identity containers reads it.
@@ -158,29 +162,7 @@ services:
     image: postgres:16
     container_name: oj-problem-db
     restart: unless-stopped
-    # TLS (sub-project 10): server certificate, client certificates required (pg-hba), plaintext refused.
-    command:
-      - postgres
-      - -c
-      - timezone=Asia/Ho_Chi_Minh
-      - -c
-      - log_timezone=Asia/Ho_Chi_Minh
-      - -c
-      - ssl=on
-      - -c
-      - ssl_cert_file=/etc/oj/tls/tls.crt
-      - -c
-      - ssl_key_file=/etc/oj/tls/tls.key
-      - -c
-      - ssl_ca_file=/etc/oj/tls/ca.crt
-      - -c
-      - hba_file=/etc/oj/pg_hba.conf
-    configs:
-      - source: pg-hba
-        target: /etc/oj/pg_hba.conf
-    depends_on:
-      tls-init:
-        condition: service_completed_successfully
+    <<: *postgres-tls
     environment:
       <<: *tz-env
     # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD. Nothing outside the problem containers reads it.
@@ -206,29 +188,7 @@ services:
     image: postgres:16
     container_name: oj-submission-db
     restart: unless-stopped
-    # TLS (sub-project 10): server certificate, client certificates required (pg-hba), plaintext refused.
-    command:
-      - postgres
-      - -c
-      - timezone=Asia/Ho_Chi_Minh
-      - -c
-      - log_timezone=Asia/Ho_Chi_Minh
-      - -c
-      - ssl=on
-      - -c
-      - ssl_cert_file=/etc/oj/tls/tls.crt
-      - -c
-      - ssl_key_file=/etc/oj/tls/tls.key
-      - -c
-      - ssl_ca_file=/etc/oj/tls/ca.crt
-      - -c
-      - hba_file=/etc/oj/pg_hba.conf
-    configs:
-      - source: pg-hba
-        target: /etc/oj/pg_hba.conf
-    depends_on:
-      tls-init:
-        condition: service_completed_successfully
+    <<: *postgres-tls
     environment:
       <<: *tz-env
     # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD. Nothing outside the submission containers reads it.
@@ -650,6 +610,7 @@ services:
 configs:
   # Postgres admits TLS connections only, and only with a client certificate signed by our CA (the CA file is
   # ssl_ca_file). `local` stays trust for the in-container healthcheck and the image's init scripts.
+  # Keep identical to oj-identity-service/src/test/resources/tls/pg_hba.conf (PostgresClientCertTest runs these rules).
   pg-hba:
     content: |
       local   all all                     trust
