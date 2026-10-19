@@ -163,6 +163,8 @@ check "every Java service runs with SPRING_PROFILES_INCLUDE=tls" \
   "all('tls' in s[n]['environment'].get('SPRING_PROFILES_INCLUDE', '').split(',') for n in $java_services)"
 check "edge runs caddy:2.10.0-alpine on 80 and 443 with edge/Caddyfile, the caddydata volume and the edge tls subpath" \
   "(lambda e: e['image'] == 'caddy:2.10.0-alpine' and sorted((str(p['published']), p['target']) for p in e.get('ports', [])) == [('443', 443), ('80', 80)] and any(m.get('type') == 'bind' and m['source'].endswith('/edge/Caddyfile') and m['target'] == '/etc/caddy/Caddyfile' and m.get('read_only') is True for m in e['volumes']) and any(m.get('source') == 'caddydata' and m['target'] == '/data' for m in e['volumes']) and 'caddydata' in v and any(m.get('volume', {}).get('subpath') == 'edge' for m in e['volumes'] if m.get('source') == 'tls'))(s.get('edge', {'image': None}))"
+check "edge is capped at 128 MiB and healthy when Caddy's admin API (127.0.0.1:2019, in the container) answers" \
+  "s['edge'].get('mem_limit') in (134217728, '134217728') and s['edge'].get('healthcheck', {}).get('test') == ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:2019/config/']"
 check_raw "edge and api-gateway get OJ_PUBLIC_HOST, default localhost (the site address; the gateway's CORS origin)" \
   "all(s.get(n, {}).get('environment', {}).get('OJ_PUBLIC_HOST') == '\${OJ_PUBLIC_HOST:-localhost}' for n in ('edge', 'api-gateway'))"
 check "judge-portal serves portal/nginx-tls.conf with the judge-portal tls subpath, built with VITE_API_BASE_URL=/api/v1" \

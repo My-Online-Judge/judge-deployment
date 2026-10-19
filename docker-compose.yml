@@ -846,6 +846,14 @@ services:
         read_only: true
         volume:
           subpath: edge
+    mem_limit: 128m
+    healthcheck:
+      # Caddy's admin API (127.0.0.1:2019 inside the container, on by default) answers once a config is loaded.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks: [oj-net]
 
 configs:
