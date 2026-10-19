@@ -27,10 +27,14 @@ _probe_run() {
 
 # _classify_handshake <s_client output> -> ok|fail|error
 #   error: no TCP connection was made (or docker itself failed): the output has no CONNECTED(. Matches no expectation.
+#          Also error: the server sent no certificate yet s_client reports "Verify return code: 0 (ok)" (nothing was
+#          verified): a plaintext server that hung up on the ClientHello. Nothing about TLS is proved either way.
+#          (A certificate that failed verification, e.g. a hostname mismatch, has a non-zero verify code: fail.)
 #   ok:    verified chain (Verify return code: 0) and no alert. A server that drops a non-TLS line without close_notify
 #          ("unexpected eof") is still ok; an alert, including TLS 1.3's post-handshake certificate_required, is fail.
 _classify_handshake() {
   grep -q 'CONNECTED(' <<< "$1" || { echo error; return; }
+  if grep -q 'no peer certificate available' <<< "$1" && grep -q 'Verify return code: 0 (ok)' <<< "$1"; then echo error; return; fi
   if grep -q 'Verify return code: 0 (ok)' <<< "$1" && ! grep -v 'unexpected eof' <<< "$1" | grep -qE 'alert (read|write)|:error:'; then echo ok; else echo fail; fi
 }
 

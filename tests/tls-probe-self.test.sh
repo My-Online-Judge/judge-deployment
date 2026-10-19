@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Proves the probe helpers against throwaway openssl s_servers on a scratch network: a server that requires a client
-# certificate and one that does not, a plain HTTP server, and the TLS 1.3 case where a rejected certificate shows up only
-# after the handshake. Never touches the live stack.
+# certificate and one that does not, a plain HTTP server, a silent plaintext server that just hangs up, and the TLS 1.3
+# case where a rejected certificate shows up only after the handshake. Never touches the live stack.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source tests/lib/tls-probe.sh
 tag=tlsself$$; work=$(mktemp -d)
 export OJ_NET=$tag-net TLS_VOLUME=$tag-tls
 cleanup() {
-  docker --context default rm -f $tag-mtls $tag-open $tag-plain >/dev/null 2>&1
+  docker --context default rm -f $tag-mtls $tag-open $tag-plain $tag-silent >/dev/null 2>&1
   docker --context default network rm "$OJ_NET" >/dev/null 2>&1
   docker --context default volume rm "$TLS_VOLUME" >/dev/null 2>&1
   docker --context default run --rm -v "$work:/w" alpine:3.22 rm -rf /w/out >/dev/null 2>&1
@@ -32,6 +32,9 @@ serve $tag-mtls -Verify 1 -verify_return_error -tls1_3
 serve $tag-open -tls1_3
 docker --context default run -d --name $tag-plain --network "$OJ_NET" "$PROBE_IMAGE" \
   sh -c 'while true; do printf "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" | nc -l -p 8080; done' >/dev/null
+# plaintext that answers nothing and hangs up (a Kafka PLAINTEXT listener dropping the ClientHello): no TLS bytes at all
+docker --context default run -d --name $tag-silent --network "$OJ_NET" "$PROBE_IMAGE" \
+  sh -c 'while true; do nc -l -p 9092 </dev/null >/dev/null; done' >/dev/null
 sleep 3
 
 # server that requires a client certificate (TLS 1.3 only: rejection arrives after the handshake)
@@ -61,5 +64,9 @@ probe_handshake $tag-open:4433 tls-probe fail "" not-the-name
 c_ok=$'CONNECTED(00000003)\nVerify return code: 0 (ok)\n40:error:0A000126:SSL routines::unexpected eof while reading'
 c_alert=$'CONNECTED(00000003)\nVerify return code: 0 (ok)\n40:error:0A00045C:SSL routines::tlsv13 alert certificate required:SSL alert number 116'
 [[ $(_classify_handshake "$c_ok") == ok && $(_classify_handshake "$c_alert") == fail && $(_classify_handshake "x") == error ]] && pass "classifier: unexpected eof ok, alert fail, no CONNECTED error" || fail "classifier cases"
+# a plaintext server that hangs up: no certificate ever arrived, yet s_client reports verify code 0 -> error, never ok
+c_silent=$'CONNECTED(00000003)\n40:error:0A000126:SSL routines::unexpected eof while reading\n---\nno peer certificate available\n---\nVerify return code: 0 (ok)'
+[[ $(_classify_handshake "$c_silent") == error ]] && pass "classifier: no peer certificate with verify code 0 -> error" || fail "classifier: no peer certificate with verify code 0 -> error (got $(_classify_handshake "$c_silent"))"
+[[ $(_handshake_result $tag-silent:9092 tls-probe) == error && $(_handshake_result $tag-silent:9092 none) == error ]] && pass "silent plaintext server -> error with and without a client cert" || fail "silent plaintext server -> error with and without a client cert (got $(_handshake_result $tag-silent:9092 tls-probe)/$(_handshake_result $tag-silent:9092 none))"
 # NOT self-tested: -starttls postgres (openssl s_server cannot speak the postgres SSLRequest); it is used by the Postgres task.
 tls_probe_exit

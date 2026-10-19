@@ -36,7 +36,7 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 
 | Service        | Image / Build            | Host port | Purpose                          |
 |----------------|--------------------------|-----------|----------------------------------|
-| `kafka`        | `apache/kafka:3.9.0`     | 9092      | Submission event bus (KRaft)     |
+| `kafka`        | `apache/kafka:3.8.1`     | — (internal) | Submission event bus (KRaft): `kafka:29092` TLS + client certificate; `127.0.0.1:9092` PLAINTEXT only inside the container |
 | `api-gateway`  | build `../oj-api-gateway`| 8000      | Public API entry (CORS, client IP)|
 | `submission-service` | build `../oj-submission-service` | — (internal) | Submissions, judging, languages, judge servers |
 | `submission-db` | `postgres:16`           | — (internal) | submission-service's database (`submission`) |
