@@ -344,6 +344,9 @@ some local quirks worth recording:
 - **Kafka has no host port.** Services and the worker use `kafka:29092` (listener `INTERNAL`: TLS, a client
   certificate from the private CA required). Tools run inside the container (`docker exec oj-kafka …`, the
   healthcheck, the bench drain) use the PLAINTEXT listener `LOCAL` on `127.0.0.1:9092`, which nothing else can reach.
+  A client's principal is its certificate's CN, and each service may use only its own topics and consumer group: the
+  one-shot `kafka-init` writes those ACLs from `kafka/acls.sh` on every `up`. A new topic or client needs a rule there;
+  deleting a rule does not revoke it (`docker exec oj-kafka /opt/kafka/bin/kafka-acls.sh --bootstrap-server 127.0.0.1:9092 --remove …`).
 - **Sandbox health and the admin "Judge servers" page.** Compose replaces the image's own healthcheck
   (QingdaoU's heartbeat script, which always exited 1 here) with a call to the sandbox's `/ping`, and
   `judge-worker` waits for `service_healthy`. The sandboxes sit on the internal `sandbox-net` and cannot

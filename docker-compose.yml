@@ -235,6 +235,13 @@ services:
       KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/oj/tls/ca.crt
       KAFKA_SSL_CLIENT_AUTH: required
       KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
+      # ACLs (sub-project 10 §4.5): a client's principal is its certificate's CN, and each service may use only its own
+      # topics and group (kafka/acls.sh, written by kafka-init). Super users: kafka (this broker and its controller),
+      # kafka-admin (kafka-init) and ANONYMOUS, which only LOCAL can produce: the TLS listeners require a certificate.
+      # $$ is Compose's escape for a literal $.
+      KAFKA_AUTHORIZER_CLASS_NAME: org.apache.kafka.metadata.authorizer.StandardAuthorizer
+      KAFKA_SUPER_USERS: User:kafka;User:kafka-admin;User:ANONYMOUS
+      KAFKA_SSL_PRINCIPAL_MAPPING_RULES: RULE:^CN=([^,]+)$$/$$1/,DEFAULT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
@@ -272,6 +279,27 @@ services:
       timeout: 10s
       retries: 15
       start_period: 20s
+    networks: [oj-net]
+
+  kafka-init:
+    # One-shot (sub-project 10 §4.5): writes the services' ACLs (kafka/acls.sh) with the super user kafka-admin's
+    # certificate, then exits. --add is idempotent, so it runs on every `up`; the services that use Kafka wait for it.
+    image: apache/kafka:3.8.1
+    restart: "no"
+    entrypoint: ["/bin/bash", "/opt/oj/kafka/acls.sh"]
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./kafka:/opt/oj/kafka:ro
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: kafka-admin
     networks: [oj-net]
 
   redis:
@@ -364,6 +392,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       # Deliberately not problem-service: submission-service starts without it, answers 503 for submissions while
@@ -460,6 +490,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
       minio:
         condition: service_healthy
       # Not identity-service: the token-signing key is fetched lazily, on the first request with a token.
@@ -582,6 +614,8 @@ services:
         condition: service_completed_successfully
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
       # Now that the sandbox healthcheck reflects reality (see x-sandbox-health), wait for it:
       # a worker that starts first burns its retries dispatching to a sandbox still booting.
       judge-server:

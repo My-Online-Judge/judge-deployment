@@ -80,8 +80,9 @@ check "kafka maps CONTROLLER and INTERNAL to SSL and only LOCAL to PLAINTEXT" \
   "s['kafka']['environment'].get('KAFKA_LISTENER_SECURITY_PROTOCOL_MAP') == 'CONTROLLER:SSL,INTERNAL:SSL,LOCAL:PLAINTEXT'"
 check "kafka binds LOCAL to 127.0.0.1 and advertises INTERNAL and LOCAL, never SSL://" \
   "(lambda e: e.get('KAFKA_LISTENERS') == 'INTERNAL://:29092,CONTROLLER://:9093,LOCAL://127.0.0.1:9092' and 'SSL://' not in e.get('KAFKA_ADVERTISED_LISTENERS', '') and e.get('KAFKA_ADVERTISED_LISTENERS') == 'INTERNAL://kafka:29092,LOCAL://127.0.0.1:9092')(s['kafka']['environment'])"
+# (KAFKA_SSL_PRINCIPAL_MAPPING_RULES, the ACL principal: tests/kafka-acls.test.sh)
 check "kafka requires client certificates and verifies host names, with unencrypted PEM stores from its own tls subpath" \
-  "{k: v for k, v in s['kafka']['environment'].items() if k.startswith('KAFKA_SSL_')} == {'KAFKA_SSL_KEYSTORE_TYPE': 'PEM', 'KAFKA_SSL_KEYSTORE_LOCATION': '/etc/oj/tls/keystore.pem', 'KAFKA_SSL_TRUSTSTORE_TYPE': 'PEM', 'KAFKA_SSL_TRUSTSTORE_LOCATION': '/etc/oj/tls/ca.crt', 'KAFKA_SSL_CLIENT_AUTH': 'required', 'KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM': 'https'} and any(m.get('volume', {}).get('subpath') == 'kafka' for m in s['kafka'].get('volumes', []) if m.get('source') == 'tls')"
+  "{k: v for k, v in s['kafka']['environment'].items() if k.startswith('KAFKA_SSL_') and k != 'KAFKA_SSL_PRINCIPAL_MAPPING_RULES'} == {'KAFKA_SSL_KEYSTORE_TYPE': 'PEM', 'KAFKA_SSL_KEYSTORE_LOCATION': '/etc/oj/tls/keystore.pem', 'KAFKA_SSL_TRUSTSTORE_TYPE': 'PEM', 'KAFKA_SSL_TRUSTSTORE_LOCATION': '/etc/oj/tls/ca.crt', 'KAFKA_SSL_CLIENT_AUTH': 'required', 'KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM': 'https'} and any(m.get('volume', {}).get('subpath') == 'kafka' for m in s['kafka'].get('volumes', []) if m.get('source') == 'tls')"
 check "kafka's healthcheck lists topics over the loopback LOCAL listener" \
   "s['kafka']['healthcheck']['test'] == ['CMD-SHELL', '/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --list || exit 1']"
 check "judge-worker finds its certificates at OJ_TLS_DIR=/etc/oj/tls, the judge-worker subpath" \

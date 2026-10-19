@@ -59,6 +59,19 @@ expect_refused() { # <description> <host:port>
 }
 expect_refused "kafka: the PLAINTEXT listener LOCAL is not reachable from another container" kafka:9092
 
+# ---- kafka-acl: the principal is the certificate's CN, and a CN without ACLs may not publish (task 7) ------------
+# tls-probe's certificate passes TLS (section kafka) but has no ACL: TopicAuthorizationException can only come after the
+# handshake and the authentication passed. apache/kafka runs as appuser; --user 0 reads the root-only tls-probe subpath.
+_kafka_produce() { # <topic> -> kafka-console-producer.sh's output, as tls-probe
+  docker --context default run --rm --user 0 --network "${OJ_NET:-oj-net}" \
+    --mount "type=volume,src=${TLS_VOLUME:-judge-deployment_tls},dst=/t,readonly,volume-subpath=tls-probe" \
+    apache/kafka:3.8.1 sh -c "printf 'security.protocol=SSL\nssl.keystore.type=PEM\nssl.keystore.location=/t/keystore.pem\nssl.truststore.type=PEM\nssl.truststore.location=/t/ca.crt\n' > /tmp/probe.properties; \
+    echo tls-probe | timeout 60 /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:29092 --producer.config /tmp/probe.properties --topic '$1' 2>&1 || true" 2>&1
+}
+got=$(_kafka_produce submission.judged)
+if grep -q 'TopicAuthorizationException' <<< "$got"; then pass "kafka-acl: tls-probe may not publish to submission.judged"
+else fail "kafka-acl: tls-probe may not publish to submission.judged: wanted TopicAuthorizationException, got: $(tail -c 300 <<< "$got" | tr '\n' ' ')"; fi
+
 # (sections follow)
 
 tls_probe_exit
