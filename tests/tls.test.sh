@@ -92,6 +92,30 @@ probe_handshake "api-gateway:8081" none fail
 probe_http "https://judge-worker:9100/metrics" tls-probe 200
 probe_handshake "judge-worker:9100" none fail
 
+# ---- grpc: problem-service's internal API (9090) requires a CA-signed client certificate and answers only the CN ----
+# submission-service (task 10). grpcurl verifies problem-service's certificate against the CA and the name
+# problem-service. tls-probe's CN is in no allowlist: PermissionDenied can only come after TLS and the client-certificate
+# check passed. Without a certificate TLS 1.3 refuses after the handshake, with the alert "certificate required": grpc-go
+# then retries until -max-time and only its warning log names the alert (GRPC_GO_LOG_SEVERITY_LEVEL). The proto is
+# oj-common's, from the repo beside this one. The image runs as user grpcurl; --user 0 reads the root-only tls-probe
+# subpath.
+_grpcurl() { # <none|tls-probe> -> grpcurl's output for one GetJudgeSpec call
+  local proto args=(-cacert /t/ca.crt)
+  proto=$(cd ../oj-common/src/main/proto 2>/dev/null && pwd) || { echo "no ../oj-common/src/main/proto beside this repo"; return; }
+  [[ $1 == tls-probe ]] && args+=(-cert /t/tls.crt -key /t/tls.key)
+  docker --context default run --rm --user 0 --network "${OJ_NET:-oj-net}" -e GRPC_GO_LOG_SEVERITY_LEVEL=warning \
+    --mount "type=volume,src=${TLS_VOLUME:-judge-deployment_tls},dst=/t,readonly,volume-subpath=tls-probe" \
+    --mount "type=bind,src=$proto,dst=/proto,readonly" \
+    fullstorydev/grpcurl:v1.9.1 "${args[@]}" -import-path /proto -proto problem_internal.proto -max-time 10 \
+    -d '{"problem_slug": "tls-probe"}' problem-service:9090 oj.problem.v1.ProblemInternal/GetJudgeSpec 2>&1
+}
+expect_grpcurl() { # <description> <none|tls-probe> <expected substring>
+  local got; got=$(_grpcurl "$2")
+  if grep -q -- "$3" <<< "$got"; then pass "$1"; else fail "$1: wanted '$3', got: $(head -c 300 <<< "$got" | tr '\n' ' ')"; fi
+}
+expect_grpcurl "grpc: problem-service:9090 refuses tls-probe's CN with PermissionDenied" tls-probe "Code: PermissionDenied"
+expect_grpcurl "grpc: problem-service:9090 refuses a caller without a client certificate" none "tls: certificate required"
+
 # (sections follow)
 
 tls_probe_exit

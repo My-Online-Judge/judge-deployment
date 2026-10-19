@@ -318,8 +318,9 @@ Notes:
 - `.env` and every `.env.<service>` hold secrets: keep them mode 600 (`chmod 600 .env`).
 - One `JUDGE_SERVER_TOKEN` is shared by api, worker, and judge-server.
 - `problem-service` does not load `.env` either: it reads `.env.problem` (its database) and compose
-  passes it MinIO, Kafka and `PROBLEM_RPC_TOKEN`; submission-service likewise reads
-  `.env.submission` plus Kafka, Redis, the judge-server token and `PROBLEM_RPC_TOKEN`.
+  passes it MinIO and Kafka; submission-service likewise reads `.env.submission` plus Kafka, Redis and
+  the judge-server token. submission-service calls problem-service's gRPC API over mutual TLS: its
+  certificate (CN `submission-service`) replaced `PROBLEM_RPC_TOKEN`.
 - `submission-service` runs the profile in `.env.submission` (the image's default is **dev**, baked in via
   `pom.xml`); both serve the API on **8000** and actuator on **8081**.
 - `GOOGLE_REDIRECT_URI` must match the Google console. It points at the Vite dev origin

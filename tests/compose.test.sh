@@ -101,4 +101,11 @@ check "api-gateway routes to the services over https on :8000" \
 check "judge-worker relays the sandbox heartbeats to submission-service over https" \
   "s['judge-worker']['environment'].get('SANDBOX_HEARTBEAT_URL') == 'https://submission-service:8000/api/judge_server_heartbeat/'"
 
+# problem-service's gRPC API knows its caller by the client certificate (task 10): the service token is retired, and
+# submission-service dials problem-service by the name its certificate's SAN carries.
+check "no service gets PROBLEM_RPC_TOKEN" \
+  "all('PROBLEM_RPC_TOKEN' not in (x.get('environment') or {}) for x in s.values())"
+check "submission-service dials problem-service's gRPC API by name" \
+  "s['submission-service']['environment'].get('PROBLEM_GRPC_ADDRESS') == 'static://problem-service:9090'"
+
 exit $fail

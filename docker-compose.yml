@@ -421,9 +421,9 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       JUDGE_SERVER_TOKEN: ${JUDGE_SERVER_TOKEN}
-      # problem-service's internal gRPC API and the service token it checks.
+      # problem-service's internal gRPC API, over mutual TLS: this service's certificate is its credential, and the
+      # name is what problem-service's certificate is verified against.
       PROBLEM_GRPC_ADDRESS: static://problem-service:9090
-      PROBLEM_RPC_TOKEN: ${PROBLEM_RPC_TOKEN:-}
     volumes:
       - type: volume
         source: tls
@@ -520,8 +520,6 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
-      # Checked on every internal gRPC call; the service refuses to start without it (32+ characters).
-      PROBLEM_RPC_TOKEN: ${PROBLEM_RPC_TOKEN:-}
     volumes:
       - type: volume
         source: tls
@@ -531,7 +529,8 @@ services:
           subpath: problem-service
     mem_limit: 1g
     # No host port: the API is public only through api-gateway (/api/v1/problems/**); submission-service calls the
-    # internal gRPC API on problem-service:9090; Prometheus scrapes the actuator on 8081.
+    # internal gRPC API on problem-service:9090 (mutual TLS, only the CN submission-service is allowed); Prometheus
+    # scrapes the actuator on 8081.
     healthcheck:
       # Mutual TLS with the service's own certificate (curl: busybox wget cannot present one).
       test: ["CMD-SHELL", "curl -fsS --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key https://localhost:8081/actuator/health | grep -q UP"]
