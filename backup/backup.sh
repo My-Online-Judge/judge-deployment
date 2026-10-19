@@ -77,7 +77,8 @@ printf 'minio_objects\t%s\t%s\n' "$n" "$n" >> "$staging/counts.tsv"
 # 4. restic snapshot: staging, env files, pki/out, backups/.
 [ -f "$BACKUP_REPO/config" ] || restic init
 paths=(/data)
-# NOTE: .env* files are found only under this script's own checkout; running from a worktree backs up none.
+# NOTE: .env* files and pki/out (the CA key) are read from this script's own checkout ($deploy, one level above backup/).
+# A worktree has them only if they were copied in (both are gitignored); otherwise they are silently skipped here.
 for f in "$deploy"/.env*; do
   [ -f "$f" ] || continue
   case "$f" in *.example) continue;; esac

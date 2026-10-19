@@ -73,7 +73,10 @@ else bad "kafka/admin-client.properties: SSL with the PEM keystore and CA of the
 
 # The resolved compose file. `config` prints a literal $ in its canonical escaped form $$ (a container receives one $),
 # so values are compared after undoing that escape.
-deploy_dir=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+# Same lookup order as tests/compose.test.sh: $OJ_ENV_DIR, else this checkout when it has a .env, else the main checkout.
+if [[ -n ${OJ_ENV_DIR:-} ]]; then deploy_dir=$OJ_ENV_DIR
+elif [[ -f .env ]]; then deploy_dir=$PWD
+else deploy_dir=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); fi
 config=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
 check() { # check <description> <python expression over s = services; e = kafka's environment with $$ undone>
   if python3 -c "import json,sys; c=json.load(sys.stdin); s=c['services']; e={k: str(v).replace('\$\$', '\$') for k, v in s['kafka']['environment'].items()}; sys.exit(0 if ($2) else 1)" <<< "$config"; then

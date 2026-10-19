@@ -13,14 +13,14 @@ _psql_error() { # <host> <cert|nocert> <sslmode> [tls-probe|rogue]
   PROBE_IMAGE=postgres:16 _probe_run "${4:-tls-probe}" "install -d -m 700 /k && cp /t/tls.key /k/ && cp /t/tls.crt /k/ && chmod 600 /k/tls.key; \
     PGPASSWORD=wrong-password psql \"host=$1 dbname=postgres user=oj connect_timeout=10 sslmode=$3 sslrootcert=/t/ca.crt $cert\" -c 'select 1' 2>&1 || true"
 }
-expect_psql() { # <description> <host> <cert|nocert> <sslmode> <expected substring> [tls-probe|rogue]
+expect_psql() { # <description> <host> <cert|nocert> <sslmode> <expected substring, a grep BRE> [tls-probe|rogue]
   local got; got=$(_psql_error "$2" "$3" "$4" "${6:-tls-probe}")
   if grep -qi -- "$5" <<< "$got"; then pass "$1"; else fail "$1: wanted '$5', got: $(head -c 200 <<< "$got" | tr '\n' ' ')"; fi
 }
 for db in identity-db problem-db submission-db; do
   expect_psql "$db: client certificate + verify-full passes TLS (wrong password is the first refusal)" "$db" cert verify-full "password authentication failed"
   expect_psql "$db: no client certificate is refused" "$db" nocert verify-full "certificate"
-  expect_psql "$db: a client certificate from a foreign CA is refused" "$db" cert verify-full "certificate" rogue
+  expect_psql "$db: a client certificate from a foreign CA is refused" "$db" cert verify-full "unknown ca\|certificate" rogue
   expect_psql "$db: plaintext is refused" "$db" nocert disable "no pg_hba.conf entry"
 done
 
