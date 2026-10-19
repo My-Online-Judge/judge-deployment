@@ -54,6 +54,9 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 ```bash
 cd judge-deployment
 
+# refuse to build from sibling repos that are off main or dirty (exit 1 on FAIL)
+scripts/preflight.sh
+
 # real sandbox (default)
 docker compose up -d --build
 
