@@ -58,4 +58,11 @@ check "tls-init copies pki/out into the tls volume and exits, with no network (p
 check "every service mounting tls uses its own subpath read-only at /etc/oj/tls and waits for tls-init" \
   "all(len(ms) == 1 and ms[0].get('target') == '/etc/oj/tls' and ms[0].get('read_only') is True and ms[0].get('volume', {}).get('subpath') == {'kafka-init': 'kafka-admin', 'minio-init': 'minio'}.get(n, n) and s[n]['depends_on']['tls-init']['condition'] == 'service_completed_successfully' for n, ms in ((n, [m for m in x.get('volumes', []) if m.get('source') == 'tls']) for n, x in s.items() if n != 'tls-init') if ms)"
 
+# Postgres over mutual TLS (task 4): ssl on, a pg_hba that only admits hostssl + a CA-signed client certificate, and the
+# three services connect with the tls profile (verify-full + their own client certificate).
+check "each database serves TLS with the pg-hba file (hostssl only, clientcert=verify-ca) and the keys of its own tls subpath" \
+  "all('ssl=on' in s[n]['command'] and 'hba_file=/etc/oj/pg_hba.conf' in s[n]['command'] and 'ssl_ca_file=/etc/oj/tls/ca.crt' in s[n]['command'] and 'timezone=Asia/Ho_Chi_Minh' in s[n]['command'] and {'source': 'pg-hba', 'target': '/etc/oj/pg_hba.conf'} in [{k: x[k] for k in ('source', 'target')} for x in s[n].get('configs', [])] and any(m.get('volume', {}).get('subpath') == n for m in s[n]['volumes'] if m.get('source') == 'tls') for n in ('identity-db', 'problem-db', 'submission-db')) and [' '.join(l.split()) for l in c['configs']['pg-hba']['content'].splitlines()] == ['local all all trust', 'hostssl all all 0.0.0.0/0 scram-sha-256 clientcert=verify-ca', 'hostssl all all ::/0 scram-sha-256 clientcert=verify-ca']"
+check "identity, problem and submission services run with SPRING_PROFILES_INCLUDE=tls" \
+  "all('tls' in s[n]['environment'].get('SPRING_PROFILES_INCLUDE', '').split(',') and any(m.get('source') == 'tls' for m in s[n]['volumes']) for n in ('identity-service', 'problem-service', 'submission-service'))"
+
 exit $fail

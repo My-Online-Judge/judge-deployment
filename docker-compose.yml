@@ -110,7 +110,29 @@ services:
     image: postgres:16
     container_name: oj-identity-db
     restart: unless-stopped
-    command: ["postgres", "-c", "timezone=Asia/Ho_Chi_Minh", "-c", "log_timezone=Asia/Ho_Chi_Minh"]
+    # TLS (sub-project 10): server certificate, client certificates required (pg-hba), plaintext refused.
+    command:
+      - postgres
+      - -c
+      - timezone=Asia/Ho_Chi_Minh
+      - -c
+      - log_timezone=Asia/Ho_Chi_Minh
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/oj/tls/tls.crt
+      - -c
+      - ssl_key_file=/etc/oj/tls/tls.key
+      - -c
+      - ssl_ca_file=/etc/oj/tls/ca.crt
+      - -c
+      - hba_file=/etc/oj/pg_hba.conf
+    configs:
+      - source: pg-hba
+        target: /etc/oj/pg_hba.conf
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
     environment:
       <<: *tz-env
     # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD. Nothing outside the identity containers reads it.
@@ -119,6 +141,12 @@ services:
     # No host port. Schema: identity-service's Flyway (V1 schema, V2 seed) on first boot.
     volumes:
       - identitydata:/var/lib/postgresql/data
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: identity-db
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
@@ -130,7 +158,29 @@ services:
     image: postgres:16
     container_name: oj-problem-db
     restart: unless-stopped
-    command: ["postgres", "-c", "timezone=Asia/Ho_Chi_Minh", "-c", "log_timezone=Asia/Ho_Chi_Minh"]
+    # TLS (sub-project 10): server certificate, client certificates required (pg-hba), plaintext refused.
+    command:
+      - postgres
+      - -c
+      - timezone=Asia/Ho_Chi_Minh
+      - -c
+      - log_timezone=Asia/Ho_Chi_Minh
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/oj/tls/tls.crt
+      - -c
+      - ssl_key_file=/etc/oj/tls/tls.key
+      - -c
+      - ssl_ca_file=/etc/oj/tls/ca.crt
+      - -c
+      - hba_file=/etc/oj/pg_hba.conf
+    configs:
+      - source: pg-hba
+        target: /etc/oj/pg_hba.conf
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
     environment:
       <<: *tz-env
     # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD. Nothing outside the problem containers reads it.
@@ -139,6 +189,12 @@ services:
     # No host port. Schema: problem-service's Flyway (V1 the problem tables, V2 statistics) on first boot.
     volumes:
       - problemdata:/var/lib/postgresql/data
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: problem-db
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
@@ -150,7 +206,29 @@ services:
     image: postgres:16
     container_name: oj-submission-db
     restart: unless-stopped
-    command: ["postgres", "-c", "timezone=Asia/Ho_Chi_Minh", "-c", "log_timezone=Asia/Ho_Chi_Minh"]
+    # TLS (sub-project 10): server certificate, client certificates required (pg-hba), plaintext refused.
+    command:
+      - postgres
+      - -c
+      - timezone=Asia/Ho_Chi_Minh
+      - -c
+      - log_timezone=Asia/Ho_Chi_Minh
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/oj/tls/tls.crt
+      - -c
+      - ssl_key_file=/etc/oj/tls/tls.key
+      - -c
+      - ssl_ca_file=/etc/oj/tls/ca.crt
+      - -c
+      - hba_file=/etc/oj/pg_hba.conf
+    configs:
+      - source: pg-hba
+        target: /etc/oj/pg_hba.conf
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
     environment:
       <<: *tz-env
     # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD. Nothing outside the submission containers reads it.
@@ -160,6 +238,12 @@ services:
     # migrations/sp3-flyway.sh before the service first starts.
     volumes:
       - submissiondata:/var/lib/postgresql/data
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: submission-db
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
@@ -289,6 +373,8 @@ services:
     container_name: oj-submission-service
     restart: unless-stopped
     depends_on:
+      tls-init:
+        condition: service_completed_successfully
       submission-db:
         condition: service_healthy
       kafka:
@@ -303,6 +389,7 @@ services:
       - .env.submission
     environment:
       <<: [*tz-env, *otel-env]
+      SPRING_PROFILES_INCLUDE: tls
       OTEL_SERVICE_NAME: submission-service
       JAVA_TOOL_OPTIONS: *java-tool-options
       KAFKA_BROKERS: ${KAFKA_BROKERS}
@@ -314,6 +401,13 @@ services:
       # problem-service's internal gRPC API and the service token it checks.
       PROBLEM_GRPC_ADDRESS: static://problem-service:9090
       PROBLEM_RPC_TOKEN: ${PROBLEM_RPC_TOKEN:-}
+    volumes:
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: submission-service
     mem_limit: 1g
     # No host port: the API is public only through api-gateway; the sandboxes reach submission-service:8000 for
     # heartbeats inside oj-net; Prometheus scrapes the actuator on 8081.
@@ -334,17 +428,27 @@ services:
     container_name: oj-identity-service
     restart: unless-stopped
     depends_on:
+      tls-init:
+        condition: service_completed_successfully
       identity-db:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       <<: [*tz-env, *otel-env]
+      SPRING_PROFILES_INCLUDE: tls
       OTEL_SERVICE_NAME: identity-service
       JAVA_TOOL_OPTIONS: *java-tool-options
     # JWT signing keys, Google OAuth, identity-db credentials — only the identity containers read it.
     env_file:
       - .env.identity
+    volumes:
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: identity-service
     mem_limit: 768m
     # No host port: public only through api-gateway (/api/v1/{auth,users,roles,permissions,security}/**).
     # The other services fetch the token-signing key from identity-service:8000/.well-known/jwks.json.
@@ -365,6 +469,8 @@ services:
     container_name: oj-problem-service
     restart: unless-stopped
     depends_on:
+      tls-init:
+        condition: service_completed_successfully
       problem-db:
         condition: service_healthy
       kafka:
@@ -378,6 +484,7 @@ services:
       - .env.problem
     environment:
       <<: [*tz-env, *otel-env]
+      SPRING_PROFILES_INCLUDE: tls
       OTEL_SERVICE_NAME: problem-service
       JAVA_TOOL_OPTIONS: *java-tool-options
       KAFKA_BROKERS: ${KAFKA_BROKERS}
@@ -389,6 +496,13 @@ services:
       OJ_JWKS_URI: http://identity-service:8000/.well-known/jwks.json
       # Checked on every internal gRPC call; the service refuses to start without it (32+ characters).
       PROBLEM_RPC_TOKEN: ${PROBLEM_RPC_TOKEN:-}
+    volumes:
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: problem-service
     mem_limit: 1g
     # No host port: the API is public only through api-gateway (/api/v1/problems/**); submission-service calls the
     # internal gRPC API on problem-service:9090; Prometheus scrapes the actuator on 8081.
@@ -534,6 +648,13 @@ services:
     networks: [oj-net]
 
 configs:
+  # Postgres admits TLS connections only, and only with a client certificate signed by our CA (the CA file is
+  # ssl_ca_file). `local` stays trust for the in-container healthcheck and the image's init scripts.
+  pg-hba:
+    content: |
+      local   all all                     trust
+      hostssl all all 0.0.0.0/0           scram-sha-256 clientcert=verify-ca
+      hostssl all all ::/0                scram-sha-256 clientcert=verify-ca
   jvm-dns-security:
     # Appended to each JVM's java.security (x-java-tool-options): DNS answers kept 1 s, failed lookups not at all.
     content: |
