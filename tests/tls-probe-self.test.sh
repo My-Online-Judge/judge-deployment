@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Proves the probe helpers against throwaway openssl s_servers on a scratch network: a server that requires a client
-# certificate and one that does not, a plain HTTP server, a silent plaintext server that just hangs up, and the TLS 1.3
-# case where a rejected certificate shows up only after the handshake. Never touches the live stack.
+# certificate and one that does not, a plain HTTP server, a silent plaintext server that just hangs up, a stand-in for
+# Tomcat's fixed answer to plaintext on a TLS port, and the TLS 1.3 case where a rejected certificate shows up only after
+# the handshake. Never touches the live stack.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source tests/lib/tls-probe.sh
 tag=tlsself$$; work=$(mktemp -d)
 export OJ_NET=$tag-net TLS_VOLUME=$tag-tls
 cleanup() {
-  docker --context default rm -f $tag-mtls $tag-open $tag-plain $tag-silent >/dev/null 2>&1
+  docker --context default rm -f $tag-mtls $tag-open $tag-plain $tag-silent $tag-tlsonly >/dev/null 2>&1
   docker --context default network rm "$OJ_NET" >/dev/null 2>&1
   docker --context default volume rm "$TLS_VOLUME" >/dev/null 2>&1
   docker --context default run --rm -v "$work:/w" alpine:3.22 rm -rf /w/out >/dev/null 2>&1
@@ -35,6 +36,9 @@ docker --context default run -d --name $tag-plain --network "$OJ_NET" "$PROBE_IM
 # plaintext that answers nothing and hangs up (a Kafka PLAINTEXT listener dropping the ClientHello): no TLS bytes at all
 docker --context default run -d --name $tag-silent --network "$OJ_NET" "$PROBE_IMAGE" \
   sh -c 'while true; do nc -l -p 9092 </dev/null >/dev/null; done' >/dev/null
+# Tomcat's answer to plaintext on its TLS port (TLSClientHelloExtractor.USE_TLS_RESPONSE), byte for byte
+docker --context default run -d --name $tag-tlsonly --network "$OJ_NET" "$PROBE_IMAGE" \
+  sh -c 'while true; do printf "HTTP/1.1 400 \r\nContent-Type: text/plain;charset=UTF-8\r\nConnection: close\r\n\r\nBad Request\r\nThis combination of host and port requires TLS.\r\n" | nc -l -p 8443; done' >/dev/null
 sleep 3
 
 # server that requires a client certificate (TLS 1.3 only: rejection arrives after the handshake)
@@ -50,6 +54,8 @@ probe_http https://$tag-open:4433/ none 200
 # plaintext
 probe_plain_refused $tag-mtls:4433
 [[ $(_plain_result $tag-plain:8080) == answered ]] && pass "plain HTTP server is reported as answering" || fail "plain HTTP server is reported as answering"
+# Tomcat writes its fixed 400 before reading any request: the API was not served, so that is a refusal
+[[ $(_plain_result $tag-tlsonly:8443) == refused ]] && pass "Tomcat's 'requires TLS' 400 is reported as refused" || fail "Tomcat's 'requires TLS' 400 is reported as refused (got $(_plain_result $tag-tlsonly:8443))"
 # the raw results, so a helper that always says ok (or always fail) cannot hide behind a matching expectation
 [[ $(_handshake_result $tag-mtls:4433 none) == fail && $(_handshake_result $tag-mtls:4433 tls-probe) == ok ]] && pass "handshake results differ with and without a client cert" || fail "handshake results differ with and without a client cert"
 # hostname verification

@@ -88,4 +88,11 @@ check "kafka's healthcheck lists topics over the loopback LOCAL listener" \
 check "judge-worker finds its certificates at OJ_TLS_DIR=/etc/oj/tls, the judge-worker subpath" \
   "s['judge-worker']['environment'].get('OJ_TLS_DIR') == '/etc/oj/tls' and any(m.get('volume', {}).get('subpath') == 'judge-worker' for m in s['judge-worker'].get('volumes', []) if m.get('source') == 'tls')"
 
+# Service APIs and actuators over mTLS (task 8): the healthcheck presents the service's own certificate to the actuator;
+# Prometheus scrapes with the certificate of its own tls subpath.
+check "identity, problem and submission healthchecks call the actuator over mutual TLS with their own certificate" \
+  "all(s[n]['healthcheck']['test'] == ['CMD-SHELL', 'curl -fsS --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key https://localhost:8081/actuator/health | grep -q UP'] for n in ('identity-service', 'problem-service', 'submission-service'))"
+check "prometheus mounts the prometheus tls subpath (its scrape client certificate)" \
+  "any(m.get('volume', {}).get('subpath') == 'prometheus' for m in s['prometheus'].get('volumes', []) if m.get('source') == 'tls')"
+
 exit $fail

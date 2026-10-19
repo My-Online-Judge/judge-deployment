@@ -367,9 +367,18 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./alerts.yml:/etc/prometheus/alerts.yml:ro
       - promdata:/prometheus
+      # The client certificate it presents to the actuators (mutual TLS, prometheus.yml tls_config).
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: prometheus
     ports:
       - "127.0.0.1:9090:9090"   # ops UI, loopback only
     depends_on:
+      tls-init:
+        condition: service_completed_successfully
       submission-service:
         condition: service_started
     networks: [oj-net]
@@ -412,7 +421,6 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       JUDGE_SERVER_TOKEN: ${JUDGE_SERVER_TOKEN}
-      OJ_JWKS_URI: http://identity-service:8000/.well-known/jwks.json
       # problem-service's internal gRPC API and the service token it checks.
       PROBLEM_GRPC_ADDRESS: static://problem-service:9090
       PROBLEM_RPC_TOKEN: ${PROBLEM_RPC_TOKEN:-}
@@ -427,7 +435,8 @@ services:
     # No host port: the API is public only through api-gateway; the sandboxes reach submission-service:8000 for
     # heartbeats inside oj-net; Prometheus scrapes the actuator on 8081.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP"]
+      # Mutual TLS with the service's own certificate (curl: busybox wget cannot present one).
+      test: ["CMD-SHELL", "curl -fsS --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key https://localhost:8081/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -466,9 +475,10 @@ services:
           subpath: identity-service
     mem_limit: 768m
     # No host port: public only through api-gateway (/api/v1/{auth,users,roles,permissions,security}/**).
-    # The other services fetch the token-signing key from identity-service:8000/.well-known/jwks.json.
+    # The other services fetch the token-signing key from https://identity-service:8000/.well-known/jwks.json.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP"]
+      # Mutual TLS with the service's own certificate (curl: busybox wget cannot present one).
+      test: ["CMD-SHELL", "curl -fsS --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key https://localhost:8081/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -510,7 +520,6 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
-      OJ_JWKS_URI: http://identity-service:8000/.well-known/jwks.json
       # Checked on every internal gRPC call; the service refuses to start without it (32+ characters).
       PROBLEM_RPC_TOKEN: ${PROBLEM_RPC_TOKEN:-}
     volumes:
@@ -524,7 +533,8 @@ services:
     # No host port: the API is public only through api-gateway (/api/v1/problems/**); submission-service calls the
     # internal gRPC API on problem-service:9090; Prometheus scrapes the actuator on 8081.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP"]
+      # Mutual TLS with the service's own certificate (curl: busybox wget cannot present one).
+      test: ["CMD-SHELL", "curl -fsS --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key https://localhost:8081/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 12

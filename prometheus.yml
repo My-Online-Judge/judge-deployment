@@ -14,13 +14,19 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
+  # The service actuators require a CA-signed client certificate (no CN allowlist): Prometheus presents its own, from
+  # the tls volume (subpath prometheus).
   - job_name: submission-service
     metrics_path: /actuator/prometheus
+    scheme: https
+    tls_config: {ca_file: /etc/oj/tls/ca.crt, cert_file: /etc/oj/tls/tls.crt, key_file: /etc/oj/tls/tls.key}
     static_configs:
       - targets: ['submission-service:8081']
 
   - job_name: identity-service
     metrics_path: /actuator/prometheus
+    scheme: https
+    tls_config: {ca_file: /etc/oj/tls/ca.crt, cert_file: /etc/oj/tls/tls.crt, key_file: /etc/oj/tls/tls.key}
     static_configs:
       - targets: ['identity-service:8081']
 
@@ -31,6 +37,8 @@ scrape_configs:
 
   - job_name: problem-service
     metrics_path: /actuator/prometheus
+    scheme: https
+    tls_config: {ca_file: /etc/oj/tls/ca.crt, cert_file: /etc/oj/tls/tls.crt, key_file: /etc/oj/tls/tls.key}
     static_configs:
       - targets: ['problem-service:8081']
 

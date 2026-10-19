@@ -3,8 +3,14 @@
 # through DNS (sub-project 6 §3.1). Prints key names only.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The scrape jobs present Prometheus's certificate from /etc/oj/tls (the tls volume in compose). promtool only checks
+# that the files exist, so it gets a directory of empty stand-ins.
+tls_fixture=$(mktemp -d); trap 'rm -rf "$tls_fixture"' EXIT
+touch "$tls_fixture/ca.crt" "$tls_fixture/tls.crt" "$tls_fixture/tls.key"
+chmod 755 "$tls_fixture"; chmod 644 "$tls_fixture"/*   # promtool runs as nobody
 docker run --rm --network none --entrypoint promtool \
   -v "$PWD/prometheus.yml:/etc/prometheus/prometheus.yml:ro" -v "$PWD/alerts.yml:/etc/prometheus/alerts.yml:ro" \
+  -v "$tls_fixture:/etc/oj/tls:ro" \
   prom/prometheus:v3.1.0 check config /etc/prometheus/prometheus.yml
 # The alert rules' unit tests, with alerts.yml where each test file's rule_files expects it.
 for t in alerts_test.yml alerts_fast_test.yml; do
@@ -21,5 +27,9 @@ print(("ok   " if ok else "FAIL ") + "prometheus scrapes every judge-worker repl
 prom = (jobs.get("prometheus", {}).get("static_configs") or [{}])[0].get("targets")
 ok2 = prom == ["localhost:9090"]
 print(("ok   " if ok2 else "FAIL ") + "prometheus scrapes itself (process_start_time_seconds guards the *Down rules)")
-sys.exit(0 if ok and ok2 else 1)
+tls = {"ca_file": "/etc/oj/tls/ca.crt", "cert_file": "/etc/oj/tls/tls.crt", "key_file": "/etc/oj/tls/tls.key"}
+ok3 = all(jobs.get(n, {}).get("scheme") == "https" and jobs.get(n, {}).get("tls_config") == tls
+          for n in ("identity-service", "problem-service", "submission-service"))
+print(("ok   " if ok3 else "FAIL ") + "prometheus scrapes the identity, problem and submission actuators over mutual TLS")
+sys.exit(0 if ok and ok2 and ok3 else 1)
 EOF

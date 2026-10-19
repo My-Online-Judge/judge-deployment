@@ -38,11 +38,11 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 |----------------|--------------------------|-----------|----------------------------------|
 | `kafka`        | `apache/kafka:3.8.1`     | — (internal) | Submission event bus (KRaft): `kafka:29092` TLS + client certificate; `127.0.0.1:9092` PLAINTEXT only inside the container |
 | `api-gateway`  | build `../oj-api-gateway`| 8000      | Public API entry (CORS, client IP)|
-| `submission-service` | build `../oj-submission-service` | — (internal) | Submissions, judging, languages, judge servers |
+| `submission-service` | build `../oj-submission-service` | — (internal) | Submissions, judging, languages, judge servers; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |
 | `submission-db` | `postgres:16`           | — (internal) | submission-service's database (`submission`) |
-| `identity-service` | build `../oj-identity-service` | — (internal) | Login, users, roles, bans; issues the tokens |
+| `identity-service` | build `../oj-identity-service` | — (internal) | Login, users, roles, bans; issues the tokens; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |
 | `identity-db`  | `postgres:16`            | — (internal) | identity-service's database (`identity`) |
-| `problem-service` | build `../oj-problem-service` | — (internal) | Problems, test cases, statistics; gRPC API for submission-service |
+| `problem-service` | build `../oj-problem-service` | — (internal) | Problems, test cases, statistics; gRPC API for submission-service; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |
 | `problem-db`   | `postgres:16`            | — (internal) | problem-service's database (`problem`) |
 | `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI + OTLP collector |
 | `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge; relays sandbox status to the registry |
@@ -318,7 +318,7 @@ Notes:
 - `.env` and every `.env.<service>` hold secrets: keep them mode 600 (`chmod 600 .env`).
 - One `JUDGE_SERVER_TOKEN` is shared by api, worker, and judge-server.
 - `problem-service` does not load `.env` either: it reads `.env.problem` (its database) and compose
-  passes it MinIO, Kafka, the JWKS URI and `PROBLEM_RPC_TOKEN`; submission-service likewise reads
+  passes it MinIO, Kafka and `PROBLEM_RPC_TOKEN`; submission-service likewise reads
   `.env.submission` plus Kafka, Redis, the judge-server token and `PROBLEM_RPC_TOKEN`.
 - `submission-service` runs the profile in `.env.submission` (the image's default is **dev**, baked in via
   `pom.xml`); both serve the API on **8000** and actuator on **8081**.

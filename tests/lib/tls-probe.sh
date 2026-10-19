@@ -73,10 +73,13 @@ probe_http() { # <https-url> <tls-probe|none> <expected-status|none>
 }
 
 # _plain_result <host:port> -> prints refused|answered|error (error: the TCP connect itself failed)
+#   refused includes Tomcat's fixed answer to plaintext on its TLS port ("HTTP/1.1 400" + "This combination of host and
+#   port requires TLS."), which it writes before reading any request: nothing behind the TLS layer answered.
 _plain_result() {
   local out
   out=$(docker --context default run --rm --network "${OJ_NET:-oj-net}" "$PROBE_IMAGE" sh -c "nc -z -w 3 ${1%:*} ${1#*:} || { echo NOCONNECT; exit 0; }; printf 'GET / HTTP/1.0\r\n\r\n' | timeout 5 nc -w 3 ${1%:*} ${1#*:} 2>&1; echo DONE" 2>&1)
   if ! grep -q DONE <<< "$out"; then echo error
+  elif grep -q '^HTTP/1.1 400 ' <<< "$out" && grep -q 'This combination of host and port requires TLS' <<< "$out"; then echo refused
   elif grep -q 'HTTP/' <<< "$out"; then echo answered
   else echo refused; fi
 }
@@ -84,7 +87,7 @@ _plain_result() {
 probe_plain_refused() { # <host:port>
   local got; got=$(_plain_result "$1")
   case $got in
-    refused) pass "plaintext to $1 gets no HTTP answer" ;;
+    refused) pass "plaintext to $1 is refused (no HTTP answer, or only Tomcat's 'requires TLS' 400)" ;;
     answered) fail "plaintext to $1 was answered over HTTP" ;;
     *) fail "plaintext to $1: no TCP connection, nothing proved" ;;
   esac
