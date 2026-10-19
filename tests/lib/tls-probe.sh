@@ -73,8 +73,9 @@ probe_http() { # <https-url> <tls-probe|none> <expected-status|none>
 }
 
 # _plain_result <host:port> -> prints refused|answered|error (error: the TCP connect itself failed)
-#   refused includes Tomcat's fixed answer to plaintext on its TLS port ("HTTP/1.1 400" + "This combination of host and
-#   port requires TLS."), which it writes before reading any request: nothing behind the TLS layer answered.
+#   refused: no HTTP answer at all (gunicorn 20.0.4, the sandboxes, writes nothing and resets the connection), or
+#   Tomcat's fixed answer to plaintext on its TLS port ("HTTP/1.1 400" + "This combination of host and port requires
+#   TLS."), which it writes before reading any request: nothing behind the TLS layer answered.
 _plain_result() {
   local out
   out=$(docker --context default run --rm --network "${OJ_NET:-oj-net}" "$PROBE_IMAGE" sh -c "nc -z -w 3 ${1%:*} ${1#*:} || { echo NOCONNECT; exit 0; }; printf 'GET / HTTP/1.0\r\n\r\n' | timeout 5 nc -w 3 ${1%:*} ${1#*:} 2>&1; echo DONE" 2>&1)

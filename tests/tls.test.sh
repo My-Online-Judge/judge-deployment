@@ -154,6 +154,17 @@ else
   else fail "minio: the worker's key may not write to the test-case bucket: wanted Access Denied, got: $(head -c 300 <<< "$got" | tr '\n' ' ')"; fi
 fi
 
+# ---- sandbox: the sandboxes' API (8080) requires a CA-signed client certificate (task 12) ------------------------
+# Probed from oj-sandbox-net, the sandboxes' only network ($OJ_SANDBOX_NET for a scratch stack). gunicorn checks the CA,
+# not the CN: tls-probe's certificate passes TLS, and the judge-server token still guards the API. To plaintext gunicorn
+# 20.0.4 writes nothing and resets the connection.
+for js in judge-server judge-server-2; do
+  OJ_NET=${OJ_SANDBOX_NET:-oj-sandbox-net} probe_handshake "$js:8080" none fail
+  OJ_NET=${OJ_SANDBOX_NET:-oj-sandbox-net} probe_handshake "$js:8080" rogue fail
+  OJ_NET=${OJ_SANDBOX_NET:-oj-sandbox-net} probe_handshake "$js:8080" tls-probe ok
+  OJ_NET=${OJ_SANDBOX_NET:-oj-sandbox-net} probe_plain_refused "$js:8080"
+done
+
 # (sections follow)
 
 tls_probe_exit

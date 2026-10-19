@@ -46,7 +46,7 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 | `problem-db`   | `postgres:16`            | — (internal) | problem-service's database (`problem`) |
 | `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI + OTLP collector |
 | `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge; relays sandbox status to the registry (mutual TLS); `/metrics` `:9100` TLS + client certificate |
-| `judge-server` | `qduoj/judge-server`     | —         | Code sandbox (×2) on the internal `sandbox-net`; least privilege, see `x-sandbox` |
+| `judge-server` | `qduoj/judge-server`     | —         | Code sandbox (×2) on the internal `sandbox-net`; least privilege, see `x-sandbox`; API `:8080` TLS + client certificate (the worker's) |
 | `judge-portal` | build `../judge-portal`  | 80        | Vue 3 frontend (nginx)           |
 
 ## Run
@@ -314,7 +314,8 @@ Notes:
 - `api-gateway` does **not** load `.env`; compose passes it only the service URIs, the profile and
   the OpenTelemetry settings. submission-service is not published on the host — everything goes
   through the gateway on :8000.
-- `.env` holds **container-network** addresses (`kafka:29092`, `judge-server`).
+- `.env` holds **container-network** addresses (`kafka:29092`). The worker's sandbox URLs are fixed in compose
+  (`https://judge-server:8080,https://judge-server-2:8080`).
 - `.env` and every `.env.<service>` hold secrets: keep them mode 600 (`chmod 600 .env`).
 - One `JUDGE_SERVER_TOKEN` is shared by api, worker, and judge-server.
 - `problem-service` does not load `.env` either: it reads `.env.problem` (its database) and compose
@@ -355,7 +356,8 @@ some local quirks worth recording:
   on every `up` and never touches objects. `mc` inside `oj-minio` needs an `https://` alias; the container's
   `SSL_CERT_FILE` points it at the CA.
 - **Sandbox health and the admin "Judge servers" page.** Compose replaces the image's own healthcheck
-  (QingdaoU's heartbeat script, which always exited 1 here) with a call to the sandbox's `/ping`, and
+  (QingdaoU's heartbeat script, which always exited 1 here) with a call to the sandbox's `/ping` (mutual TLS with the
+  sandbox's own certificate: gunicorn serves `:8080` only to clients with a certificate from the CA), and
   `judge-worker` waits for `service_healthy`. The sandboxes sit on the internal `sandbox-net` and cannot
   reach submission-service, so `judge-worker` relays each one's `/ping` to `t_judge_servers` every 10 s
   (`SANDBOX_HEARTBEAT_URL`); rows are keyed by the fixed hostnames `judge-server` / `judge-server-2`. The

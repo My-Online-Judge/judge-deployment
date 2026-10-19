@@ -130,4 +130,20 @@ check_raw "problem-service uses the problem key and judge-worker the worker key 
 check_raw "only minio and minio-init get MinIO's root account" \
   "all('MINIO_ROOT' not in str(x.get('environment') or {}) for n, x in s.items() if n not in ('minio', 'minio-init'))"
 
+# The sandboxes' API over mutual TLS (task 12): gunicorn serves 8080 with the certificate of the sandbox's own tls subpath
+# and requires a client certificate signed by the CA (--cert-reqs=2 is ssl.CERT_REQUIRED). The worker calls both over
+# https (a literal: the names are the certificates' SANs), and the healthcheck presents the sandbox's own certificate.
+sandbox_gunicorn="['--certfile=/etc/oj/tls/tls.crt', '--keyfile=/etc/oj/tls/tls.key', '--ca-certs=/etc/oj/tls/ca.crt', '--cert-reqs=2']"
+check "sandboxes serve https with the certificate of their own tls subpath and require a client certificate (--cert-reqs=2)" \
+  "all(s[n]['environment'].get('GUNICORN_CMD_ARGS', '').split() == $sandbox_gunicorn and s[n]['environment'].get('SERVICE_URL') == f'https://{n}:8080' and any(m.get('volume', {}).get('subpath') == n for m in s[n].get('volumes', []) if m.get('source') == 'tls') for n in $sandboxes)"
+SANDBOX_HEALTH='import hashlib,os,ssl,urllib.request as u; c=ssl.create_default_context(cafile="/etc/oj/tls/ca.crt"); c.load_cert_chain("/etc/oj/tls/tls.crt","/etc/oj/tls/tls.key"); t=hashlib.sha256(os.environ["TOKEN"].encode()).hexdigest(); u.urlopen(u.Request("https://localhost:8080/ping",data=b"{}",headers={"X-Judge-Server-Token":t,"Content-Type":"application/json"}),timeout=3,context=c)' \
+  check "sandbox healthcheck pings /ping over mutual TLS with the sandbox's own certificate" \
+  "all(s[n]['healthcheck']['test'] == ['CMD', 'python3', '-c', __import__('os').environ['SANDBOX_HEALTH']] for n in $sandboxes)"
+check_raw "judge-worker calls both sandboxes over https, never http:// (a literal, not from .env)" \
+  "s['judge-worker']['environment'].get('JUDGE_SERVER_URL') == 'https://judge-server:8080,https://judge-server-2:8080' and 'http://' not in s['judge-worker']['environment']['JUDGE_SERVER_URL']"
+# The mock sandbox speaks plain HTTP: its overlay points the worker at http:// and nothing expects TLS of the mock.
+mock=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" -f "$PWD/docker-compose.mock.yml" config --format json)
+_check "$mock" "with docker-compose.mock.yml the worker calls both mock sandboxes over http, and their healthcheck and SERVICE_URL expect no TLS" \
+  "s['judge-worker']['environment'].get('JUDGE_SERVER_URL') == 'http://judge-server:8080,http://judge-server-2:8080' and all(s[n]['image'] == 'mock-judge-server' and 'https' not in str(s[n]['healthcheck']['test']) and s[n]['environment'].get('SERVICE_URL') == f'http://{n}:8080' for n in $sandboxes)"
+
 exit $fail

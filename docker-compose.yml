@@ -33,7 +33,9 @@ x-otel-env: &otel-env
 # backend, so both sandboxes reported (unhealthy) forever while judging perfectly. Ask the sandbox
 # itself instead — /ping is its own liveness endpoint and returns live cpu/memory/judger_version.
 # Auth is sha256(TOKEN) in X-Judge-Server-Token, computed inline because the sandbox stores the
-# digest, not the raw token. The sandboxes cannot reach submission-service anyway (sandbox-net):
+# digest, not the raw token. Over mutual TLS (sub-project 10): the sandbox verified against the CA as
+# localhost (in every SAN), presenting the sandbox's own certificate, since the server requires one.
+# The sandboxes cannot reach submission-service anyway (sandbox-net):
 # judge-worker relays each /ping to the judge-server registry instead (SANDBOX_HEARTBEAT_URL).
 # Overridden in docker-compose.mock.yml: the mock only implements /judge.
 x-sandbox-health: &sandbox-health
@@ -41,7 +43,7 @@ x-sandbox-health: &sandbox-health
     - CMD
     - python3
     - -c
-    - 'import hashlib,os,urllib.request as u; t=hashlib.sha256(os.environ["TOKEN"].encode()).hexdigest(); u.urlopen(u.Request("http://localhost:8080/ping",data=b"{}",headers={"X-Judge-Server-Token":t,"Content-Type":"application/json"}),timeout=3)'
+    - 'import hashlib,os,ssl,urllib.request as u; c=ssl.create_default_context(cafile="/etc/oj/tls/ca.crt"); c.load_cert_chain("/etc/oj/tls/tls.crt","/etc/oj/tls/tls.key"); t=hashlib.sha256(os.environ["TOKEN"].encode()).hexdigest(); u.urlopen(u.Request("https://localhost:8080/ping",data=b"{}",headers={"X-Judge-Server-Token":t,"Content-Type":"application/json"}),timeout=3,context=c)'
   interval: 15s
   timeout: 5s
   retries: 3
@@ -58,6 +60,10 @@ x-sandbox-health: &sandbox-health
 #   are size-capped tmpfs. Docker's default seccomp and AppArmor profiles apply again.
 # - Only sandbox-net: no route to Kafka, Redis, the databases, MinIO or the internet — whatever a
 #   submission's language does or does not filter at the syscall level.
+# - The API on 8080 is mutual TLS (sub-project 10, x-sandbox-env): only a client presenting a certificate
+#   from our CA gets an HTTP answer (on sandbox-net, the worker). The key stays root's: gunicorn runs as
+#   root, while compiling and running a submission drop to the users compiler, code and spj (12001-12003),
+#   which cannot enter the 0700 root-owned /etc/oj/tls (checked through the judger itself on 2026-10-20).
 x-sandbox: &sandbox
   image: qduoj/judge-server
   restart: always
@@ -73,7 +79,18 @@ x-sandbox: &sandbox
     - /judger:exec,mode=755,size=1g
     - /tmp:size=256m
   healthcheck: *sandbox-health
+  depends_on:
+    tls-init:
+      condition: service_completed_successfully
   networks: [sandbox-net]
+
+# Each sandbox's environment. gunicorn 20.0.4 reads GUNICORN_CMD_ARGS beside the image's own flags (workers, threads,
+# log, timeout, bind: none overlap): 8080 serves TLS with the certificate of the sandbox's tls subpath, and
+# --cert-reqs=2 (ssl.CERT_REQUIRED) refuses a client without one signed by ca.crt. A missing file stops gunicorn at
+# start, never plaintext.
+x-sandbox-env: &sandbox-env
+  TOKEN: ${JUDGE_SERVER_TOKEN}
+  GUNICORN_CMD_ARGS: --certfile=/etc/oj/tls/tls.crt --keyfile=/etc/oj/tls/tls.key --ca-certs=/etc/oj/tls/ca.crt --cert-reqs=2
 
 # The JVM services' options: the OpenTelemetry agent, heap sizing, and DNS caching. The JDK keeps a resolved address
 # 30 s and a failed lookup 10 s by default, so a stopped container's old address took connections until the cache
@@ -697,7 +714,9 @@ services:
       # submission-service over mutual TLS, and /metrics on 9100 over HTTPS for clients with a CA-signed certificate.
       OJ_TLS_DIR: /etc/oj/tls
       JUDGE_SERVER_TOKEN: ${JUDGE_SERVER_TOKEN}
-      JUDGE_SERVER_URL: ${JUDGE_SERVER_URL}
+      # Both sandboxes, round-robin with failover, over mutual TLS (the worker's certificate; the names are the sandboxes'
+      # SANs). A third sandbox: add a service like judge-server-2, its id to pki/identities.txt, and its URL here.
+      JUDGE_SERVER_URL: https://judge-server:8080,https://judge-server-2:8080
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       # MinIO over TLS (verified against the CA, tls.minio_http_client), with the worker's own key: read-only in the
       # test-case bucket (minio/policies/worker-ro.json).
@@ -721,11 +740,17 @@ services:
     # Map form (not list) so docker-compose.mock.yml can override image
     # while inheriting these values via Compose's environment merge.
     environment:
-      TOKEN: ${JUDGE_SERVER_TOKEN}
-      SERVICE_URL: http://judge-server:8080
+      <<: *sandbox-env
+      SERVICE_URL: https://judge-server:8080
     volumes:
       - test_case_cache:/test_case:ro
       - js1log:/log
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: judge-server
 
   judge-server-2:
     # Second QingdaoU sandbox. The worker round-robins across the JUDGE_SERVER_URL comma-list with
@@ -735,11 +760,17 @@ services:
     container_name: oj-judge-server-2
     hostname: judge-server-2
     environment:
-      TOKEN: ${JUDGE_SERVER_TOKEN}
-      SERVICE_URL: http://judge-server-2:8080
+      <<: *sandbox-env
+      SERVICE_URL: https://judge-server-2:8080
     volumes:
       - test_case_cache:/test_case:ro
       - js2log:/log
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: judge-server-2
 
   judge-portal:
     build: ../judge-portal

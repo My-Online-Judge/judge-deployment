@@ -3,13 +3,16 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --build
 #
-# Only image/build/healthcheck change; TOKEN / SERVICE_URL, the hardening (x-sandbox: no caps beyond
-# the judger's, read-only root) and sandbox-net are inherited from the base services. The mock has no
-# /ping, so judge-worker's status relay logs a warning per sandbox and the registry shows them offline.
+# image/build/healthcheck change, and as the mock speaks plain HTTP, SERVICE_URL and the worker's
+# JUDGE_SERVER_URL go back to http:// (the base file serves the real sandboxes over mutual TLS). TOKEN,
+# the hardening (x-sandbox: no caps beyond the judger's, read-only root) and sandbox-net are inherited
+# from the base services; the inherited GUNICORN_CMD_ARGS and certificate mount mean nothing to the mock.
+# The mock has no /ping, so judge-worker's status relay logs a warning per sandbox and the registry
+# shows them offline.
 #
-# BOTH sandboxes are overridden: .env sets JUDGE_SERVER_URL to the two-entry comma list, so the
-# worker round-robins across judge-server AND judge-server-2. Mocking only the first left every
-# other submission going to a real sandbox — which is exactly what this file exists to avoid.
+# BOTH sandboxes are overridden: the worker round-robins across judge-server AND judge-server-2.
+# Mocking only the first left every other submission going to a real sandbox — which is exactly what
+# this file exists to avoid.
 
 # The base healthcheck calls /ping, which the mock does not implement (it speaks only /judge).
 # A POST /judge would run a fake submission every 15s, so check the cheapest honest thing
@@ -30,8 +33,16 @@ services:
     image: mock-judge-server
     build: ./mock-judge-server
     healthcheck: *mock-health
+    environment:
+      SERVICE_URL: http://judge-server:8080
 
   judge-server-2:
     image: mock-judge-server
     build: ./mock-judge-server
     healthcheck: *mock-health
+    environment:
+      SERVICE_URL: http://judge-server-2:8080
+
+  judge-worker:
+    environment:
+      JUDGE_SERVER_URL: http://judge-server:8080,http://judge-server-2:8080
