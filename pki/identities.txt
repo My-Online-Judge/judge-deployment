@@ -1,0 +1,21 @@
+# id uid:gid [extra-san...]   (unlisted uid is 0:0). ${OJ_PUBLIC_HOST} is expanded by pki.sh (default localhost).
+identity-service 0:0
+problem-service 0:0
+submission-service 0:0
+api-gateway 0:0
+judge-worker 0:0
+judge-server 0:0
+judge-server-2 0:0
+judge-portal 0:0
+identity-db 999:999
+problem-db 999:999
+submission-db 999:999
+kafka 1000:1000
+kafka-admin 1000:1000
+redis 999:999
+minio 0:0
+jaeger 10001:10001
+prometheus 65534:65534
+edge 0:0 ${OJ_PUBLIC_HOST} edge
+tls-probe 0:0
+rogue 0:0

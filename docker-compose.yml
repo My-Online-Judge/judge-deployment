@@ -90,6 +90,20 @@ x-jvm-dns-configs: &jvm-dns-configs
     target: /opt/oj/jvm-dns.security
 
 services:
+  # ---- TLS material (sub-project 10) ----------------------------------------
+  # One-shot: copies pki/out/<id>/ into the tls volume, owned per pki/identities.txt. Every service that gets a
+  # certificate mounts tls with volume.subpath: <its id> at /etc/oj/tls and waits for this to complete.
+  tls-init:
+    image: alpine:3.22
+    restart: "no"
+    entrypoint: ["/bin/sh", "/install.sh"]
+    volumes:
+      - ./pki/out:/pki:ro
+      - ./pki/install.sh:/install.sh:ro
+      - ./pki/identities.txt:/identities.txt:ro
+      - tls:/tls
+    networks: []
+
   # ---- infrastructure ------------------------------------------------------
   identity-db:
     image: postgres:16
@@ -544,3 +558,4 @@ volumes:
   test_case_cache:
   promdata:
   kafkadata:
+  tls:
