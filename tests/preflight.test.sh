@@ -38,6 +38,8 @@ fresh missing; rm -rf "$root/judge-portal"
 check "missing repo fails" 1 '^FAIL judge-portal: missing$'
 fresh nogit;   rm -rf "$root/oj-problem-service/.git"
 check "directory without .git fails" 1 '^FAIL oj-problem-service: not a git repo$'
+fresh enclosed; git init -q -b main "$root"; rm -rf "$root/oj-problem-service/.git"
+check "sibling without .git inside an enclosing repo fails" 1 '^FAIL oj-problem-service: not a git repo$'
 fresh behind
 git clone -q "$root/oj-identity-service.origin.git" "$tmp/other"
 echo z >> "$tmp/other/f"; git -C "$tmp/other" commit -q -am more; git -C "$tmp/other" push -q origin main

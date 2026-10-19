@@ -55,7 +55,7 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 cd judge-deployment
 
 # refuse to build from sibling repos that are off main or dirty (exit 1 on FAIL)
-scripts/preflight.sh
+scripts/preflight.sh   # from a git worktree, set OJ_ROOT to the directory holding the sibling repos
 
 # real sandbox (default)
 docker compose up -d --build
