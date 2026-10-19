@@ -42,8 +42,8 @@ case "$EXP" in
     ARGS=$(jq -n --argjson r "$RATE" --argjson w "$W" --argjson m "$M" '{rate:$r, warmup_s:$w, measure_s:$m}')
     LABEL="e1-r$RATE" ;;
   e2)
-    # A pilot scales with the workers and stays short, so its backlog drains well inside the reconcile job's 5 min
-    # (a submission queued longer is flipped to SYSTEM_ERROR and its verdict thrown away — review C1).
+    # A pilot scales with the workers and stays short, so its backlog drains well inside the reconcile job's 3 min judging / 30 min
+    # pending rules (a submission held longer is flipped to SYSTEM_ERROR and its verdict thrown away — review C1).
     if [ -n "$PILOT" ]; then
       STEPS=$(python3 -c "print(','.join(f'{min($MAX_SUBMIT_RATE, $WORKERS * f):g}' for f in (0.5, 1, 1.5, 2)))") STEP_S=60
     fi

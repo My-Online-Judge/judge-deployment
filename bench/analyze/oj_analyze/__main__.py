@@ -13,10 +13,12 @@ def cmd_invariant(run_dir):
     events = inv.parse_k6_log((run_dir / "k6.log").read_text().splitlines())
     found = json.loads((run_dir / "found.json").read_text())["found"]
     result = inv.check(inv.accepted_ids(events), found)
+    result["rejections"] = inv.rejections(events)
     (run_dir / "invariant.json").write_text(json.dumps(result, indent=1))
     print(f"invariant {'ok' if result['ok'] else 'FAIL'}: {result['accepted']} accepted, "
           f"{len(result['missing'])} missing, {len(result['nonterminal'])} not terminal, "
-          f"{len(result['system_error'])} SYSTEM_ERROR")
+          f"{len(result['system_error'])} SYSTEM_ERROR "
+          f"({len(result['timeout_system_error'])} by the reconcile timeouts), refusals {result['rejections']}")
     return 0
 
 

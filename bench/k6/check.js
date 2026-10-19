@@ -18,7 +18,7 @@ export function setup() {
       const res = http.get(`${BASE}/api/v1/submissions/user/${id}?page=${page}&size=200`, auth(users[i].token, 'check'));
       const b = body(res);
       if (res.status !== 200 || !b) throw new Error(`listing ${username(i)} failed: HTTP ${res.status}`);
-      for (const s of b.data || []) found.push({ id: s.id, status: s.status });
+      for (const s of b.data || []) found.push({ id: s.id, status: s.status, errorMessage: s.errorMessage ?? null });
       if (!b.pagination || !b.pagination.hasNext) break;
     }
   }

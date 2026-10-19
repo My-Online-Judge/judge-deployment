@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# probe.sh dns|redis — sub-project 6 §3.2: what a stopped dependency costs, request by request, on a running oj-bench
+# probe.sh dns|redis|grpc|kafka|worker|minio — sub-project 6 §3.2: what a stopped dependency costs, request by request, on a running oj-bench
 # stack. Run before the fixes and after them; the outputs are kept in bench/results/sessions/.
 #   dns    stops problem-service for 25 s: every second a read through the gateway (HTTP status, seconds) beside
 #          what Docker's DNS answers for the name; then one submit (its gRPC call to problem-service); then the
@@ -15,11 +15,18 @@
 #          it, holds Kafka down 60 s and starts it: the worker's restart count before and after, whether Prometheus
 #          scraped a worker meanwhile, how long after Kafka's start the submission was terminal (sub-project 7 §3.2),
 #          and how many seconds the worker spent waiting to resend (oj_verdict_publish_wait_seconds_total, sub-project 8).
+#   worker kills the worker that picks up a submission (bench-sum, sleeping 2 s first) the moment it logs it, starts it
+#          again after 10 s and waits for a terminal status: the status, how many "Judging submission <id>" lines all
+#          the workers logged (more than one: it was judged again), and the change in bench-sum's t_problem_stats total
+#          (expected 1: counted once) (sub-project 11).
+#   minio  with no load, removes every installed test-case bundle from the first worker's /test_case, stops MinIO,
+#          submits 4 bench-ab solutions (users in turn), holds 60 s, starts MinIO: each submission's final status and
+#          error message, and the change in sum(oj_judge_infra_retries_total{reason="minio"}) (sub-project 11).
 # Uses seeded bench users. Never prints a token: the cookie jars live in a private temporary directory.
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
 what=${1:-}
-case "$what" in dns|redis|grpc|kafka) ;; *) die "usage: probe.sh dns|redis|grpc|kafka" ;; esac
+case "$what" in dns|redis|grpc|kafka|worker|minio) ;; *) die "usage: probe.sh dns|redis|grpc|kafka|worker|minio" ;; esac
 [ -n "$(docker ps -q --filter "label=com.docker.compose.project=$BENCH_PROJECT" --filter label=com.docker.compose.service=api-gateway)" ] \
   || die "oj-bench is not running (bench/env.sh up first)"
 
@@ -56,6 +63,87 @@ publish_wait() { curl -s -G "$PROM_URL/api/v1/query" --data-urlencode 'query=sum
   | jq -r '.data.result[0].value[1] // "0"'; }
 worker_up() { curl -s -G "$PROM_URL/api/v1/query" --data-urlencode 'query=max(up{job="judge-worker"})' \
   | jq -r '.data.result[0].value[1] // "absent"'; }
+
+bench_workers() { docker ps -a --filter "label=com.docker.compose.project=$BENCH_PROJECT" \
+  --filter label=com.docker.compose.service=judge-worker --format '{{.Names}}' | sort; }
+in_bench() { # in_bench <container> — dies unless the container belongs to oj-bench (as chaos/fault.sh does)
+  [ "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$1" 2>/dev/null)" = "$BENCH_PROJECT" ] \
+    || die "$1 does not belong to $BENCH_PROJECT"
+}
+prom_sum() { curl -s -G "$PROM_URL/api/v1/query" --data-urlencode "query=sum($1) or vector(0)" | jq -r '.data.result[0].value[1] // "0"'; }
+sum_total() { # bench-sum's submission count, all verdicts (problem-service's t_problem_stats)
+  docker exec oj-problem-db sh -c 'psql -XAtq -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT COALESCE(sum(s.submission_count), 0) FROM t_problem_stats s JOIN t_problems p ON p.id = s.problem_id WHERE p.problem_slug = '"'bench-sum'"'"'
+}
+wait_terminal() { # wait_terminal <user> <id> <max s> — prints the final status ('' on timeout)
+  local st
+  for _ in $(seq "$3"); do
+    st=$(status_of "$1" "$2"); case "$st" in 6|7|'') sleep 1 ;; *) echo "$st"; return ;; esac
+  done
+}
+
+probe_worker() {
+  local id t0 w victim="" st n s0 s1 src
+  [ -n "$(bench_workers)" ] || die "no judge-worker is running in $BENCH_PROJECT"
+  login bench_u050
+  src=$'import time; time.sleep(2)\n'$(cat "$BENCH_DIR/data/solutions/sum.py")
+  s0=$(sum_total)
+  t0=$(date +%s)
+  id=$(submit_id bench_u050 bench-sum "$src")
+  [ -n "$id" ] || die "the submit was refused"
+  for _ in $(seq 100); do
+    for w in $(bench_workers); do
+      docker logs --since "$t0" "$w" 2>&1 | grep -q "Judging submission $id" && { victim=$w; break; }
+    done
+    [ -n "$victim" ] && break
+    sleep 0.1
+  done
+  [ -n "$victim" ] || die "no worker started judging $id within 10 s"
+  in_bench "$victim"
+  docker kill "$victim" >/dev/null
+  log "$(since "$t0") $victim killed while it judges $id"
+  sleep 10
+  docker start "$victim" >/dev/null
+  log "$(since "$t0") $victim started again"
+  st=$(wait_terminal bench_u050 "$id" 240)
+  log "submission $id final status: ${st:-not terminal after 240 s} (6 PENDING and 7 JUDGING are not terminal)"
+  sleep 6   # problem-service consumes the verdict
+  n=0
+  for w in $(bench_workers); do n=$(( n + $(docker logs --since "$t0" "$w" 2>&1 | grep -c "Judging submission $id" || true) )); done
+  log "'Judging submission $id' lines across all workers: $n"
+  s1=$(sum_total)
+  log "bench-sum t_problem_stats total: $s0 before, $s1 after, change $(( s1 - s0 )) (expected 1)"
+}
+
+probe_minio() {
+  local users=(bench_u060 bench_u061 bench_u062 bench_u063) worker u i t0 r0 r1 st msg
+  local ids=()
+  worker=$(bench_workers | head -1)
+  [ -n "$worker" ] || die "no judge-worker is running in $BENCH_PROJECT"
+  in_bench "$worker"; in_bench oj-minio
+  for u in "${users[@]}"; do login "$u"; done
+  docker exec "$worker" sh -c 'rm -rf /test_case/*__*'
+  log "installed test-case bundles removed from $worker: $(docker exec "$worker" sh -c 'ls /test_case | wc -l') entries left"
+  r0=$(prom_sum 'oj_judge_infra_retries_total{reason="minio"}')
+  t0=$(date +%s)
+  docker stop oj-minio >/dev/null
+  log "MinIO stopped"
+  for u in "${users[@]}"; do
+    ids+=("$(submit_id "$u" bench-ab $'a, b = map(int, input().split())\nprint(a + b)')")
+    log "$(since "$t0") submit by $u: id ${ids[-1]:-refused}"
+  done
+  while [ $(( $(date +%s) - t0 )) -lt 60 ]; do sleep 1; done
+  docker start oj-minio >/dev/null
+  log "$(since "$t0") MinIO started again"
+  for i in 0 1 2 3; do
+    [ -n "${ids[i]}" ] || { log "submission $i was refused"; continue; }
+    st=$(wait_terminal "${users[i]}" "${ids[i]}" 360)
+    msg=$(curl -s -b "$jars/${users[i]}" "$API/submissions/${ids[i]}" | jq -r '.data.errorMessage // "none"')
+    log "submission ${ids[i]}: status ${st:-not terminal} error message: $msg"
+  done
+  sleep 6   # one bench scrape (5 s)
+  r1=$(prom_sum 'oj_judge_infra_retries_total{reason="minio"}')
+  log "oj_judge_infra_retries_total{reason=\"minio\"}: $r0 before, $r1 after, change $(awk -v a="$r0" -v b="$r1" 'BEGIN { printf "%g", b - a }')"
+}
 
 probe_dns() {
   local t0

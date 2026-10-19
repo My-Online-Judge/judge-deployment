@@ -79,7 +79,7 @@ export function recordSubmit(res) {
     console.log(JSON.stringify({ ev: 'accepted', id: b.data.id, t: Date.now() }));
     return true;
   }
-  console.log(JSON.stringify({ ev: 'rejected', status: res.status, t: Date.now() }));
+  console.log(JSON.stringify({ ev: 'rejected', status: res.status, message: (b && b.message) ?? null, retryAfter: res.headers['Retry-After'] ?? null, t: Date.now() }));
   return false;
 }
 

@@ -1,7 +1,7 @@
 # drain_queue <max_s> — waits until the run's work is really done, twice in a row (5 s apart): the judge queue
 # (max(oj_queue_depth) on the bench Prometheus) reads 0 AND the judge-workers group has consumed every
-# submission.requested message. The queue alone is not enough: the reconcile job flips a submission queued > 5 min
-# to SYSTEM_ERROR, zeroing the queue while the worker still holds its message (review C1). Prints "empty", or
+# submission.requested message. The queue alone is not enough: the reconcile job flips a submission judging > 3 min
+# (or pending > 30 min) to SYSTEM_ERROR, zeroing the queue while the worker still holds its message (review C1). Prints "empty", or
 # "timeout" after max_s. Sourced after common.sh.
 
 # worker_lag — unconsumed submission.requested messages of the judge-workers group (read-only, inside the bench
