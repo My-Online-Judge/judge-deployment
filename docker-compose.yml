@@ -338,7 +338,11 @@ services:
     image: ghcr.io/my-online-judge/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: oj-minio
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    # TLS (sub-project 10): the API (9000) and the console (9001) serve the minio certificate; --certs-dir reads
+    # public.crt, private.key and CAs/ from the minio subpath (pki/pki.sh writes them). Clients authenticate with access
+    # keys, not certificates: problem-service and the worker each have their own (minio-init), only this container and
+    # minio-init get the root account.
+    command: server /data --console-address ":9001" --certs-dir /etc/oj/tls
     ports:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
@@ -346,14 +350,57 @@ services:
       <<: *tz-env
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # mc run inside this container (the healthcheck, backup/backup.sh) verifies the server against the CA.
+      SSL_CERT_FILE: /etc/oj/tls/ca.crt
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
     volumes:
       - miniodata:/data
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: minio
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # mc ready asks the unauthenticated cluster-health endpoint: the credentials in the URL are placeholders.
+      test: ["CMD-SHELL", "SSL_CERT_FILE=/etc/oj/tls/ca.crt MC_HOST_local=https://x:x@localhost:9000 mc ready local"]
       interval: 5s
       timeout: 5s
       retries: 30
       start_period: 5s
+    networks: [oj-net]
+
+  minio-init:
+    # One-shot (sub-project 10): with the root account, makes sure of the test-case bucket, the policies oj-problem-rw and
+    # oj-worker-ro and the two service users (minio/minio-init.sh). Idempotent and non-destructive, so it runs on every
+    # `up`; problem-service and the worker wait for it. Mounts the minio subpath for the CA.
+    image: ghcr.io/my-online-judge/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: "no"
+    entrypoint: ["/bin/bash", "/opt/oj/minio/minio-init.sh"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_PROBLEM_ACCESS_KEY: ${MINIO_PROBLEM_ACCESS_KEY}
+      MINIO_PROBLEM_SECRET_KEY: ${MINIO_PROBLEM_SECRET_KEY}
+      MINIO_WORKER_ACCESS_KEY: ${MINIO_WORKER_ACCESS_KEY}
+      MINIO_WORKER_SECRET_KEY: ${MINIO_WORKER_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      SSL_CERT_FILE: /etc/oj/tls/ca.crt
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./minio:/opt/oj/minio:ro
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: minio
     networks: [oj-net]
 
   prometheus:
@@ -504,6 +551,8 @@ services:
         condition: service_completed_successfully
       minio:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       # Not identity-service: the token-signing key is fetched lazily, on the first request with a token.
     # problem-db credentials from .env.problem; from the shared .env only what problem-service needs —
     # deliberately not env_file .env, which carries the judge-server token and the other services' settings.
@@ -516,9 +565,11 @@ services:
       JAVA_TOOL_OPTIONS: *java-tool-options
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       KAFKA_PARTITIONS: ${KAFKA_PARTITIONS:-6}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      # MinIO over TLS (the tls profile's minio.ssl-bundle), with problem-service's own key: read, write and delete in
+      # the test-case bucket only (minio/policies/problem-rw.json).
+      MINIO_ENDPOINT: https://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_PROBLEM_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_PROBLEM_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
     volumes:
       - type: volume
@@ -635,8 +686,10 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    # Only what the worker reads — not env_file .env, which also carries MinIO's root account and the
-    # service token of problem-service's internal API.
+      minio-init:
+        condition: service_completed_successfully
+    # Only what the worker reads — not env_file .env, which also carries MinIO's root account and the other
+    # services' keys.
     environment:
       <<: [*tz-env, *otel-env]
       OTEL_SERVICE_NAME: judge-worker
@@ -646,9 +699,11 @@ services:
       JUDGE_SERVER_TOKEN: ${JUDGE_SERVER_TOKEN}
       JUDGE_SERVER_URL: ${JUDGE_SERVER_URL}
       KAFKA_BROKERS: ${KAFKA_BROKERS}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      # MinIO over TLS (verified against the CA, tls.minio_http_client), with the worker's own key: read-only in the
+      # test-case bucket (minio/policies/worker-ro.json).
+      MINIO_ENDPOINT: https://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_WORKER_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_WORKER_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
       # The sandboxes cannot reach submission-service, so the worker relays their /ping there.
       SANDBOX_HEARTBEAT_URL: https://submission-service:8000/api/judge_server_heartbeat/

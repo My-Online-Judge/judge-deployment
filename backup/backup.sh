@@ -61,11 +61,12 @@ for svc in identity problem submission; do
   done
 done
 
-# 2. Test-case bucket, mirrored inside oj-minio with an alias built from its own root credentials.
+# 2. Test-case bucket, mirrored inside oj-minio with an alias built from its own root credentials. MinIO serves TLS
+#    (sub-project 10): mc verifies it against the CA of the minio subpath (localhost is in the certificate).
 echo "mirror bucket $bucket"
 "${docker[@]}" exec oj-minio sh -c 'rm -rf /tmp/oj-backup && mkdir -p /tmp/oj-backup/minio'
 "${docker[@]}" exec -e BUCKET="$bucket" oj-minio sh -c \
-  'MC_HOST_local="http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@localhost:9000" mc mirror --overwrite "local/$BUCKET" /tmp/oj-backup/minio'
+  'SSL_CERT_FILE=/etc/oj/tls/ca.crt MC_HOST_local="https://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@localhost:9000" mc mirror --overwrite "local/$BUCKET" /tmp/oj-backup/minio'
 "${docker[@]}" cp oj-minio:/tmp/oj-backup/minio/. "$staging/minio/"
 "${docker[@]}" exec oj-minio rm -rf /tmp/oj-backup
 

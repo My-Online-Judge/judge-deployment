@@ -6,14 +6,18 @@ cd "$(dirname "$0")/.."
 # The checkout that owns the .env files: in a worktree, the main checkout (as bench/lib/common.sh resolves it).
 deploy_dir=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
 config=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
+# The same file before interpolation: which ${VARIABLE} a value names, not what it resolves to.
+raw=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --no-interpolate --format json)
 fail=0
-check() { # check <description> <python expression over s = services, v = volumes>
-  if python3 -c "import json,sys; c=json.load(sys.stdin); s=c['services']; v=c.get('volumes',{}); sys.exit(0 if ($2) else 1)" <<< "$config"; then
-    echo "ok   $1"
+_check() { # _check <json> <description> <python expression over s = services, v = volumes>
+  if python3 -c "import json,sys; c=json.load(sys.stdin); s=c['services']; v=c.get('volumes',{}); sys.exit(0 if ($3) else 1)" <<< "$1"; then
+    echo "ok   $2"
   else
-    echo "FAIL $1"; fail=1
+    echo "FAIL $2"; fail=1
   fi
 }
+check() { _check "$config" "$@"; }
+check_raw() { _check "$raw" "$@"; }
 
 worker_allowlist="['JUDGE_SERVER_TOKEN','JUDGE_SERVER_URL','KAFKA_BROKERS','MINIO_ACCESS_KEY','MINIO_BUCKET','MINIO_ENDPOINT',
   'MINIO_SECRET_KEY','OJ_TLS_DIR','OTEL_EXPORTER_OTLP_ENDPOINT','OTEL_EXPORTER_OTLP_PROTOCOL','OTEL_LOGS_EXPORTER',
@@ -107,5 +111,23 @@ check "no service gets PROBLEM_RPC_TOKEN" \
   "all('PROBLEM_RPC_TOKEN' not in (x.get('environment') or {}) for x in s.values())"
 check "submission-service dials problem-service's gRPC API by name" \
   "s['submission-service']['environment'].get('PROBLEM_GRPC_ADDRESS') == 'static://problem-service:9090'"
+
+# MinIO over TLS with least-privilege keys (task 11): MinIO serves the certificate of its tls subpath; the one-shot
+# minio-init creates the bucket, the two policies and the two users; problem-service and the worker each use their own
+# key over https, never the root account.
+check "minio serves TLS from its own tls subpath (--certs-dir /etc/oj/tls) and trusts the CA (SSL_CERT_FILE)" \
+  "(lambda m: '--certs-dir' in m['command'] and m['command'][m['command'].index('--certs-dir') + 1] == '/etc/oj/tls' and m['environment'].get('SSL_CERT_FILE') == '/etc/oj/tls/ca.crt' and any(x.get('volume', {}).get('subpath') == 'minio' for x in m['volumes'] if x.get('source') == 'tls') and any(x.get('source') == 'miniodata' and x.get('target') == '/data' for x in m['volumes']))(s['minio'])"
+check "minio's healthcheck asks mc ready over https, verifying the server against the CA" \
+  "s['minio']['healthcheck']['test'] == ['CMD-SHELL', 'SSL_CERT_FILE=/etc/oj/tls/ca.crt MC_HOST_local=https://x:x@localhost:9000 mc ready local']"
+check "minio-init runs minio/minio-init.sh once in minio's image on oj-net, with the minio subpath, after minio is healthy" \
+  "(lambda k: k['image'] == s['minio']['image'] and k.get('entrypoint') == ['/bin/bash', '/opt/oj/minio/minio-init.sh'] and k.get('restart') == 'no' and list(k.get('networks', {})) == ['oj-net'] and {n: d['condition'] for n, d in k['depends_on'].items()} == {'tls-init': 'service_completed_successfully', 'minio': 'service_healthy'} and any(m.get('type') == 'bind' and m['source'].endswith('/minio') and m['target'] == '/opt/oj/minio' and m.get('read_only') is True for m in k['volumes']) and any(m.get('source') == 'tls' and m.get('volume', {}).get('subpath') == 'minio' for m in k['volumes']))(s.get('minio-init', {'image': None}))"
+check "minio-init gets the root account, the two service keys, the bucket and the CA, nothing else" \
+  "sorted(s.get('minio-init', {}).get('environment', {})) == ['MINIO_BUCKET', 'MINIO_PROBLEM_ACCESS_KEY', 'MINIO_PROBLEM_SECRET_KEY', 'MINIO_ROOT_PASSWORD', 'MINIO_ROOT_USER', 'MINIO_WORKER_ACCESS_KEY', 'MINIO_WORKER_SECRET_KEY', 'SSL_CERT_FILE'] and s['minio-init']['environment']['SSL_CERT_FILE'] == '/etc/oj/tls/ca.crt'"
+check "problem-service and judge-worker reach MinIO at https://minio:9000, after minio-init" \
+  "all(s[n]['environment'].get('MINIO_ENDPOINT') == 'https://minio:9000' and s[n]['depends_on'].get('minio-init', {}).get('condition') == 'service_completed_successfully' for n in ('problem-service', 'judge-worker'))"
+check_raw "problem-service uses the problem key and judge-worker the worker key (MINIO_PROBLEM_* / MINIO_WORKER_*)" \
+  "{k: s['problem-service']['environment'].get(k) for k in ('MINIO_ACCESS_KEY', 'MINIO_SECRET_KEY')} == {'MINIO_ACCESS_KEY': '\${MINIO_PROBLEM_ACCESS_KEY}', 'MINIO_SECRET_KEY': '\${MINIO_PROBLEM_SECRET_KEY}'} and {k: s['judge-worker']['environment'].get(k) for k in ('MINIO_ACCESS_KEY', 'MINIO_SECRET_KEY')} == {'MINIO_ACCESS_KEY': '\${MINIO_WORKER_ACCESS_KEY}', 'MINIO_SECRET_KEY': '\${MINIO_WORKER_SECRET_KEY}'}"
+check_raw "only minio and minio-init get MinIO's root account" \
+  "all('MINIO_ROOT' not in str(x.get('environment') or {}) for n, x in s.items() if n not in ('minio', 'minio-init'))"
 
 exit $fail

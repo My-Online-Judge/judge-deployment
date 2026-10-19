@@ -348,6 +348,12 @@ some local quirks worth recording:
   A client's principal is its certificate's CN, and each service may use only its own topics and consumer group: the
   one-shot `kafka-init` writes those ACLs from `kafka/acls.sh` on every `up`. A new topic or client needs a rule there;
   deleting a rule does not revoke it (`docker exec oj-kafka /opt/kafka/bin/kafka-acls.sh --bootstrap-server 127.0.0.1:9092 --remove …`).
+- **MinIO serves TLS only** (`https://minio:9000`; the console on `https://127.0.0.1:9001`), with the `minio` certificate
+  from the private CA. problem-service (read, write, delete) and the worker (read only) each use their own key from
+  `.env` (`MINIO_PROBLEM_*`, `MINIO_WORKER_*`), limited to the test-case bucket; only `minio` and the one-shot
+  `minio-init` get the root account. `minio-init` creates the bucket, the policies (`minio/policies`) and the two users
+  on every `up` and never touches objects. `mc` inside `oj-minio` needs an `https://` alias; the container's
+  `SSL_CERT_FILE` points it at the CA.
 - **Sandbox health and the admin "Judge servers" page.** Compose replaces the image's own healthcheck
   (QingdaoU's heartbeat script, which always exited 1 here) with a call to the sandbox's `/ping`, and
   `judge-worker` waits for `service_healthy`. The sandboxes sit on the internal `sandbox-net` and cannot

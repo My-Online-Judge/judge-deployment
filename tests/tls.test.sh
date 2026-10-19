@@ -116,6 +116,29 @@ expect_grpcurl() { # <description> <none|tls-probe> <expected substring>
 expect_grpcurl "grpc: problem-service:9090 refuses tls-probe's CN with PermissionDenied" tls-probe "Code: PermissionDenied"
 expect_grpcurl "grpc: problem-service:9090 refuses a caller without a client certificate" none "tls: certificate required"
 
+# ---- minio: TLS with the minio certificate, and the worker's key may read the bucket but not write it (task 11) ----
+# mc in MinIO's image verifies minio:9000 against the CA (SSL_CERT_FILE) and the name minio. The keys come from the
+# stack's env file (${OJ_ENV_FILE:-.env}) and reach the container through its environment, never the command line;
+# nothing prints them. S3's AccessDenied, which mc cp words "Insufficient permissions to access this path", can only come
+# after TLS and the key's signature were accepted (an unknown key reads "The Access Key Id you provided does not exist").
+_env_value() { # <name> -> the value of <name> in the env file (last assignment wins, quotes dropped)
+  grep -E "^$1=" "${OJ_ENV_FILE:-.env}" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"'
+}
+_mc_worker() { # <sh script using mc and $BUCKET> -> its output, with the alias oj = minio:9000 as the worker's MinIO user
+  MC_AK=$(_env_value MINIO_WORKER_ACCESS_KEY) MC_SK=$(_env_value MINIO_WORKER_SECRET_KEY) BUCKET=$(_env_value MINIO_BUCKET) \
+    docker --context default run --rm --network "${OJ_NET:-oj-net}" -e MC_AK -e MC_SK -e BUCKET \
+    --mount "type=volume,src=${TLS_VOLUME:-judge-deployment_tls},dst=/t,readonly,volume-subpath=tls-probe" \
+    --entrypoint /bin/sh ghcr.io/my-online-judge/minio:RELEASE.2025-09-07T16-13-09Z \
+    -c "export SSL_CERT_FILE=/t/ca.crt MC_HOST_oj=\"https://\$MC_AK:\$MC_SK@minio:9000\"; $1" 2>&1
+}
+got=$(_mc_worker 'mc ls "oj/$BUCKET" >/dev/null && echo LISTED')
+if grep -q '^LISTED$' <<< "$got"; then pass "minio: the worker's key lists the test-case bucket over verified TLS"
+else fail "minio: the worker's key lists the test-case bucket over verified TLS: got: $(head -c 300 <<< "$got" | tr '\n' ' ')"; fi
+got=$(_mc_worker 'echo tls-probe > /tmp/probe && mc cp /tmp/probe "oj/$BUCKET/tls-probe/denied" || true')
+if grep -qE 'Insufficient permissions to access this path|Access Denied' <<< "$got"; then
+  pass "minio: the worker's key may not write to the test-case bucket (Access Denied)"
+else fail "minio: the worker's key may not write to the test-case bucket: wanted Access Denied, got: $(head -c 300 <<< "$got" | tr '\n' ' ')"; fi
+
 # (sections follow)
 
 tls_probe_exit
