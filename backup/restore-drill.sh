@@ -22,8 +22,8 @@ trap cleanup EXIT
 mkdir -p "$tmp/restore"
 "${docker[@]}" run --rm --user "$(id -u):$(id -g)" \
   -v "$BACKUP_REPO":/repo:ro -v "$tmp/restore":/restore -v "$RESTIC_PASSWORD_FILE":/pw:ro \
-  -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD_FILE=/pw "$RESTIC_IMAGE" \
-  restore latest --target /restore --include /data
+  -e HOME=/tmp -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD_FILE=/pw "$RESTIC_IMAGE" \
+  restore latest --no-lock --target /restore --include /data
 data="$tmp/restore/data"
 [ -f "$data/counts.tsv" ] || { echo "snapshot has no counts.tsv" >&2; exit 1; }
 

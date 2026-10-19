@@ -2,6 +2,8 @@
 # Nightly backup: three Postgres dumps + the test-case bucket + env files -> restic repo (SP9 T9).
 # Credentials are read inside the containers; nothing secret is read or printed on the host.
 set -euo pipefail
+# Staging dumps hold password hashes: keep them owner-only.
+umask 077
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 deploy="$(dirname "$here")"
 source "$here/lib.sh"
@@ -31,7 +33,7 @@ restic() {
   "${docker[@]}" run --rm --user "$(id -u):$(id -g)" \
     -v "$BACKUP_REPO":/repo -v "$staging":/data:ro -v "$deploy":/deploy:ro \
     -v "$RESTIC_PASSWORD_FILE":/pw:ro \
-    -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD_FILE=/pw "$RESTIC_IMAGE" "$@"
+    -e HOME=/tmp -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD_FILE=/pw "$RESTIC_IMAGE" "$@"
 }
 
 rm -rf "$staging"; mkdir -p "$staging/minio"
@@ -74,6 +76,7 @@ printf 'minio_objects\t%s\t%s\n' "$n" "$n" >> "$staging/counts.tsv"
 # 4. restic snapshot: staging, env files, pki/out, backups/.
 [ -f "$BACKUP_REPO/config" ] || restic init
 paths=(/data)
+# NOTE: .env* files are found only under this script's own checkout; running from a worktree backs up none.
 for f in "$deploy"/.env*; do
   [ -f "$f" ] || continue
   case "$f" in *.example) continue;; esac

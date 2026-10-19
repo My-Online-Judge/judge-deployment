@@ -45,8 +45,8 @@ check "sandboxes sit only on the internal sandbox-net, which the worker also joi
   "c['networks']['sandbox-net'].get('internal') is True and all(list(s[n]['networks']) == ['sandbox-net'] for n in $sandboxes) and set(s['judge-worker']['networks']) == {'oj-net', 'sandbox-net'}"
 check "sandboxes have stable hostnames (the registry is keyed by hostname) and no BACKEND_URL" \
   "all(s[n].get('hostname') == n and 'BACKEND_URL' not in s[n]['environment'] for n in $sandboxes)"
-check "sandboxes are capped at 3 GiB, 3 CPUs and 1024 pids" \
-  "all(s[n].get('mem_limit') in (3221225472, '3221225472') and float(s[n].get('cpus')) == 3 and s[n].get('pids_limit') == 1024 for n in $sandboxes)"
+check "sandboxes are capped at 3 GiB, 6 CPUs and 1024 pids" \
+  "all(s[n].get('mem_limit') in (3221225472, '3221225472') and float(s[n].get('cpus')) == 6 and s[n].get('pids_limit') == 1024 for n in $sandboxes)"
 check "judge-server keeps /log on the named volume js1log, not a bind mount" \
   "not any(m.get('source', '').startswith('/') for m in s['judge-server'].get('volumes', [])) and any(m.get('source') == 'js1log' and m.get('target') == '/log' for m in s['judge-server'].get('volumes', [])) and 'js1log' in v"
 
