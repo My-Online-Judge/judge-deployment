@@ -264,7 +264,7 @@ Cutover runbook (all from `judge-deployment/`):
    and verified; it exits non-zero on any mismatch.
 4. **Switch.** `docker compose up -d submission-service prometheus api-gateway`: the new service resumes
    `judge-api-results` from the committed offsets; Prometheus scrapes it on 8081. Check the group:
-   `docker exec oj-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group judge-api-results`
+   `docker exec oj-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 --describe --group judge-api-results`
    lists every partition with a consumer and `LAG` 0.
 5. **Smoke test**: log in, submit; the verdict arrives over SSE through the gateway; the problem's accepted count
    goes up; old submission histories list completely. In Jaeger (<http://localhost:16686>, service `api-gateway`)
@@ -341,10 +341,9 @@ some local quirks worth recording:
   docker --context default compose ps
   # or make it the default: docker context use default
   ```
-- **Kafka host port `9092` is intentionally not published** (see the commented block in
-  `docker-compose.yml`) because a legacy `kafka` container already owns host `9092`. All
-  services use the in-network `kafka:29092` listener, so nothing is lost. Re-enable the
-  publish once host `9092` is free.
+- **Kafka has no host port.** Services and the worker use `kafka:29092` (listener `INTERNAL`: TLS, a client
+  certificate from the private CA required). Tools run inside the container (`docker exec oj-kafka …`, the
+  healthcheck, the bench drain) use the PLAINTEXT listener `LOCAL` on `127.0.0.1:9092`, which nothing else can reach.
 - **Sandbox health and the admin "Judge servers" page.** Compose replaces the image's own healthcheck
   (QingdaoU's heartbeat script, which always exited 1 here) with a call to the sandbox's `/ping`, and
   `judge-worker` waits for `service_healthy`. The sandboxes sit on the internal `sandbox-net` and cannot

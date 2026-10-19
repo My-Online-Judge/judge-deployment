@@ -7,7 +7,7 @@
 # worker_lag — unconsumed submission.requested messages of the judge-workers group (read-only, inside the bench
 # Kafka); "unknown" when Kafka gives no answer. A partition without a committed offset counts only if it holds data.
 worker_lag() {
-  docker exec oj-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe \
+  docker exec oj-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 --describe \
     --group judge-workers 2>/dev/null \
     | awk '$2 == "submission.requested" { seen = 1; if ($6 == "-") { if ($5 != "-" && $5 != 0) lag += 1000000 } else lag += $6 }
            END { if (seen) print lag + 0; else print "unknown" }'

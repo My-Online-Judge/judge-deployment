@@ -217,18 +217,24 @@ services:
     image: apache/kafka:3.8.1
     container_name: oj-kafka
     restart: unless-stopped
-    # Host publish of the EXTERNAL listener is intentionally disabled: all services reach
-    # Kafka over the in-network INTERNAL listener (kafka:29092), so the host port is only
-    # for external debugging tools. Re-enable once nothing else on the host owns 9092.
-    # ports:
-    #   - "9092:9092"
+    # No host port. Services and the worker use INTERNAL (kafka:29092); INTERNAL and CONTROLLER speak TLS and require a
+    # client certificate signed by the private CA, with host names verified (sub-project 10). LOCAL is PLAINTEXT and
+    # bound to the container's loopback: only tools run inside it (the healthcheck, bench drain) can reach it.
+    # The protocols live only in the map: SSL:// in KAFKA_ADVERTISED_LISTENERS sends the image's wrapper down a
+    # JKS-only path. keystore.pem is the unencrypted key followed by the certificate (pki/pki.sh).
     environment:
       <<: *tz-env
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: INTERNAL://:29092,CONTROLLER://:9093,EXTERNAL://:9092
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://:29092,CONTROLLER://:9093,LOCAL://127.0.0.1:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,LOCAL://127.0.0.1:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:SSL,INTERNAL:SSL,LOCAL:PLAINTEXT
+      KAFKA_SSL_KEYSTORE_TYPE: PEM
+      KAFKA_SSL_KEYSTORE_LOCATION: /etc/oj/tls/keystore.pem
+      KAFKA_SSL_TRUSTSTORE_TYPE: PEM
+      KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/oj/tls/ca.crt
+      KAFKA_SSL_CLIENT_AUTH: required
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
@@ -245,13 +251,22 @@ services:
       # The cluster id is fixed because the formatted volume records it: a different id refuses to start.
       KAFKA_LOG_DIRS: /var/lib/kafka/data
       CLUSTER_ID: LL99FafWSZyhNAgsibWLog
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
     volumes:
       - kafkadata:/var/lib/kafka/data
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: kafka
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --list || exit 1",
         ]
       interval: 10s
       timeout: 10s
@@ -556,7 +571,15 @@ services:
     restart: unless-stopped
     volumes:
       - test_case_cache:/test_case
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: judge-worker
     depends_on:
+      tls-init:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       # Now that the sandbox healthcheck reflects reality (see x-sandbox-health), wait for it:
@@ -572,6 +595,8 @@ services:
     environment:
       <<: [*tz-env, *otel-env]
       OTEL_SERVICE_NAME: judge-worker
+      # Kafka over TLS with the worker's certificate (judge-worker subpath, mounted above).
+      OJ_TLS_DIR: /etc/oj/tls
       JUDGE_SERVER_TOKEN: ${JUDGE_SERVER_TOKEN}
       JUDGE_SERVER_URL: ${JUDGE_SERVER_URL}
       KAFKA_BROKERS: ${KAFKA_BROKERS}

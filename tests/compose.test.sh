@@ -16,8 +16,8 @@ check() { # check <description> <python expression over s = services, v = volume
 }
 
 worker_allowlist="['JUDGE_SERVER_TOKEN','JUDGE_SERVER_URL','KAFKA_BROKERS','MINIO_ACCESS_KEY','MINIO_BUCKET','MINIO_ENDPOINT',
-  'MINIO_SECRET_KEY','OTEL_EXPORTER_OTLP_ENDPOINT','OTEL_EXPORTER_OTLP_PROTOCOL','OTEL_LOGS_EXPORTER','OTEL_METRICS_EXPORTER',
-  'OTEL_SERVICE_NAME','SANDBOX_HEARTBEAT_URL','TZ']"
+  'MINIO_SECRET_KEY','OJ_TLS_DIR','OTEL_EXPORTER_OTLP_ENDPOINT','OTEL_EXPORTER_OTLP_PROTOCOL','OTEL_LOGS_EXPORTER',
+  'OTEL_METRICS_EXPORTER','OTEL_SERVICE_NAME','SANDBOX_HEARTBEAT_URL','TZ']"
 # The resolved config inlines an env_file into environment, so this one check also catches an env_file coming back.
 check "judge-worker gets exactly the variables it reads" "sorted(s['judge-worker']['environment']) == $worker_allowlist"
 
@@ -72,5 +72,19 @@ check "redis healthcheck pings over TLS with its own certificate" \
   "s['redis']['healthcheck']['test'] == ['CMD', 'redis-cli', '--tls', '--cacert', '/etc/oj/tls/ca.crt', '--cert', '/etc/oj/tls/tls.crt', '--key', '/etc/oj/tls/tls.key', 'ping']"
 check "api-gateway, identity-service and submission-service reach redis over TLS (tls profile + tls mount; gateway mounts the api-gateway subpath)" \
   "all('tls' in s[n]['environment'].get('SPRING_PROFILES_INCLUDE', '').split(',') and any(m.get('volume', {}).get('subpath') == n for m in s[n]['volumes'] if m.get('source') == 'tls') for n in ('api-gateway', 'identity-service', 'submission-service'))"
+
+# Kafka over mTLS (task 6): INTERNAL and CONTROLLER speak TLS with required client certificates (PEM stores from the kafka
+# subpath, host names verified); LOCAL is PLAINTEXT on the broker's loopback, for the in-container tools only. SSL:// in
+# the advertised listeners would send the image's wrapper down its JKS-only path.
+check "kafka maps CONTROLLER and INTERNAL to SSL and only LOCAL to PLAINTEXT" \
+  "s['kafka']['environment'].get('KAFKA_LISTENER_SECURITY_PROTOCOL_MAP') == 'CONTROLLER:SSL,INTERNAL:SSL,LOCAL:PLAINTEXT'"
+check "kafka binds LOCAL to 127.0.0.1 and advertises INTERNAL and LOCAL, never SSL://" \
+  "(lambda e: e.get('KAFKA_LISTENERS') == 'INTERNAL://:29092,CONTROLLER://:9093,LOCAL://127.0.0.1:9092' and 'SSL://' not in e.get('KAFKA_ADVERTISED_LISTENERS', '') and e.get('KAFKA_ADVERTISED_LISTENERS') == 'INTERNAL://kafka:29092,LOCAL://127.0.0.1:9092')(s['kafka']['environment'])"
+check "kafka requires client certificates and verifies host names, with unencrypted PEM stores from its own tls subpath" \
+  "{k: v for k, v in s['kafka']['environment'].items() if k.startswith('KAFKA_SSL_')} == {'KAFKA_SSL_KEYSTORE_TYPE': 'PEM', 'KAFKA_SSL_KEYSTORE_LOCATION': '/etc/oj/tls/keystore.pem', 'KAFKA_SSL_TRUSTSTORE_TYPE': 'PEM', 'KAFKA_SSL_TRUSTSTORE_LOCATION': '/etc/oj/tls/ca.crt', 'KAFKA_SSL_CLIENT_AUTH': 'required', 'KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM': 'https'} and any(m.get('volume', {}).get('subpath') == 'kafka' for m in s['kafka'].get('volumes', []) if m.get('source') == 'tls')"
+check "kafka's healthcheck lists topics over the loopback LOCAL listener" \
+  "s['kafka']['healthcheck']['test'] == ['CMD-SHELL', '/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --list || exit 1']"
+check "judge-worker finds its certificates at OJ_TLS_DIR=/etc/oj/tls, the judge-worker subpath" \
+  "s['judge-worker']['environment'].get('OJ_TLS_DIR') == '/etc/oj/tls' and any(m.get('volume', {}).get('subpath') == 'judge-worker' for m in s['judge-worker'].get('volumes', []) if m.get('source') == 'tls')"
 
 exit $fail

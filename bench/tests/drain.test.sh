@@ -15,6 +15,8 @@ cat > "$stub/docker" <<'EOF'
 #!/usr/bin/env bash
 [ "$1" = exec ] || exit 0
 [ -n "${STUB_NO_KAFKA:-}" ] && exit 1
+# Only the broker's loopback listener LOCAL is PLAINTEXT (sub-project 10); any other address gets no answer.
+[[ " $* " == *" --bootstrap-server 127.0.0.1:9092 "* ]] || exit 1
 lag=${STUB_LAG:-0}
 echo
 echo "GROUP         TOPIC                PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG  CONSUMER-ID  HOST  CLIENT-ID"

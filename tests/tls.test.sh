@@ -46,6 +46,19 @@ expect_redis "redis: no client certificate is refused" nocert error
 expect_redis "redis: a client certificate from a foreign CA is refused" cert error rogue
 expect_redis "redis: plaintext is refused" plain error
 
+# ---- kafka: listener INTERNAL is TLS with a CA-signed client certificate required (task 6) ----------------------
+# The probe's request is not Kafka's protocol: an accepted client sees the broker close, a refused one TLS 1.3's alert.
+probe_handshake kafka:29092 none fail
+probe_handshake kafka:29092 rogue fail
+probe_handshake kafka:29092 tls-probe ok
+# The PLAINTEXT listener LOCAL is bound to the broker's loopback. Only "Connection refused" proves it: a failed name
+# lookup (kafka down) or a connection that opens are both failures.
+expect_refused() { # <description> <host:port>
+  local got; got=$(_probe_run none "timeout 10 openssl s_client -connect '$2' </dev/null 2>&1 || true")
+  if grep -q 'Connection refused' <<< "$got"; then pass "$1"; else fail "$1: wanted 'Connection refused', got: $(head -c 200 <<< "$got" | tr '\n' ' ')"; fi
+}
+expect_refused "kafka: the PLAINTEXT listener LOCAL is not reachable from another container" kafka:9092
+
 # (sections follow)
 
 tls_probe_exit
