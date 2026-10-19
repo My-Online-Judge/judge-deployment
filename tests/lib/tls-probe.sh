@@ -2,7 +2,7 @@
 # TLS probe helpers (sub-project 10). Source this file; every probe is a throwaway container on ${OJ_NET:-oj-net}.
 #   probe_handshake <host:port> <none|tls-probe|rogue> <ok|fail> [starttls-proto] [verify-hostname]
 #     a probe that could not connect at all is `error`, which matches no expectation
-#   probe_http <https-url> <tls-probe|none> <expected-status|none>     (none = no HTTP answer at all)
+#   probe_http <https-url> <tls-probe|none> <expected-status|none>     (none = a TLS session, but no HTTP answer)
 #   probe_plain_refused <host:port>
 # Certificates come from ${TLS_VOLUME:-judge-deployment_tls}: the tls-probe/ subpath (CA + probe leaf) or rogue/ (our CA
 # for the server side, a leaf from a foreign CA). Mode none presents no client certificate.
@@ -52,13 +52,17 @@ probe_handshake() { # <host:port> <none|tls-probe|rogue> <ok|fail> [starttls-pro
   if [[ $got == "$3" ]]; then pass "handshake $1 as $2 -> $3"; else fail "handshake $1 as $2: wanted $3, got $got"; fi
 }
 
-# _http_status <https-url> <who> -> prints the status code or "none"
+# _http_status <https-url> <who> -> prints the status code, "none" (a TLS session, but no HTTP answer) or "error"
+#   error: no TCP connection, or no server certificate was accepted ("no peer certificate available": a plaintext
+#          server that hung up on the ClientHello, or a certificate that failed verification). No TLS session ever
+#          carried the request, so nothing is proved either way. Matches no expectation.
 _http_status() {
   local url=${1#https://} hostport path out
   hostport=${url%%/*}; path=/${url#*/}; [[ $url == */* ]] || path=/
   [[ $hostport == *:* ]] || hostport=$hostport:443
   out=$(_probe_run "$2" "(printf 'GET $path HTTP/1.1\r\nHost: ${hostport%:*}\r\nConnection: close\r\n\r\n'; sleep 1) | timeout 10 openssl s_client -connect '$hostport' -servername '${hostport%:*}' -CAfile /t/ca.crt -verify_return_error \$CERT_ARGS 2>&1")
   grep -q 'CONNECTED(' <<< "$out" || { echo error; return; }
+  grep -q 'no peer certificate available' <<< "$out" && { echo error; return; }
   out=$(grep -m1 -E '^HTTP/[0-9.]+ [0-9]{3}' <<< "$out" | tr -d '\r' | awk '{print $2}')
   echo "${out:-none}"
 }

@@ -68,5 +68,7 @@ c_alert=$'CONNECTED(00000003)\nVerify return code: 0 (ok)\n40:error:0A00045C:SSL
 c_silent=$'CONNECTED(00000003)\n40:error:0A000126:SSL routines::unexpected eof while reading\n---\nno peer certificate available\n---\nVerify return code: 0 (ok)'
 [[ $(_classify_handshake "$c_silent") == error ]] && pass "classifier: no peer certificate with verify code 0 -> error" || fail "classifier: no peer certificate with verify code 0 -> error (got $(_classify_handshake "$c_silent"))"
 [[ $(_handshake_result $tag-silent:9092 tls-probe) == error && $(_handshake_result $tag-silent:9092 none) == error ]] && pass "silent plaintext server -> error with and without a client cert" || fail "silent plaintext server -> error with and without a client cert (got $(_handshake_result $tag-silent:9092 tls-probe)/$(_handshake_result $tag-silent:9092 none))"
+# the same server for the HTTP probe: no HTTP answer, but no TLS either -> error, never `none` (which `probe_http … none none` accepts)
+[[ $(_http_status https://$tag-silent:9092/ tls-probe) == error && $(_http_status https://$tag-silent:9092/ none) == error ]] && pass "http probe: silent plaintext server -> error with and without a client cert" || fail "http probe: silent plaintext server -> error with and without a client cert (got $(_http_status https://$tag-silent:9092/ tls-probe)/$(_http_status https://$tag-silent:9092/ none))"
 # NOT self-tested: -starttls postgres (openssl s_server cannot speak the postgres SSLRequest); it is used by the Postgres task.
 tls_probe_exit
