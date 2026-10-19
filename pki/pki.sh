@@ -12,30 +12,42 @@ die() { echo "pki.sh: $*" >&2; exit 1; }
 
 # san_list <id> [extra...] -> "DNS:id,DNS:localhost,IP:127.0.0.1,..." without duplicates
 san_list() {
-  local -a sans=("DNS:$1" "DNS:localhost" "IP:127.0.0.1") ; local e s dup
+  local -a sans=() ; local e s dup
+  for e in "DNS:$1" "DNS:localhost" "IP:127.0.0.1"; do
+    dup=0; for s in "${sans[@]+"${sans[@]}"}"; do [[ $s == "$e" ]] && dup=1; done
+    [[ $dup == 1 ]] || sans+=("$e")
+  done
   shift
   for e in "$@"; do
-    if [[ $e =~ ^[0-9.]+$ || $e == *:* ]]; then e="IP:$e"; else e="DNS:$e"; fi
+    if [[ $e =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ || $e =~ ^[0-9a-fA-F]*:[0-9a-fA-F:]*:[0-9a-fA-F:]*$ ]]; then e="IP:$e"
+    elif [[ $e == *:* || -z $e || $e == *[[:space:],]* ]]; then die "bad extra SAN '$e' (host:port is not a name)"
+    else e="DNS:$e"; fi
     dup=0; for s in "${sans[@]}"; do [[ $s == "$e" ]] && dup=1; done
     [[ $dup == 1 ]] || sans+=("$e")
   done
   local IFS=,; echo "${sans[*]}"
 }
 
+# valid_id <id>: a plain lower-case name; never a path, and never the CA's own directory
+valid_id() { [[ $1 =~ ^[a-z0-9][a-z0-9-]*$ && $1 != ca ]] || die "invalid identity '$1' (lower-case letters, digits, '-'; 'ca' is reserved)"; }
+
 # new_ca <crt> <key> <cn>
 new_ca() {
+  local tmp; tmp=$(mktemp -d); trap 'rm -rf "${tmp:-}"; trap - RETURN' RETURN
   openssl req -x509 -newkey rsa:2048 -nodes -days "$ca_days" -subj "/CN=$3" \
     -addext "basicConstraints=critical,CA:true,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign" \
-    -keyout "$2.tmp" -out "$1" 2>/dev/null
-  openssl pkcs8 -topk8 -nocrypt -in "$2.tmp" -out "$2" && rm -f "$2.tmp"
-  chmod 600 "$2"; chmod 644 "$1"
+    -keyout "$tmp/k" -out "$tmp/c" 2>"$tmp/err" || { cat "$tmp/err" >&2; die "CA generation failed"; }
+  openssl pkcs8 -topk8 -nocrypt -in "$tmp/k" -out "$tmp/k8" || die "CA key conversion failed"
+  chmod 600 "$tmp/k8"; chmod 644 "$tmp/c"
+  mv "$tmp/k8" "$2"; mv "$tmp/c" "$1"
 }
 
 # new_leaf <ca.crt> <ca.key> <cn> <crt> <key> <days> <san-list>
 new_leaf() {
-  local tmp; tmp=$(mktemp -d)
-  openssl req -new -newkey rsa:2048 -nodes -subj "/CN=$3" -keyout "$tmp/k" -out "$tmp/csr" 2>/dev/null
-  openssl pkcs8 -topk8 -nocrypt -in "$tmp/k" -out "$5"
+  local tmp; tmp=$(mktemp -d); trap 'rm -rf "${tmp:-}"; trap - RETURN' RETURN
+  openssl req -new -newkey rsa:2048 -nodes -subj "/CN=$3" -keyout "$tmp/k" -out "$tmp/csr" 2>"$tmp/err" \
+    || { cat "$tmp/err" >&2; die "key generation for $3 failed"; }
+  openssl pkcs8 -topk8 -nocrypt -in "$tmp/k" -out "$tmp/k8" || die "key conversion for $3 failed"
   cat > "$tmp/ext" <<EXT
 subjectAltName=$7
 extendedKeyUsage=serverAuth,clientAuth
@@ -43,9 +55,9 @@ keyUsage=critical,digitalSignature,keyEncipherment
 basicConstraints=CA:false
 EXT
   openssl x509 -req -in "$tmp/csr" -CA "$1" -CAkey "$2" -set_serial "0x$(openssl rand -hex 16)" \
-    -days "$6" -extfile "$tmp/ext" -out "$4" 2>/dev/null
-  rm -rf "$tmp"
-  chmod 600 "$5"; chmod 644 "$4"
+    -days "$6" -extfile "$tmp/ext" -out "$tmp/crt" 2>"$tmp/err" || { cat "$tmp/err" >&2; die "signing $3 failed"; }
+  chmod 600 "$tmp/k8"; chmod 644 "$tmp/crt"
+  mv "$tmp/k8" "$5"; mv "$tmp/crt" "$4"
 }
 
 need_ca() { [[ -f $out/ca/ca.crt && -f $out/ca/ca.key ]] || die "no CA under $out/ca (run init-ca)"; }
@@ -54,12 +66,19 @@ cmd_init_ca() {
   local force=0; [[ ${1:-} == --force ]] && force=1
   if [[ -e $out/ca/ca.key && $force == 0 ]]; then die "CA already exists in $out/ca (use --force to replace it)"; fi
   mkdir -p "$out/ca"; chmod 700 "$out" "$out/ca"
+  if [[ -e $out/ca/ca.key ]]; then
+    local bak; bak=$out/ca/ca.key.bak-$(date +%Y%m%d%H%M%S)
+    cp -p "$out/ca/ca.key" "$bak"; echo "old CA key kept as $bak" >&2
+  fi
   new_ca "$out/ca/ca.crt" "$out/ca/ca.key" "My-OJ Internal Root CA"
   echo "CA written to $out/ca"
+  [[ $force == 1 ]] && echo "warning: every leaf was signed by the old CA; run issue-all and redistribute" >&2
+  return 0
 }
 
 cmd_issue() {
   local id=${1:?usage: issue <id> [extra-san...]}; shift
+  valid_id "$id"
   need_ca
   local d=$out/$id; rm -rf "$d"; mkdir -p "$d"; chmod 700 "$out" "$d"
   new_leaf "$out/ca/ca.crt" "$out/ca/ca.key" "$id" "$d/tls.crt" "$d/tls.key" "$leaf_days" "$(san_list "$id" "$@")"
@@ -73,11 +92,14 @@ cmd_issue() {
 }
 
 cmd_issue_all() {
-  local id uid extra host=${OJ_PUBLIC_HOST:-localhost} x
-  while read -r id uid extra; do
+  local id uid rest host=${OJ_PUBLIC_HOST:-localhost} x
+  local -a extra
+  while read -r id uid rest; do
     case "$id" in ''|'#'*|rogue) continue ;; esac
+    valid_id "$id"
+    read -ra extra <<< "${rest:-}"
     local -a sans=()
-    for x in $extra; do sans+=("${x//\$\{OJ_PUBLIC_HOST\}/$host}"); done
+    for x in "${extra[@]+"${extra[@]}"}"; do sans+=("${x//\$\{OJ_PUBLIC_HOST\}/$host}"); done
     cmd_issue "$id" "${sans[@]}"
     echo "issued $id"
   done < "$here/identities.txt"
@@ -88,7 +110,7 @@ cmd_rogue() {
   local d=$out/rogue; rm -rf "$d"; mkdir -p "$d"; chmod 700 "$out" "$d"
   new_ca "$d/rogue-ca.crt" "$d/rogue-ca.key" "Rogue CA"
   new_leaf "$d/rogue-ca.crt" "$d/rogue-ca.key" "tls-probe" "$d/tls.crt" "$d/tls.key" "$leaf_days" "$(san_list tls-probe)"
-  cp "$out/ca/ca.crt" "$d/ca.crt"   # trust anchor for the server side of a probe; the client cert is the rogue one
+  cp "$out/ca/ca.crt" "$d/ca.crt"; chmod 644 "$d/ca.crt"   # trust anchor for the server side of a probe; the client cert is the rogue one
 }
 
 cmd_status() {

@@ -6,7 +6,7 @@ under `pki/out/` (gitignored: never commit it). RSA-2048, leaves 365 days, root 
 
 ## First setup
 
-    OJ_PUBLIC_HOST=oj.example.org pki/pki.sh init-ca      # once; refuses to overwrite without --force
+    pki/pki.sh init-ca                                    # once; refuses to overwrite without --force
     OJ_PUBLIC_HOST=oj.example.org pki/pki.sh issue-all    # every id in identities.txt except rogue
     pki/pki.sh status                                     # id, days left, serial
 
@@ -25,10 +25,10 @@ subpath read-only at `/etc/oj/tls` and `depends_on: tls-init: service_completed_
 
     pki/pki.sh issue-all                                  # same CA, new leaves
     docker compose up -d --force-recreate tls-init        # replaces the per-id directories in the volume
-    docker compose restart                                # Tomcat/Netty reload bundles in place; Kafka, Redis, gRPC and JDBC clients read them at start
+    docker compose restart                                # REQUIRED: a subpath mount keeps the old directory until the container restarts. Tomcat/Netty reload bundles in place; Kafka, Redis, gRPC and JDBC clients read them at start
 
 Alert `TlsCertificateExpiringSoon` fires 30 days before a chain expires. If a key leaks, `init-ca --force` and re-issue
-everything (there are no revocation lists).
+everything (there are no revocation lists). `init-ca --force` keeps the old key as `ca.key.bak-<time>`; every leaf must then be re-issued.
 
 ## Tests
 

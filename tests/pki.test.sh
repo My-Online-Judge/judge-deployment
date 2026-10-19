@@ -31,12 +31,30 @@ has "RSA Public-Key: (2048 bit)\|Public-Key: (2048 bit)" "$text" && ok "RSA-2048
 "$pki" issue extra 10.1.2.3 oj.example.org >/dev/null 2>&1
 t=$(openssl x509 -in "$PKI_OUT/extra/tls.crt" -noout -text); has "IP Address:10.1.2.3" "$t" && has "DNS:oj.example.org" "$t" && ok "extra SANs (ip and dns)" || bad "extra SANs (ip and dns)"
 
+# root CA properties
+ca=$PKI_OUT/ca/ca.crt; ct=$(openssl x509 -in "$ca" -noout -text 2>/dev/null)
+has "CA:TRUE" "$ct" && has "pathlen:0" "$ct" && has "Certificate Sign, CRL Sign" "$ct" && has "CN *= *My-OJ Internal Root CA" "$ct" && ok "root: CA:TRUE pathlen:0, keyCertSign+cRLSign, CN" || bad "root: CA:TRUE pathlen:0, keyCertSign+cRLSign, CN"
+openssl x509 -in "$ca" -noout -checkend $((3649 * 86400)) >/dev/null && ! openssl x509 -in "$ca" -noout -checkend $((3651 * 86400)) >/dev/null && ok "root valid ~10 years" || bad "root valid ~10 years"
+[[ $(stat -c %a "$PKI_OUT/ca/ca.key") == 600 && $(stat -c %a "$PKI_OUT/ca") == 700 && $(stat -c %a "$PKI_OUT") == 700 ]] && ok "CA key 600, ca dir 700, out dir 700" || bad "CA key 600, ca dir 700, out dir 700"
+has "Digital Signature, Key Encipherment" "$text" && has "CA:FALSE" "$text" && ok "leaf keyUsage and CA:FALSE" || bad "leaf keyUsage and CA:FALSE"
+openssl x509 -in "$foo/tls.crt" -noout -checkend $((364 * 86400)) >/dev/null && ! openssl x509 -in "$foo/tls.crt" -noout -checkend $((366 * 86400)) >/dev/null && ok "leaf valid 365 days" || bad "leaf valid 365 days"
+# ids that could destroy the CA or escape the output dir are refused, the CA stays intact
+cahash=$(sha256sum "$PKI_OUT/ca/ca.key" "$ca" | sha256sum)
+for badid in ca / ../x Foo -x 'a b'; do
+  "$pki" issue "$badid" >/dev/null 2>&1 && bad "issue '$badid' refused" || ok "issue '$badid' refused"
+done
+[[ $(sha256sum "$PKI_OUT/ca/ca.key" "$ca" | sha256sum) == "$cahash" ]] && ok "CA intact after refused ids" || bad "CA intact after refused ids"
+"$pki" issue bad-san host:8080 >/dev/null 2>&1 && bad "SAN host:port refused" || ok "SAN host:port refused"
+"$pki" issue localhost >/dev/null 2>&1; [[ $(openssl x509 -in "$PKI_OUT/localhost/tls.crt" -noout -text | grep -o 'DNS:localhost' | wc -l) == 1 ]] && ok "no duplicate DNS:localhost" || bad "no duplicate DNS:localhost"
+
 "$pki" rogue >/dev/null 2>&1
+[[ $(stat -c %a "$PKI_OUT/rogue/ca.crt") == 644 ]] && ok "rogue/ca.crt is 644" || bad "rogue/ca.crt is 644"
 if openssl verify -CAfile "$PKI_OUT/ca/ca.crt" "$PKI_OUT/rogue/tls.crt" >/dev/null 2>&1; then bad "rogue leaf fails against our CA"; else ok "rogue leaf fails against our CA"; fi
 has "CN *= *tls-probe" "$(openssl x509 -in "$PKI_OUT/rogue/tls.crt" -noout -subject)" && ok "rogue CN is tls-probe" || bad "rogue CN is tls-probe"
 "$pki" init-ca >/dev/null 2>&1; [[ $? == 1 ]] && ok "init-ca refuses to overwrite" || bad "init-ca refuses to overwrite"
 before=$(openssl x509 -in "$PKI_OUT/ca/ca.crt" -noout -serial)
-"$pki" init-ca --force >/dev/null 2>&1; [[ $(openssl x509 -in "$PKI_OUT/ca/ca.crt" -noout -serial) != "$before" ]] && ok "init-ca --force replaces" || bad "init-ca --force replaces"
+"$pki" init-ca --force >/dev/null 2>&1; ls "$PKI_OUT"/ca/ca.key.bak-* >/dev/null 2>&1 && ok "init-ca --force keeps the old key" || bad "init-ca --force keeps the old key"
+[[ $(openssl x509 -in "$PKI_OUT/ca/ca.crt" -noout -serial) != "$before" ]] && ok "init-ca --force replaces" || bad "init-ca --force replaces"
 
 # issue-all + install.sh in alpine
 rm -rf "$PKI_OUT"; "$pki" init-ca >/dev/null 2>&1
@@ -67,6 +85,8 @@ inst=$(docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 cat /t
 [[ -z $(docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 ls /tls/redis | grep stale) ]] && ok "no stale file after re-install" || bad "no stale file after re-install"
 rm -rf "$PKI_OUT/problem-db"
 install_run >/dev/null 2>&1; [[ $? != 0 ]] && ok "install.sh fails when a listed id has no source" || bad "install.sh fails when a listed id has no source"
+printf 'ca 0:0\n' > "$work/badids"
+docker --context default run --rm -v "$PKI_OUT:/pki:ro" -v "$PWD/pki/install.sh:/install.sh:ro" -v "$work/badids:/identities.txt:ro" -v "$tlsdir:/tls" --entrypoint /bin/sh alpine:3.22 /install.sh >/dev/null 2>&1; [[ $? != 0 ]] && ok "install.sh refuses id 'ca'" || bad "install.sh refuses id 'ca'"
 docker --context default run --rm -v "$work:/w" alpine:3.22 rm -rf /w/tls >/dev/null 2>&1
 
 # fixtures

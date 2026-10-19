@@ -53,8 +53,8 @@ check "judge-server keeps /log on the named volume js1log, not a bind mount" \
 
 # TLS (sub-project 10): tls-init distributes the certificates; every mount of the tls volume is read-only at /etc/oj/tls,
 # takes the subpath named after the service (kafka-init and minio-init borrow kafka-admin and minio), and waits for tls-init.
-check "tls-init copies pki/out into the tls volume and exits" \
-  "s['tls-init']['image'] == 'alpine:3.22' and s['tls-init'].get('restart') == 'no' and 'tls' in v and any(m.get('source') == 'tls' and m.get('target') == '/tls' for m in s['tls-init']['volumes'])"
+check "tls-init copies pki/out into the tls volume and exits, with no network (pki/out holds the CA key)" \
+  "s['tls-init']['image'] == 'alpine:3.22' and s['tls-init'].get('restart') == 'no' and s['tls-init'].get('network_mode') == 'none' and not s['tls-init'].get('networks') and s['tls-init'].get('entrypoint') == ['/bin/sh', '/install.sh'] and 'tls' in v and {(m['source'].rsplit('/', 1)[-1], m['target'], m.get('read_only') is True) for m in s['tls-init']['volumes'] if m['source'] != 'tls'} == {('out', '/pki', True), ('install.sh', '/install.sh', True), ('identities.txt', '/identities.txt', True)} and any(m.get('source') == 'tls' and m.get('target') == '/tls' and not m.get('read_only') for m in s['tls-init']['volumes'])"
 check "every service mounting tls uses its own subpath read-only at /etc/oj/tls and waits for tls-init" \
   "all(len(ms) == 1 and ms[0].get('target') == '/etc/oj/tls' and ms[0].get('read_only') is True and ms[0].get('volume', {}).get('subpath') == {'kafka-init': 'kafka-admin', 'minio-init': 'minio'}.get(n, n) and s[n]['depends_on']['tls-init']['condition'] == 'service_completed_successfully' for n, ms in ((n, [m for m in x.get('volumes', []) if m.get('source') == 'tls']) for n, x in s.items() if n != 'tls-init') if ms)"
 

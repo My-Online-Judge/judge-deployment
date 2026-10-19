@@ -49,4 +49,17 @@ probe_plain_refused $tag-mtls:4433
 [[ $(_plain_result $tag-plain:8080) == answered ]] && pass "plain HTTP server is reported as answering" || fail "plain HTTP server is reported as answering"
 # the raw results, so a helper that always says ok (or always fail) cannot hide behind a matching expectation
 [[ $(_handshake_result $tag-mtls:4433 none) == fail && $(_handshake_result $tag-mtls:4433 tls-probe) == ok ]] && pass "handshake results differ with and without a client cert" || fail "handshake results differ with and without a client cert"
+# hostname verification
+probe_handshake $tag-open:4433 tls-probe ok "" edge
+probe_handshake $tag-open:4433 tls-probe fail "" not-the-name
+# no connection at all is `error`, never ok/fail/refused
+[[ $(_handshake_result $tag-nohost:4433 none) == error ]] && pass "unreachable host -> error" || fail "unreachable host -> error"
+[[ $(_handshake_result $tag-open:4999 tls-probe) == error ]] && pass "closed port -> error" || fail "closed port -> error"
+[[ $(_plain_result $tag-nohost:4433) == error && $(_plain_result $tag-open:4999) == error ]] && pass "plain probe: unreachable and closed port -> error" || fail "plain probe: unreachable and closed port -> error"
+[[ $(_http_status https://$tag-open:4999/ none) == error ]] && pass "http probe: closed port -> error" || fail "http probe: closed port -> error"
+# classification of a server that drops the line without close_notify (Kafka-like): still ok; an alert is fail
+c_ok=$'CONNECTED(00000003)\nVerify return code: 0 (ok)\n40:error:0A000126:SSL routines::unexpected eof while reading'
+c_alert=$'CONNECTED(00000003)\nVerify return code: 0 (ok)\n40:error:0A00045C:SSL routines::tlsv13 alert certificate required:SSL alert number 116'
+[[ $(_classify_handshake "$c_ok") == ok && $(_classify_handshake "$c_alert") == fail && $(_classify_handshake "x") == error ]] && pass "classifier: unexpected eof ok, alert fail, no CONNECTED error" || fail "classifier cases"
+# NOT self-tested: -starttls postgres (openssl s_server cannot speak the postgres SSLRequest); it is used by the Postgres task.
 tls_probe_exit

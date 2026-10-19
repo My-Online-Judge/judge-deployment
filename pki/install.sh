@@ -5,6 +5,7 @@ set -eu
 rc=0
 while read -r id owner _; do
   case "$id" in ''|'#'*) continue ;; esac
+  case "$id" in ca|-*|*[!a-z0-9-]*) echo "tls-init: refusing invalid identity '$id'" >&2; exit 1 ;; esac
   if [ ! -d "/pki/$id" ]; then
     [ "$id" = rogue ] && continue
     echo "tls-init: no certificate directory for $id (run pki/pki.sh issue-all)" >&2
@@ -15,8 +16,8 @@ while read -r id owner _; do
   cp -R "/pki/$id" "/tls/$id"
   chown -R "$owner" "/tls/$id"
   find "/tls/$id" -type d -exec chmod 0700 {} +
-  find "/tls/$id" -type f -exec chmod 0644 {} +
-  find "/tls/$id" -type f \( -name '*.key' -o -name keystore.pem \) -exec chmod 0600 {} +
+  find "/tls/$id" -type f -exec chmod 0600 {} +
+  find "/tls/$id" -type f -name '*.crt' -exec chmod 0644 {} +
   echo "tls-init: installed $id"
 done < /identities.txt
 chmod 0755 /tls

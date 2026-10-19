@@ -102,7 +102,8 @@ services:
       - ./pki/install.sh:/install.sh:ro
       - ./pki/identities.txt:/identities.txt:ro
       - tls:/tls
-    networks: []
+    # No network at all: it mounts the whole of pki/out (CA key included), so it must not be reachable.
+    network_mode: none
 
   # ---- infrastructure ------------------------------------------------------
   identity-db:
