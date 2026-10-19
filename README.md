@@ -388,6 +388,21 @@ Defaults are in the services; none of these needs setting. submission-service re
 | `JUDGE_MAX_QUEUE_DEPTH` | `500` | PENDING + JUDGING submissions allowed at once; beyond it a submit gets 503 `QUEUE_FULL` with `Retry-After: 30`. |
 | `JUDGE_INFRA_RETRY_SECONDS` | `300` | Worker: how long it retries MinIO / sandbox failures (2 s, 4 s, 8 s ... capped at 60 s) before giving up with `Judge infrastructure unavailable`. |
 
+### Deploying sub-project 11: backfill `last_status`, check the statistics
+
+Once, after problem-service has started with Flyway V5 and before any rejudge, from `judge-deployment/`:
+
+```
+migrations/sp11-last-status.sh     # fills t_processed_verdicts.last_status from submission-db; prints "backfilled <n> last_status value(s)"
+scripts/stats-check.sh             # PASS, or one "MISMATCH <problem_id> <verdict> submissions=<a> stats=<b>" line per difference (exit 1)
+```
+
+The backfill only touches rows where `last_status` is NULL, so it can be run again (the second run prints
+`backfilled 0`). A rejudge of a submission whose `last_status` is still NULL leaves the statistics alone. PENDING and
+JUDGING submissions are not counted by either side; every terminal status is. Both scripts use `docker exec ... psql`
+over the Unix socket and print counts only; `SUBMISSION_DB_CONTAINER` and `PROBLEM_DB_CONTAINER` override the container
+names. `bash tests/sp11-stats.test.sh` checks them on throwaway containers.
+
 ### Replaying a dead-letter topic
 
 Alert `VerdictDeadLettered` (verdicts on `submission.judged.dlq` not applied) and `ProblemStatsDeadLettered`
