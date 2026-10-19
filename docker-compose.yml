@@ -162,9 +162,10 @@ services:
     <<: *postgres-tls
     environment:
       <<: *tz-env
-    # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD. Nothing outside the identity containers reads it.
+    # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD only (.env.identity-db), so identity's JWT and Google secrets
+    # stay out of the database container.
     env_file:
-      - .env.identity
+      - .env.identity-db
     # No host port. Schema: identity-service's Flyway (V1 schema, V2 seed) on first boot.
     volumes:
       - identitydata:/var/lib/postgresql/data

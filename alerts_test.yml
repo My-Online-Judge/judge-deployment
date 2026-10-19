@@ -401,3 +401,41 @@ tests:
       - eval_time: 3m
         alertname: DefaultAdminPassword
         exp_alerts: []
+
+  # TlsCertificateExpiringSoon fires once a certificate has been under 30 days (29 days = 2505600 s) for an hour...
+  - interval: 1m
+    input_series:
+      - series: 'ssl_chain_expiry_seconds{job="problem-service", instance="problem-service:8081", bundle="oj", chain="ssl", certificate="abc"}'
+        values: '2505600x90'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: TlsCertificateExpiringSoon
+        exp_alerts: []
+      - eval_time: 80m
+        alertname: TlsCertificateExpiringSoon
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "A service certificate expires within 30 days"
+              description: "The soonest-expiring certificate in an SSL bundle has under 30 days left (ssl_chain_expiry_seconds). Re-issue with pki/pki.sh issue-all and restart the services."
+
+  # ...is silent at 31 days (2678400 s)...
+  - interval: 1m
+    input_series:
+      - series: 'ssl_chain_expiry_seconds{job="problem-service", instance="problem-service:8081", bundle="oj", chain="ssl", certificate="abc"}'
+        values: '2678400x90'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: TlsCertificateExpiringSoon
+        exp_alerts: []
+
+  # ...and silent when the series is absent.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="problem-service", instance="problem-service:8081"}'
+        values: '1x90'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: TlsCertificateExpiringSoon
+        exp_alerts: []

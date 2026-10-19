@@ -6,6 +6,8 @@
 !.env.identity.example
 !.env.problem.example
 !.env.submission.example
+!.env.identity-db.example
+*.pre-sp10
 docker-compose.override.yml
 # Database backups (the final oj-db dump holds password hashes)
 backups/
