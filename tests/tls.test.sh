@@ -84,6 +84,14 @@ for svc in identity-service problem-service submission-service; do
   probe_handshake "$svc:8081" none fail
 done
 
+# ---- gateway-worker: the gateway's actuator and the worker's /metrics require a CA-signed client certificate (task 9) -
+# judge-worker has replicas and no container name: its service name resolves to one of them, and every replica's
+# certificate names judge-worker.
+probe_http "https://api-gateway:8081/actuator/health" tls-probe 200
+probe_handshake "api-gateway:8081" none fail
+probe_http "https://judge-worker:9100/metrics" tls-probe 200
+probe_handshake "judge-worker:9100" none fail
+
 # (sections follow)
 
 tls_probe_exit
