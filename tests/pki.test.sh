@@ -74,6 +74,17 @@ st() { docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 stat -
 [[ $(st '%u:%g %a' jaeger/tls.key) == "10001:10001 600" ]] && ok "jaeger key 10001:10001 600" || bad "jaeger key 10001:10001 600"
 [[ $(st '%u:%g %a' api-gateway) == "0:0 700" ]] && ok "api-gateway dir 0:0 700" || bad "api-gateway dir 0:0 700"
 [[ $(st '%a' api-gateway/tls.crt) == 644 && $(st '%a' kafka/keystore.pem) == 600 && $(st '%a' minio/private.key) == 600 && $(st '%a' minio/CAs) == 700 ]] && ok "cert 644, keystore.pem 600, private.key 600, nested dir 700" || bad "modes of cert, keystore.pem, private.key, nested dir"
+# The sandboxes compile and run submitted code as users 12001-12003 (compiler, code, spj) while gunicorn, root, reads the
+# key: their identities stay root's, the directory 0700 and every file but the certificates 0600 (task 12 checked through
+# the judger that a submission then cannot read the key).
+for js in judge-server judge-server-2; do
+  owner=$(awk -v id="$js" '$1 == id {print $2}' pki/identities.txt)
+  modes=$(docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 sh -c "cd /tls/$js && stat -c '%n %u:%g %a' . *" 2>/dev/null)
+  if [[ $owner == 0:0 ]] && grep -qx '\. 0:0 700' <<< "$modes" && grep -qx 'tls\.key 0:0 600' <<< "$modes" \
+    && awk '$1 != "." { if ($1 ~ /\.crt$/) { if ($2 != "0:0" || $3 != "644") wrong = 1 } else if ($2 != "0:0" || $3 != "600") wrong = 1 } END { exit wrong }' <<< "$modes"; then
+    ok "$js: listed 0:0; dir 0:0 700, key and every other non-.crt file 0:0 600"
+  else bad "$js: listed 0:0; dir 0:0 700, key and every other non-.crt file 0:0 600 (identities.txt: '$owner'; installed: $(tr '\n' ';' <<< "$modes"))"; fi
+done
 
 # rotation: re-issue (same CA), reinstall, no stale file
 "$pki" issue redis >/dev/null 2>&1
