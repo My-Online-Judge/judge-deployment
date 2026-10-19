@@ -1,0 +1,6 @@
+[Unit]
+Description=OJ nightly restic backup (databases, test-case bucket, env files)
+
+[Service]
+Type=oneshot
+ExecStart=%h/Project/my-oj/judge-deployment/backup/backup.sh

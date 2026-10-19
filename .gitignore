@@ -9,3 +9,4 @@
 docker-compose.override.yml
 # Database backups (the final oj-db dump holds password hashes)
 backups/
+backup/staging/
