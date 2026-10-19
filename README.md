@@ -402,6 +402,16 @@ prints `replayed <n> record(s) from <dlq> to <target>`. Its consumer group `dlq-
 second run copies only records not copied before. It reads for 10 s after the last record, so it takes a little
 longer than the copy itself. A replayed record that fails again returns to the dead-letter topic.
 
+If writing to the target fails, the script exits non-zero and prints a reset command, because the group's offsets were
+already committed. Run it to read the records again (re-copying is safe: the consumers are idempotent, except for the
+rejudge caveat below):
+
+    docker exec oj-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 \
+        --group dlq-replay --topic <dlq-topic> --reset-offsets --to-earliest --execute
+
+Limits: a record with a null key replays with the literal key `null`; a record containing a raw newline, or no tab
+between key and value, cannot be replayed with this script.
+
 **Warning.** Replaying `oj.submission.events.dlq` is safe for first verdicts. A REJUDGE event replayed after a newer
 rejudge of the same submission moves the statistics back to the older verdict (the event has no ordering field).
 Replay rejudge events only when no newer rejudge happened for those submissions, or run `scripts/stats-check.sh`

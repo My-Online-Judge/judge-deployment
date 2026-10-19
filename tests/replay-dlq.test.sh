@@ -22,7 +22,7 @@ if [[ $rc -eq 2 && $out == *Usage* ]]; then ok "no arguments: usage error, exit 
 rc=0; out=$(run only-one) || rc=$?
 if [[ $rc -eq 2 ]]; then ok "one argument: exit 2"; else bad "one argument: exit 2 (rc=$rc)"; fi
 rc=0; out=$(run a a) || rc=$?
-if [[ $rc -ne 0 && $rc -ne 2 || $rc -eq 2 && $out == *"must differ"* ]] && [[ ! -e $tmp/calls ]]; then ok "same dlq and target: refused before docker"; else bad "same dlq and target: refused before docker (rc=$rc)"; fi
+if [[ $rc -eq 2 && $out == *"must differ"* ]] && [[ ! -e $tmp/calls ]]; then ok "same dlq and target: refused before docker"; else bad "same dlq and target: refused before docker (rc=$rc)"; fi
 rc=0; out=$(run a b --max) || rc=$?
 if [[ $rc -eq 2 ]]; then ok "--max without a number: exit 2"; else bad "--max without a number: exit 2 (rc=$rc)"; fi
 rc=0; out=$(run a b --max x) || rc=$?
@@ -44,4 +44,19 @@ $(cat "$tmp/stdin")"
 [[ $all != *"--max-messages"* ]] && ok "no --max: no --max-messages" || bad "no --max: no --max-messages"
 rm -f "$tmp/args" "$tmp/stdin"; KAFKA_CONTAINER=other-kafka run a b >/dev/null || true
 [[ $(cat "$tmp/args") == *"other-kafka"* ]] && ok "KAFKA_CONTAINER overrides the container" || bad "KAFKA_CONTAINER overrides the container"
+
+# A produce failure inside the container: the stub runs the sent script against fake kafka tools (consumer prints one
+# record, producer fails) and the script must exit non-zero and print the offset-reset recovery.
+mkdir -p "$tmp/bin"
+printf '#!/bin/sh\nprintf "k\\tv\\n"\n' > "$tmp/bin/kafka-console-consumer.sh"
+printf '#!/bin/sh\nexit 1\n' > "$tmp/bin/kafka-console-producer.sh"
+chmod +x "$tmp/bin"/*
+cat > "$tmp/docker-fail" <<'STUB'
+#!/usr/bin/env bash
+sed "s#/opt/kafka/bin#$STUB_DIR/bin#g" | bash -s
+STUB
+chmod +x "$tmp/docker-fail"; mkdir -p "$tmp/failpath"; cp "$tmp/docker-fail" "$tmp/failpath/docker"
+rc=0; out=$(STUB_DIR=$tmp PATH="$tmp/failpath:$PATH" bash scripts/replay-dlq.sh a b 2>&1) || rc=$?
+if [[ $rc -ne 0 && $out == *"--reset-offsets --to-earliest"* && $out == *"--topic a "* ]]; then ok "produce failure: non-zero exit and the offset-reset recovery"
+else bad "produce failure: non-zero exit and the offset-reset recovery (rc=$rc)"; fi
 exit $fail
