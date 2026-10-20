@@ -11,9 +11,10 @@ BENCH_GEN="$BENCH_DIR/.gen"
 K6_IMAGE='grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34'
 ANALYZE_IMAGE='oj-bench-analyze:1'
 PROM_URL='http://127.0.0.1:9090'
-# k6 reaches the API through the edge (https://edge), whose certificate comes from our private CA: the container mounts
-# the tls-probe subpath of the stack's tls volume (CA + a probe leaf, never presented) and k6 (Go) reads SSL_CERT_FILE.
-K6_TLS=(--mount "type=volume,src=${BENCH_PROJECT}_tls,dst=/etc/oj/tls,readonly,volume-subpath=tls-probe" -e SSL_CERT_FILE=/etc/oj/tls/ca.crt)
+# k6 reaches the API through the edge (https://edge), whose certificate comes from our private CA, and k6 (Go) reads
+# SSL_CERT_FILE. The CA certificate is bind-mounted from the deployment's pki/out (0644): k6 runs as the host user, and
+# the tls volume's per-identity directories are root-owned 0700, so a volume subpath would be unreadable to it.
+K6_TLS=(-v "$DEPLOY_DIR/pki/out/ca/ca.crt:/etc/oj/ca.crt:ro" -e SSL_CERT_FILE=/etc/oj/ca.crt)
 # The CA for host-side curl (bench/probe.sh): $OJ_CA, else this checkout's pki/out, else the main checkout's.
 if [ -n "${OJ_CA:-}" ]; then :
 elif [ -f "$BENCH_DIR/../pki/out/ca/ca.crt" ]; then OJ_CA="$BENCH_DIR/../pki/out/ca/ca.crt"

@@ -13,7 +13,7 @@ out=$(run e1 --rate 50)
 for want in '--cpus 1' '--network oj-net' '-o experimental-prometheus-rw' '--tag testid=' '/scripts/e1-read.js' '-e RATE=50' '--log-output=file=/out/k6.log'; do
   if grep -q -- "$want" <<< "$out"; then ok "e1 k6 command has $want"; else bad "e1 k6 command has $want"; fi
 done
-for want in 'SSL_CERT_FILE=/etc/oj/tls/ca.crt' 'volume-subpath=tls-probe' 'src=oj-bench_tls'; do
+for want in 'SSL_CERT_FILE=/etc/oj/ca.crt' 'pki/out/ca/ca.crt:/etc/oj/ca.crt:ro'; do
   if [ "$(grep -c -- "$want" <<< "$out")" -ge 2 ]; then ok "k6 containers (load and check) trust the private CA: $want"; else bad "k6 containers (load and check) trust the private CA: $want"; fi
 done
 dir=$(tail -1 <<< "$out" | sed 's/^RUN_DIR=//')
