@@ -562,11 +562,13 @@ identity-service counts failed password logins in Redis, before the password is 
 - `PUT /users/me/password`: 5 wrong current passwords in 5 minutes lock it for 15 minutes (`pwchange:<user id>`).
 
 Known limits, both the spec's values for sub-project 12 and a follow-up: a lab behind one NAT address shares the IP
-limit, and anyone can keep one account locked by sending wrong passwords for it (50 an hour is enough).
+limit, and anyone can keep one account locked by sending wrong passwords for it (50 an hour is enough). Correct logins
+still in flight count toward the per-IP limit too, so a burst of more than 30 simultaneous logins from one NAT address
+can get `429` with `Retry-After: 2` until the one attempt let past the limit has been checked.
 
 There is **no admin endpoint** to clear a lock. A lock ends by itself after 15 minutes. To clear one earlier, delete both
-the lock key and the counter of the same suffix in Redis (a counter at its limit refuses too), for example for the pair
-`alice|10.0.0.5`:
+the lock key and the counter of the same suffix in Redis (with only the lock gone, a counter over its limit locks the
+key again at the next attempt), for example for the pair `alice|10.0.0.5`:
 
 ```bash
 docker exec oj-redis redis-cli --tls --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key \
