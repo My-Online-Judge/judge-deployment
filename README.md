@@ -591,6 +591,16 @@ docker exec oj-redis redis-cli --tls --cacert /etc/oj/tls/ca.crt --cert /etc/oj/
 For an account use `oj:rl:lock:account:<username>` and `oj:rl:login:account:<username>`; for an address,
 `oj:rl:lock:ip:<ip>` and `oj:rl:login:ip:<ip>`. Redis fails open: while it is down, no limit applies.
 
+### Sessions (sub-project 12)
+
+An access token lives `JWT_ACCESS_TOKEN_EXPIRATION` (15 minutes), and its cookie lives exactly as long; the refresh
+cookie lives 7 days at `Path=/api/v1/auth`. A disable, a soft delete, a role change, a password change or reset, a
+refresh-token reuse and a logout end every session of the user at once: identity-service writes a cutoff
+(`oj:token:revoked-before:<user id>`) and the gateway strips every access token of that user issued before it. The cutoff
+stays in Redis for `OJ_SESSION_REVOCATION_MARKER_TTL` (default `25h`, never less than the access-token lifetime plus a
+minute), so it also covers the 1-day access tokens issued before sub-project 12 was deployed; a 16-minute cutoff would
+let those back in for the rest of their day. The cost is one small Redis key per revoked user for 25 hours.
+
 ### Deploying sub-project 11: backfill `last_status`, check the statistics
 
 Once, after problem-service has started with Flyway V5 and before any rejudge, from `judge-deployment/`:
