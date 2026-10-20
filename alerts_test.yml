@@ -335,7 +335,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "submission-service dead-lettered verdicts"
-              description: "Verdicts on submission.judged.dlq were not applied. Fix the cause, then run scripts/replay-dlq.sh submission.judged.dlq submission.judged."
+              description: "Verdicts on submission.judged.dlq were not applied. Fix the cause, check the submission is still pending (status 6/7; otherwise rejudge it), then run scripts/replay-dlq.sh submission.judged.dlq submission.judged."
 
   # ...a steady counter stays silent...
   - interval: 1m
@@ -360,7 +360,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "submission-service dead-lettered verdicts"
-              description: "Verdicts on submission.judged.dlq were not applied. Fix the cause, then run scripts/replay-dlq.sh submission.judged.dlq submission.judged."
+              description: "Verdicts on submission.judged.dlq were not applied. Fix the cause, check the submission is still pending (status 6/7; otherwise rejudge it), then run scripts/replay-dlq.sh submission.judged.dlq submission.judged."
 
   # ...and an absent counter stays silent.
   - interval: 1m

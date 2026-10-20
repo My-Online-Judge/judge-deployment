@@ -403,6 +403,14 @@ JUDGING submissions are not counted by either side; every terminal status is. Bo
 over the Unix socket and print counts only; `SUBMISSION_DB_CONTAINER` and `PROBLEM_DB_CONTAINER` override the container
 names. `bash tests/sp11-stats.test.sh` checks them on throwaway containers.
 
+Rollout notes. After deploying sub-project 11, look for `republishing <slug> failed` in the problem-service log: a
+problem that fails keeps the `.bundle-format` marker unwritten, so the republish pass runs again on every start until it
+succeeds. After a rollback during which a test case was edited, remove the marker before deploying sub-project 11
+again, so the pass re-runs (inside `oj-minio`, over TLS, as `backup/backup.sh` does; `$BUCKET` is `MINIO_BUCKET`):
+
+    docker --context default exec -e BUCKET="$MINIO_BUCKET" oj-minio sh -c \
+      'SSL_CERT_FILE=/etc/oj/tls/ca.crt MC_HOST_local="https://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@localhost:9000" mc rm "local/$BUCKET/.bundle-format"'
+
 ### Replaying a dead-letter topic
 
 Alert `VerdictDeadLettered` (verdicts on `submission.judged.dlq` not applied) and `ProblemStatsDeadLettered`
@@ -421,8 +429,18 @@ If writing to the target fails, the script exits non-zero and prints a reset com
 already committed. Run it to read the records again (re-copying is safe: the consumers are idempotent, except for the
 rejudge caveat below):
 
-    docker exec oj-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 \
+    docker --context default exec oj-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 \
         --group dlq-replay --topic <dlq-topic> --reset-offsets --to-earliest --execute
+
+Replaying `submission.judged.dlq` has three caveats:
+
+- A replayed verdict applies only to a submission that is still PENDING or JUDGING (status 6 or 7). Once the reconcile
+  job marked it SYSTEM_ERROR (`Judging timed out` / `Judging request lost`), the replay is a no-op (the log says
+  "late or duplicate verdict"): rejudge that submission instead (`POST /api/v1/submissions/{id}/rejudge`).
+- Replaying an OLD verdict for a submission that was rejudged since (and is PENDING or JUDGING again) overwrites the
+  rejudge. Replay only records of submissions not rejudged since.
+- After a Kafka outage longer than about 2.5 minutes, in-flight judgements may have been timed out; rejudge them with
+  `POST /api/v1/problems/{slug}/rejudge?status=5`.
 
 Limits: a record with a null key replays with the literal key `null`; a record containing a raw newline, or no tab
 between key and value, cannot be replayed with this script.

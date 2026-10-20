@@ -144,7 +144,7 @@ groups:
           severity: warning
         annotations:
           summary: "submission-service dead-lettered verdicts"
-          description: "Verdicts on submission.judged.dlq were not applied. Fix the cause, then run scripts/replay-dlq.sh submission.judged.dlq submission.judged."
+          description: "Verdicts on submission.judged.dlq were not applied. Fix the cause, check the submission is still pending (status 6/7; otherwise rejudge it), then run scripts/replay-dlq.sh submission.judged.dlq submission.judged."
 
       - alert: KafkaConsumerLagging
         # The verdict consumer (judge-api-results) or problem-service's statistics consumer has stayed behind its

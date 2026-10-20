@@ -19,7 +19,7 @@
 #          again after 10 s and waits for a terminal status: the status, how many "Judging submission <id>" lines all
 #          the workers logged (more than one: it was judged again), and the change in bench-sum's t_problem_stats total
 #          (expected 1: counted once) (sub-project 11).
-#   minio  with no load, removes every installed test-case bundle from the first worker's /test_case, stops MinIO,
+#   minio  with no load, removes every installed test-case bundle from every bench worker's /test_case, stops MinIO,
 #          submits 4 bench-ab solutions (users in turn), holds 60 s, starts MinIO: each submission's final status and
 #          error message, and the change in sum(oj_judge_infra_retries_total{reason="minio"}) (sub-project 11).
 # Uses seeded bench users. Never prints a token: the cookie jars live in a private temporary directory.
@@ -115,14 +115,18 @@ probe_worker() {
 }
 
 probe_minio() {
-  local users=(bench_u060 bench_u061 bench_u062 bench_u063) worker u i t0 r0 r1 st msg
+  local users=(bench_u060 bench_u061 bench_u062 bench_u063) worker w u i t0 r0 r1 st msg
   local ids=()
   worker=$(bench_workers | head -1)
   [ -n "$worker" ] || die "no judge-worker is running in $BENCH_PROJECT"
   in_bench "$worker"; in_bench oj-minio
   for u in "${users[@]}"; do login "$u"; done
-  docker exec "$worker" sh -c 'rm -rf /test_case/*__*'
-  log "installed test-case bundles removed from $worker: $(docker exec "$worker" sh -c 'ls /test_case | wc -l') entries left"
+  # Every worker: a judge that kept its cached bundle would not touch MinIO, and the retries counter would grow by chance.
+  for w in $(bench_workers); do
+    in_bench "$w"
+    docker exec "$w" sh -c 'rm -rf /test_case/*__*'
+    log "installed test-case bundles removed from $w: $(docker exec "$w" sh -c 'ls /test_case | wc -l') entries left"
+  done
   r0=$(prom_sum 'oj_judge_infra_retries_total{reason="minio"}')
   t0=$(date +%s)
   docker stop oj-minio >/dev/null

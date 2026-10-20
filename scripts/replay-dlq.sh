@@ -23,7 +23,8 @@ container=${KAFKA_CONTAINER:-oj-kafka}
 # data (stderr then carries a TimeoutException and "Processed a total of N messages"), and commits the group's offsets.
 # So its stderr is kept in a file and shown only when it exits non-zero. The producer with parse.key=true exits 1 on a
 # line without the separator.
-docker exec -i "$container" bash -s <<SCRIPT
+# Two Docker daemons on this host: pin the default context (as migrations/sp11-last-status.sh does).
+docker --context default exec -i "$container" bash -s <<SCRIPT
 set -euo pipefail
 bin=/opt/kafka/bin
 tab=\$'\t'
@@ -40,7 +41,7 @@ if [ "\$n" -gt 0 ]; then
     cat >&2 <<MSG
 replay-dlq: writing to $target failed, but the dlq-replay offsets on $dlq were already committed.
 To read the records again, reset them:
-  docker exec $container /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 --group dlq-replay --topic $dlq --reset-offsets --to-earliest --execute
+  docker --context default exec $container /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 --group dlq-replay --topic $dlq --reset-offsets --to-earliest --execute
 Copying again is safe because the consumers are idempotent, except for the rejudge-ordering caveat in the README.
 MSG
     exit 1

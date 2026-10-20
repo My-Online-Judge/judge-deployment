@@ -30,7 +30,7 @@ if [[ $rc -eq 2 ]]; then ok "--max not a number: exit 2"; else bad "--max not a 
 
 rc=0; out=$(run submission.judged.dlq submission.judged --max 5) || rc=$?
 script=$(cat "$tmp/stdin" 2>/dev/null || true); args=$(cat "$tmp/args" 2>/dev/null || true)
-[[ $args == *"exec -i oj-kafka bash"* ]] && ok "runs docker exec -i oj-kafka bash" || bad "runs docker exec -i oj-kafka bash (got: $args)"
+[[ $args == "--context default exec -i oj-kafka bash"* ]] && ok "runs docker --context default exec -i oj-kafka bash" || bad "runs docker --context default exec -i oj-kafka bash (got: $args)"
 for want in "--bootstrap-server 127.0.0.1:9092" "--group dlq-replay" "print.key=true" "parse.key=true" "--max-messages 5" \
   "--topic submission.judged.dlq" "--topic submission.judged " "--from-beginning" "--timeout-ms 10000"; do
   all="$args
