@@ -1198,10 +1198,11 @@ The bullets of spec §7:
   is dead-lettered again, but no record was dead-lettered by a cause that was then fixed (§13.4)
 - PASS a CRLF / trailing-space problem is AC
 - PASS the 6-language smoke is AC (10/10 on the live stack)
-- NOT MEASURED here: "suites green in all touched repos" (the suites ran in the plan's tasks, not in this
-  campaign); the section itself is this one
+- PASS suites green in all touched repos (run per task before each commit, not in this campaign): oj-common 85,
+  oj-submission-service 242, oj-problem-service 203, oj-identity-service 181, oj-api-gateway green, judge-worker 160
+  pytest, judge-portal 193 vitest, judge-deployment shell/promtool/bench suites; CI green on main after the push
 
-**11 of 12 measured bullets met, 1 partial; 1 not measured here.**
+**12 of 13 bullets met, 1 partial.**
 
 ### 13.7 Threats to validity
 
