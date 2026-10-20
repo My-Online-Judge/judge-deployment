@@ -19,9 +19,10 @@
 #          again after 10 s and waits for a terminal status: the status, how many "Judging submission <id>" lines all
 #          the workers logged (more than one: it was judged again), and the change in bench-sum's t_problem_stats total
 #          (expected 1: counted once) (sub-project 11).
-#   minio  with no load, removes every installed test-case bundle from every bench worker's /test_case, stops MinIO,
-#          submits 4 bench-ab solutions (users in turn), holds 60 s, starts MinIO: each submission's final status and
-#          error message, and the change in sum(oj_judge_infra_retries_total{reason="minio"}) (sub-project 11).
+#   minio  with no load, removes every installed test-case bundle from every bench worker's /test_case, pauses the
+#          workers, submits 4 bench-ab solutions (users in turn; submits need MinIO for the judge spec), stops MinIO,
+#          resumes the workers, holds 60 s, starts MinIO: each submission's final status and error message, and the
+#          change in sum(oj_judge_infra_retries_total{reason="minio"}) (sub-project 11).
 # Uses seeded bench users. Never prints a token: the cookie jars live in a private temporary directory.
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
@@ -128,13 +129,19 @@ probe_minio() {
     log "installed test-case bundles removed from $w: $(docker exec "$w" sh -c 'ls /test_case | wc -l') entries left"
   done
   r0=$(prom_sum 'oj_judge_infra_retries_total{reason="minio"}')
+  # Submits need MinIO too (problem-service reads the bundle's CURRENT hash for the judge spec), so they go in while
+  # MinIO is up and the workers are paused; MinIO stops before the workers resume and reach for the bundle.
+  for w in $(bench_workers); do docker pause "$w" >/dev/null; done
+  log "workers paused"
   t0=$(date +%s)
-  docker stop oj-minio >/dev/null
-  log "MinIO stopped"
   for u in "${users[@]}"; do
     ids+=("$(submit_id "$u" bench-ab $'a, b = map(int, input().split())\nprint(a + b)')")
     log "$(since "$t0") submit by $u: id ${ids[-1]:-refused}"
   done
+  docker stop oj-minio >/dev/null
+  log "$(since "$t0") MinIO stopped"
+  for w in $(bench_workers); do docker unpause "$w" >/dev/null; done
+  log "$(since "$t0") workers resumed"
   while [ $(( $(date +%s) - t0 )) -lt 60 ]; do sleep 1; done
   docker start oj-minio >/dev/null
   log "$(since "$t0") MinIO started again"
