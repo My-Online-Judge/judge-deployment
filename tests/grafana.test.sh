@@ -21,7 +21,7 @@ want() {
     if jq -e --arg p "$p" 'any(.panels[]; .title == $p)' "$d/$f" >/dev/null; then ok "$f panel \"$p\""; else bad "$f panel \"$p\""; fi
   done
 }
-want oj-overview.json oj-overview "OJ Overview" "Verdicts per minute by status" "Judge latency p50 / p95" "Queue depth" "5xx rate per service" "p95 latency per service" "Active alerts"
+want oj-overview.json oj-overview "OJ Overview" "Verdicts per minute by status" "Judge latency p50 / p95" "Queue depth" "Submits refused (queue full) per minute" "5xx rate per service" "p95 latency per service" "Active alerts"
 want infrastructure.json oj-infrastructure "Infrastructure" "Host CPU" "Host memory" "Host disk free" "Container CPU" "Container memory" "Postgres connections" "Redis memory" "Kafka consumer lag"
 want jvm.json oj-jvm "JVM" "Heap used" "GC pause time" "Live threads"
 shopt -s nullglob
@@ -53,8 +53,8 @@ while IFS= read -r expr; do
   q=${expr//\$__rate_interval/1m}; q=${q//\$job/.*}
   if [[ $(curl -s "http://$prom_ip:9090/api/v1/query" --data-urlencode "query=$q" | jq -r .status) != success ]]; then bad "query rejected by Prometheus: $q"; bad_n=$((bad_n + 1)); fi
 done < <(jq -r '.panels[].targets[]?.expr' "${files[@]}")
-((n == 18 && bad_n == 0)) && ok "all $n panel queries return status success on prom/prometheus:v3.1.0"
-((n != 18)) && bad "expected 18 panel queries, found $n"
+((n == 19 && bad_n == 0)) && ok "all $n panel queries return status success on prom/prometheus:v3.1.0"
+((n != 19)) && bad "expected 19 panel queries, found $n"
 
 pw=$(openssl rand -hex 12)
 docker run -d --name "$tag-graf" --network "$net" --memory 256m -e "GF_SECURITY_ADMIN_PASSWORD=$pw" \

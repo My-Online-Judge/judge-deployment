@@ -456,7 +456,8 @@ Everything is provisioned read-only from `grafana/`, so a dashboard is changed i
 
 - **Datasource:** `prometheus` (uid `prometheus`, `http://prometheus:9090`, the default).
 - **Dashboards** (folder-less, tag `oj`): *OJ Overview* (`oj-overview`: verdicts per minute, judge latency p50/p95, queue
-  depth, 5xx rate and p95 latency per service, firing alerts, a pointer to Jaeger), *Infrastructure* (`oj-infrastructure`:
+  depth, submits refused with 503 `QUEUE_FULL` per minute, 5xx rate and p95 latency per service, firing alerts, a
+  pointer to Jaeger), *Infrastructure* (`oj-infrastructure`:
   host CPU, memory and disk; container CPU and memory from cAdvisor; Postgres connections; Redis memory; Kafka consumer
   lag) and *JVM* (`oj-jvm`: heap, GC pause time and live threads, with a `job` variable). The HighErrorRate, HighLatency and
   HostDiskAlmostFull expressions are the ones in `alerts.yml`, so a panel shows what the alert sees. The Infrastructure
@@ -511,8 +512,15 @@ Defaults are in the services; none of these needs setting. submission-service re
 |---|---|---|
 | `JUDGE_JUDGING_TIMEOUT` | `3m` | A JUDGING submission older than this is marked SYSTEM_ERROR (`Judging timed out`). Replaces `JUDGE_STUCK_TIMEOUT_MIN`. |
 | `JUDGE_PENDING_TIMEOUT` | `30m` | A PENDING submission older than this is marked SYSTEM_ERROR (`Judging request lost`). |
-| `JUDGE_MAX_QUEUE_DEPTH` | `500` | PENDING + JUDGING submissions allowed at once; beyond it a submit gets 503 `QUEUE_FULL` with `Retry-After: 30`. |
+| `JUDGE_MAX_QUEUE_DEPTH` | `500` (live: `200`) | PENDING + JUDGING submissions allowed at once; beyond it a submit gets 503 `QUEUE_FULL` with `Retry-After: 30` (counted in `oj_admission_refused_total`). A problem rejudge queues only as many of its newest submissions as there are free slots, and gets 503 only when there is none. |
 | `JUDGE_INFRA_RETRY_SECONDS` | `300` | Worker: how long it retries MinIO / sandbox failures (2 s, 4 s, 8 s ... capped at 60 s) before giving up with `Judge infrastructure unavailable`. |
+
+Sizing `JUDGE_MAX_QUEUE_DEPTH`. The wait of the last queued submission is about depth ÷ verdict throughput, and one
+worker gives about 0.37 verdicts/s on A+B (`bench/REPORT.md` §4: 2.20/s for 6 workers). The code default 500 is sized
+for the 6-worker bench (judge p95 292 s at 500, REPORT §13). Live runs `200` (`.env.submission`): about 9 minutes with
+the one worker, under the 30-minute PENDING timeout. **Scaling the workers means raising the cap**, and the
+`JudgeQueueBacklog` threshold (150) must stay below the cap, or the alert can never fire. A problem rejudge on a busy
+queue queues only the newest submissions that fit; its answer's `queued` says how many.
 
 ### Deploying sub-project 11: backfill `last_status`, check the statistics
 
@@ -558,13 +566,15 @@ rejudge caveat below):
     docker --context default exec oj-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 \
         --group dlq-replay --topic <dlq-topic> --reset-offsets --to-earliest --execute
 
-Replaying `submission.judged.dlq` has three caveats:
+Replaying `submission.judged.dlq`:
 
 - A replayed verdict applies only to a submission that is still PENDING or JUDGING (status 6 or 7). Once the reconcile
   job marked it SYSTEM_ERROR (`Judging timed out` / `Judging request lost`), the replay is a no-op (the log says
   "late or duplicate verdict"): rejudge that submission instead (`POST /api/v1/submissions/{id}/rejudge`).
-- Replaying an OLD verdict for a submission that was rejudged since (and is PENDING or JUDGING again) overwrites the
-  rejudge. Replay only records of submissions not rejudged since.
+- A dead-lettered verdict of an earlier generation (the submission was rejudged since) is ignored: 0 rows, logged as
+  late or duplicate. Verdicts carry their generation (`rejudgeCount`) from sub-project 12's worker on; a record without
+  one (dead-lettered before that deploy) is still applied as before, so replay those only for submissions not
+  rejudged since.
 - After a Kafka outage longer than about 2.5 minutes, in-flight judgements may have been timed out; rejudge them with
   `POST /api/v1/problems/{slug}/rejudge?status=5`.
 

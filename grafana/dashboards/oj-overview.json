@@ -163,6 +163,50 @@
       }
     },
     {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Submits refused (queue full) per minute",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(oj_admission_refused_total[$__rate_interval])) * 60",
+          "legendFormat": "refused / min"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
       "id": 4,
       "type": "timeseries",
       "title": "5xx rate per service",
@@ -171,8 +215,8 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 12,
-        "y": 8,
+        "x": 0,
+        "y": 16,
         "w": 12,
         "h": 8
       },
@@ -216,7 +260,7 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 16,
         "w": 12,
         "h": 8
@@ -261,9 +305,9 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 12,
-        "y": 16,
-        "w": 12,
+        "x": 0,
+        "y": 24,
+        "w": 24,
         "h": 8
       },
       "targets": [
@@ -303,7 +347,7 @@
       "title": "Traces",
       "gridPos": {
         "x": 0,
-        "y": 24,
+        "y": 32,
         "w": 24,
         "h": 3
       },
