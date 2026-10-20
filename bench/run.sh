@@ -102,9 +102,10 @@ preflight() { # a bench stack that is up, seeded, and entirely running/healthy
     || die "the oj-bench stack is not up (bench/env.sh up)"
   [ -s "$BENCH_GEN/users.json" ] || die "the stack is not seeded (.gen/users.json is missing)"
   local unhealthy
+  # The one-shots (tls-init, kafka-init, minio-init: restart "no") are done when they exited 0; anything else must run.
   unhealthy=$(docker ps -aq --filter "label=com.docker.compose.project=$BENCH_PROJECT" | xargs docker inspect \
-    --format '{{.Name}} {{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
-    | awk '$2 != "true" || ($3 != "healthy" && $3 != "none") {print $1}')
+    --format '{{.Name}} {{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.ExitCode}} {{.HostConfig.RestartPolicy.Name}}' \
+    | awk '$2 == "false" && $4 == "0" && $5 == "no" {next} $2 != "true" || ($3 != "healthy" && $3 != "none") {print $1}')
   [ -z "$unhealthy" ] || die "not every oj-bench container is running and healthy:$(echo " $unhealthy" | tr '\n' ' ')"
 }
 repo_shas() {
