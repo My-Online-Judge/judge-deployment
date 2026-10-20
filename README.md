@@ -552,23 +552,25 @@ step is 600 s); this is a limit to remember when adding a longer one.
 
 ### Login limits (sub-project 12)
 
-identity-service counts failed password logins in Redis, before the password is checked:
+identity-service counts failed password logins in Redis (the pair and the account count a login before its password is
+checked, so a burst of guesses cannot get past them):
 
 - per (username, IP) pair: 5 failures in 5 minutes lock that pair for 15 minutes (keys `oj:rl:login:pair:<username>|<ip>`);
   the 4th and 5th failures also wait 2 s and 4 s;
 - per account: 50 failures in an hour lock the username for 15 minutes, from any address (`oj:rl:login:account:<username>`);
 - per IP: 30 failures in 5 minutes lock every login from that address for 15 minutes, correct passwords included
-  (`oj:rl:login:ip:<ip>`);
+  (`oj:rl:login:ip:<ip>`). Only failures count toward it: correct logins never do, however many arrive at once;
 - `PUT /users/me/password`: 5 wrong current passwords in 5 minutes lock it for 15 minutes (`pwchange:<user id>`).
 
 Known limits, both the spec's values for sub-project 12 and a follow-up: a lab behind one NAT address shares the IP
-limit, and anyone can keep one account locked by sending wrong passwords for it (50 an hour is enough). Correct logins
-still in flight count toward the per-IP limit too, so a burst of more than 30 simultaneous logins from one NAT address
-can get `429` with `Retry-After: 2` until the one attempt let past the limit has been checked.
+limit, so 30 wrong passwords from the whole lab within 5 minutes lock every login from it for 15 minutes; and anyone can
+keep one account locked by sending wrong passwords for it (50 an hour is enough). For a lab or a contest behind one
+address, raise the IP limit before the session: set `OJ_LOGIN_IP_LIMIT` in `.env.identity` (default 30; for example
+`OJ_LOGIN_IP_LIMIT=300` for a hall of 150), then `docker compose up -d --no-deps identity-service` to recreate it.
 
 There is **no admin endpoint** to clear a lock. A lock ends by itself after 15 minutes. To clear one earlier, delete both
 the lock key and the counter of the same suffix in Redis (with only the lock gone, a counter over its limit locks the
-key again at the next attempt), for example for the pair `alice|10.0.0.5`:
+key again at the next attempt, or for an address at the next failure), for example for the pair `alice|10.0.0.5`:
 
 ```bash
 docker exec oj-redis redis-cli --tls --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key \
