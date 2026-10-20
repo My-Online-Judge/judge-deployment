@@ -658,6 +658,27 @@ services:
     mem_limit: 64m
     networks: [oj-net]
 
+  # ---- alerting (sub-project 12) ----------------------------------------------
+  # Prometheus (prometheus.yml `alerting:`) sends every firing alert here. The UI and the silences are on loopback
+  # (plain HTTP, like the other operator UIs). Telegram is added by alertmanager/render.sh only when .env has both
+  # ALERT_TELEGRAM_* variables; the rendered config and the token file live in the container's /tmp, never on the host.
+  alertmanager:
+    logging: *logging
+    image: prom/alertmanager:v0.28.1
+    container_name: oj-alertmanager
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/etc/alertmanager/render.sh"]
+    environment:
+      ALERT_TELEGRAM_BOT_TOKEN: ${ALERT_TELEGRAM_BOT_TOKEN:-}
+      ALERT_TELEGRAM_CHAT_ID: ${ALERT_TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ./alertmanager:/etc/alertmanager:ro
+      - alertmanagerdata:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"   # ops UI and silences, loopback only
+    mem_limit: 64m
+    networks: [oj-net]
+
   # ---- application services -------------------------------------------------
   # Submissions, judging, languages and judge servers: the remainder of the judge-api monolith, its own service
   # with its own database since sub-project 3b.
@@ -1117,6 +1138,7 @@ volumes:
   miniodata:
   test_case_cache:
   promdata:
+  alertmanagerdata:
   kafkadata:
   tls:
   caddydata:

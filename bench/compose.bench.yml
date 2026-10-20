@@ -24,3 +24,5 @@ services:
   submission-db-exporter: {profiles: ["off"]}
   redis-exporter: {profiles: ["off"]}
   kafka-exporter: {profiles: ["off"]}
+  # Alerts have nowhere to go on the bench: Prometheus logs one failed notification each (alerting: in prometheus.yml).
+  alertmanager: {profiles: ["off"]}

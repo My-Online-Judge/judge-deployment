@@ -1,0 +1,2 @@
+{{ define "oj.telegram" }}{{ range .Alerts }}[{{ .Status | toUpper }}] {{ .Labels.alertname }} ({{ .Labels.severity }}): {{ .Annotations.summary }}
+{{ end }}{{ end }}

@@ -50,6 +50,7 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 | `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge; relays sandbox status to the registry (mutual TLS); `/metrics` `:9100` TLS + client certificate |
 | `judge-server` | `docker.io/qduoj/judge-server@sha256:a580a164…` (2020-07-09, pinned) | — | Code sandbox (×2) on the internal `sandbox-net`; least privilege, see `x-sandbox`; API `:8080` TLS + client certificate (the worker's) |
 | `judge-portal` | build `../judge-portal`  | — (internal) | Vue 3 frontend (nginx, TLS, answers only CN=`edge`) |
+| `alertmanager` | see [Alerting](#alerting-sub-project-12) | 9093 (loopback) | Receives Prometheus's alerts; Telegram when configured |
 | `node-exporter`, `cadvisor`, `{identity,problem,submission}-db-exporter`, `redis-exporter`, `kafka-exporter` | see [Observability](#observability-sub-project-12) | — (internal) | Metrics for Prometheus: the host, every container, the three databases, Redis and Kafka |
 
 ## Run
@@ -85,6 +86,7 @@ docker compose down -v
 | Swagger UI  | not published (the gateway has no host port; dev profile only) |
 | Jaeger UI   | http://127.0.0.1:16686 (plain HTTP, loopback only) |
 | Prometheus  | http://127.0.0.1:9090 (loopback only; scrapes the actuators over mutual TLS) |
+| Alertmanager | http://127.0.0.1:9093 (plain HTTP, loopback only; alerts and silences) |
 | MinIO       | https://127.0.0.1:9000 (API), https://127.0.0.1:9001 (console); loopback only |
 | Kafka       | kafka:29092 inside oj-net (no host port) |
 | Postgres    | identity-db, problem-db, submission-db inside oj-net (no host port) |
@@ -427,6 +429,23 @@ Deploying them, once, from `judge-deployment/`:
    password changes.
 4. `docker compose up -d --no-build`: `tls-init` installs the new leaves and `kafka-init` adds kafka-exporter's ACLs.
    Then check that every exporter target is up at `http://127.0.0.1:9090/targets`.
+
+## Alerting (sub-project 12)
+
+Prometheus evaluates `alerts.yml` and sends every firing alert to `alertmanager` (`prometheus.yml`, `alerting:`).
+Alertmanager (`prom/alertmanager:v0.28.1`, `mem_limit` 64 MiB) groups them by `alertname`, waits 30 s, and repeats a
+still-firing alert every 4 h.
+
+- **UI and silences:** `http://127.0.0.1:9093` (plain HTTP, loopback only, like the other operator UIs). Silence an alert
+  under *Silences*, or from an alert's *Silence* button; silences live in the `alertmanagerdata` volume.
+- **Telegram, when configured.** Put both in `.env`, then `docker compose up -d alertmanager`:
+  `ALERT_TELEGRAM_BOT_TOKEN` (from @BotFather) and `ALERT_TELEGRAM_CHAT_ID` (an integer; a group's starts with `-`;
+  the bot must be a member). With either unset, alerts only show in the UI. `alertmanager/render.sh` renders the config
+  at container start and prints only `alertmanager receiver: telegram` or `ui-only`; the token goes to a 0600 file in
+  the container's `/tmp`, so it is not in `docker compose config` output beyond the environment passthrough. Each
+  message is `[FIRING] <alertname> (<severity>): <summary>` (`alertmanager/telegram.tmpl`); resolved alerts are sent too.
+- **Bench:** `alertmanager` is in profile `off` there; the bench Prometheus logs one failed notification per alert.
+- Check: `bash tests/alertmanager.test.sh` (amtool in the pinned image, with and without the variables).
 
 ## Configuration
 
