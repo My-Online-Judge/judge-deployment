@@ -387,7 +387,7 @@ tests:
               client_id: consumer-judge-api-results-1
             exp_annotations:
               summary: "A Kafka consumer of submission-service has been behind for 5 minutes"
-              description: "consumer-judge-api-results-1 has not caught up with its topic for 5 minutes. A consumer that stops polling stops updating this metric — JudgeQueueStalled, OutboxBacklogStale and ProblemStatsDeadLettered cover that case."
+              description: "consumer-judge-api-results-1 has not caught up with its topic for 5 minutes. A consumer that stops polling stops updating this metric — JudgeQueueStalled, OutboxBacklogStale and ProblemStatsDeadLettered cover that case, and ConsumerLagHigh (kafka-exporter, per consumer group) sees a group that stopped polling."
 
   # ...a consumer that keeps up stays silent...
   - interval: 1m
@@ -492,4 +492,312 @@ tests:
     alert_rule_test:
       - eval_time: 80m
         alertname: TlsCertificateExpiringSoon
+        exp_alerts: []
+
+# ---- oj-saturation (sp12 task 16) -------------------------------------------------------------------------------
+# Every rule has a firing case and a silent case at its threshold. Counters step per minute (1 m interval).
+
+  # HighErrorRate: 1 req/s of which 10 % are 5xx -> fires; 3 % -> silent.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{job="api-gateway", status="200", uri="/api/v1/problems"}'
+        values: '0+54x20'
+      - series: 'http_server_requests_seconds_count{job="api-gateway", status="502", uri="/api/v1/problems"}'
+        values: '0+6x20'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: api-gateway
+            exp_annotations:
+              summary: "api-gateway answers over 5% of its requests with a 5xx status"
+              description: "Find the failing uri and status in http_server_requests_seconds_count{job=\"api-gateway\", status=~\"5..\"}, then read the api-gateway log and check its upstream services (the *ServiceDown alerts)."
+  - interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{job="api-gateway", status="200", uri="/api/v1/problems"}'
+        values: '0+58x20'
+      - series: 'http_server_requests_seconds_count{job="api-gateway", status="502", uri="/api/v1/problems"}'
+        values: '0+2x20'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: HighErrorRate
+        exp_alerts: []
+
+  # A quiet service (0.05 req/s) with one 5xx is above 5 % for a while, but below the 0.1 req/s floor: silent.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{job="problem-service", status="200", uri="/api/v1/problems"}'
+        values: '0+2x20'
+      - series: 'http_server_requests_seconds_count{job="problem-service", status="500", uri="/api/v1/problems"}'
+        values: '0x6 1x14'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: quietServiceWithOneErrorStaysSilent
+        exp_alerts: []
+      - eval_time: 14m
+        alertname: HighErrorRate
+        exp_alerts: []
+
+  # Actuator traffic (api-gateway records its own, 10 req/s of it failing) neither fires the alert nor lifts the floor
+  # for the quiet real traffic beside it.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{job="api-gateway", status="200", uri="/actuator/health"}'
+        values: '0+300x20'
+      - series: 'http_server_requests_seconds_count{job="api-gateway", status="503", uri="/actuator/health"}'
+        values: '0+300x20'
+      - series: 'http_server_requests_seconds_count{job="api-gateway", status="200", uri="/api/v1/problems"}'
+        values: '0+2x20'
+      - series: 'http_server_requests_seconds_count{job="api-gateway", status="500", uri="/api/v1/problems"}'
+        values: '0x6 1x14'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: HighErrorRate
+        exp_alerts: []
+
+  # HighLatency: 1 req/s all slower than 1 s -> p95 is about 1.95 s -> fires; all within 1 s -> silent.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_bucket{job="problem-service", uri="/api/v1/problems", le="0.5"}'
+        values: '0x25'
+      - series: 'http_server_requests_seconds_bucket{job="problem-service", uri="/api/v1/problems", le="1.0"}'
+        values: '0x25'
+      - series: 'http_server_requests_seconds_bucket{job="problem-service", uri="/api/v1/problems", le="2.0"}'
+        values: '0+60x25'
+      - series: 'http_server_requests_seconds_bucket{job="problem-service", uri="/api/v1/problems", le="+Inf"}'
+        values: '0+60x25'
+      - series: 'http_server_requests_seconds_count{job="problem-service", uri="/api/v1/problems"}'
+        values: '0+60x25'
+    alert_rule_test:
+      - eval_time: 22m
+        alertname: HighLatency
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: problem-service
+            exp_annotations:
+              summary: "problem-service has a 95th percentile latency over 1 second"
+              description: "Find the slow uri with histogram_quantile(0.95, sum by (uri, le) (rate(http_server_requests_seconds_bucket{job=\"problem-service\"}[10m]))), then check that service's database and its CPU (ContainerMemoryNearLimit, cAdvisor)."
+  - interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_bucket{job="problem-service", uri="/api/v1/problems", le="0.5"}'
+        values: '0x25'
+      - series: 'http_server_requests_seconds_bucket{job="problem-service", uri="/api/v1/problems", le="1.0"}'
+        values: '0+60x25'
+      - series: 'http_server_requests_seconds_bucket{job="problem-service", uri="/api/v1/problems", le="2.0"}'
+        values: '0+60x25'
+      - series: 'http_server_requests_seconds_bucket{job="problem-service", uri="/api/v1/problems", le="+Inf"}'
+        values: '0+60x25'
+      - series: 'http_server_requests_seconds_count{job="problem-service", uri="/api/v1/problems"}'
+        values: '0+60x25'
+    alert_rule_test:
+      - eval_time: 22m
+        alertname: HighLatency
+        exp_alerts: []
+
+  # Verdict streams (SSE) last as long as judging: slow buckets only on the stream uri are silent.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_bucket{job="api-gateway", uri="/api/v1/submissions/{id}/stream", le="1.0"}'
+        values: '0x25'
+      - series: 'http_server_requests_seconds_bucket{job="api-gateway", uri="/api/v1/submissions/{id}/stream", le="+Inf"}'
+        values: '0+60x25'
+      - series: 'http_server_requests_seconds_count{job="api-gateway", uri="/api/v1/submissions/{id}/stream"}'
+        values: '0+60x25'
+    alert_rule_test:
+      - eval_time: 22m
+        alertname: streamsDoNotCountTowardsLatency
+        exp_alerts: []
+      - eval_time: 22m
+        alertname: HighLatency
+        exp_alerts: []
+
+  # JudgeQueueBacklog fires above 150 (spec: 200; the live queue is capped at 200, which a threshold of 200 never exceeds).
+  - interval: 1m
+    input_series:
+      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8081"}'
+        values: '151x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: JudgeQueueBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: submission-service
+              instance: submission-service:8081
+            exp_annotations:
+              summary: "submission-service has more than 150 submissions waiting for a judge"
+              description: "oj_queue_depth has been above 150 for 5 minutes. Check judge-worker and the sandboxes (SandboxDown, JudgeWorkerDown); submissions are refused with 503 at JUDGE_MAX_QUEUE_DEPTH, so keep this threshold below that cap."
+  - interval: 1m
+    input_series:
+      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8081"}'
+        values: '150x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: JudgeQueueBacklog
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'oj_queue_depth{job="submission-service", instance="submission-service:8081"}'
+        values: '200x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: JudgeQueueBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: submission-service
+              instance: submission-service:8081
+            exp_annotations:
+              summary: "submission-service has more than 150 submissions waiting for a judge"
+              description: "oj_queue_depth has been above 150 for 5 minutes. Check judge-worker and the sandboxes (SandboxDown, JudgeWorkerDown); submissions are refused with 503 at JUDGE_MAX_QUEUE_DEPTH, so keep this threshold below that cap."
+
+  # JudgeLatencyHigh: 5 verdicts a minute, all between 60 s and 120 s -> p95 117 s -> fires; all within 60 s -> 58.5 s, silent.
+  - interval: 1m
+    input_series:
+      - series: 'oj_judge_latency_seconds_bucket{job="submission-service", le="30.0"}'
+        values: '0x25'
+      - series: 'oj_judge_latency_seconds_bucket{job="submission-service", le="60.0"}'
+        values: '0x25'
+      - series: 'oj_judge_latency_seconds_bucket{job="submission-service", le="120.0"}'
+        values: '0+5x25'
+      - series: 'oj_judge_latency_seconds_bucket{job="submission-service", le="+Inf"}'
+        values: '0+5x25'
+    alert_rule_test:
+      - eval_time: 22m
+        alertname: JudgeLatencyHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Judging takes over 60 seconds at the 95th percentile (submit to verdict)"
+              description: "Compare oj_queue_depth (a backlog) with the sandboxes' load (cAdvisor) and the slowest problems' time limit times test count; a few heavy problems can lift the percentile on their own."
+  - interval: 1m
+    input_series:
+      - series: 'oj_judge_latency_seconds_bucket{job="submission-service", le="30.0"}'
+        values: '0x25'
+      - series: 'oj_judge_latency_seconds_bucket{job="submission-service", le="60.0"}'
+        values: '0+5x25'
+      - series: 'oj_judge_latency_seconds_bucket{job="submission-service", le="120.0"}'
+        values: '0+5x25'
+      - series: 'oj_judge_latency_seconds_bucket{job="submission-service", le="+Inf"}'
+        values: '0+5x25'
+    alert_rule_test:
+      - eval_time: 22m
+        alertname: JudgeLatencyHigh
+        exp_alerts: []
+
+  # HostDiskAlmostFull: 9 % free on ext4 fires; exactly 10 % is silent; a 99 % full vfat (/boot/efi) is not looked at.
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{job="node-exporter", instance="node-exporter:9100", device="/dev/sda2", mountpoint="/", fstype="ext4"}'
+        values: '9x20'
+      - series: 'node_filesystem_size_bytes{job="node-exporter", instance="node-exporter:9100", device="/dev/sda2", mountpoint="/", fstype="ext4"}'
+        values: '100x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: HostDiskAlmostFull
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: node-exporter
+              instance: node-exporter:9100
+              device: /dev/sda2
+              mountpoint: /
+              fstype: ext4
+            exp_annotations:
+              summary: "Filesystem / on node-exporter:9100 has under 10% free"
+              description: "Check docker system df and the log volumes (json-file rotation is 3 x 10 MB per container), Prometheus and Postgres data, then prune images or grow the disk."
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{job="node-exporter", instance="node-exporter:9100", device="/dev/sda2", mountpoint="/", fstype="ext4"}'
+        values: '10x20'
+      - series: 'node_filesystem_size_bytes{job="node-exporter", instance="node-exporter:9100", device="/dev/sda2", mountpoint="/", fstype="ext4"}'
+        values: '100x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: HostDiskAlmostFull
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{job="node-exporter", instance="node-exporter:9100", device="/dev/sda1", mountpoint="/boot/efi", fstype="vfat"}'
+        values: '1x20'
+      - series: 'node_filesystem_size_bytes{job="node-exporter", instance="node-exporter:9100", device="/dev/sda1", mountpoint="/boot/efi", fstype="vfat"}'
+        values: '100x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: smallVfatPartitionIgnored
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: HostDiskAlmostFull
+        exp_alerts: []
+
+  # ContainerMemoryNearLimit: 95 % of the limit fires; exactly 90 % is silent; a container with no limit (0) is silent.
+  - interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{job="cadvisor", instance="cadvisor:8080", name="judge-worker"}'
+        values: '950x20'
+      - series: 'container_spec_memory_limit_bytes{job="cadvisor", instance="cadvisor:8080", name="judge-worker"}'
+        values: '1000x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ContainerMemoryNearLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: cadvisor
+              instance: cadvisor:8080
+              name: judge-worker
+            exp_annotations:
+              summary: "Container judge-worker uses over 90% of its memory limit"
+              description: "Check docker stats for judge-worker and its log for a leak or an oversized request; raise mem_limit in the compose file only if the load is legitimate (an OOM kill restarts the container)."
+  - interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{job="cadvisor", instance="cadvisor:8080", name="judge-worker"}'
+        values: '900x20'
+      - series: 'container_spec_memory_limit_bytes{job="cadvisor", instance="cadvisor:8080", name="judge-worker"}'
+        values: '1000x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ContainerMemoryNearLimit
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{job="cadvisor", instance="cadvisor:8080", name="oj-kafka"}'
+        values: '5000x20'
+      - series: 'container_spec_memory_limit_bytes{job="cadvisor", instance="cadvisor:8080", name="oj-kafka"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: unlimitedContainerStaysSilent
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: ContainerMemoryNearLimit
+        exp_alerts: []
+
+  # ConsumerLagHigh: a group 101 messages behind fires; exactly 100 is silent.
+  - interval: 1m
+    input_series:
+      - series: 'kafka_consumergroup_lag_sum{job="kafka-exporter", instance="kafka-exporter:9308", consumergroup="judge-api-results", topic="submission.judged"}'
+        values: '101x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ConsumerLagHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              consumergroup: judge-api-results
+              topic: submission.judged
+            exp_annotations:
+              summary: "Consumer group judge-api-results is over 100 messages behind on submission.judged"
+              description: "Unlike KafkaConsumerLagging (the client's own records-lag-max, silent once a consumer stops polling) this sees a group that stopped. Check the consumer service's log and its Kafka connection (KafkaUnreachable)."
+  - interval: 1m
+    input_series:
+      - series: 'kafka_consumergroup_lag_sum{job="kafka-exporter", instance="kafka-exporter:9308", consumergroup="judge-api-results", topic="submission.judged"}'
+        values: '100x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ConsumerLagHigh
         exp_alerts: []

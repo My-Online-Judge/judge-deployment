@@ -1,9 +1,7 @@
 # Alert rules for the Online Judge stack.
 #
-# There is no Alertmanager in this deployment yet, so a firing rule shows up in the Prometheus UI
-# (http://127.0.0.1:9090/alerts) and nowhere else. That is deliberate: rules encode "what counts as
-# broken" and are worth having before the paging plumbing exists — wiring Alertmanager later needs
-# no change here.
+# Firing rules go to Alertmanager (alertmanager.yml: grouped by alertname, Telegram when configured) and also show in
+# the Prometheus UI (http://127.0.0.1:9090/alerts). Rules encode "what counts as broken"; routing lives there.
 #
 # ABSENT-SAFE BY DESIGN. Every counter-based rule wraps its query in `... or vector(0)` so an oj_*
 # series that does not exist yet evaluates to 0, not to no-data. This matters because in this stack
@@ -159,7 +157,7 @@ groups:
           severity: warning
         annotations:
           summary: "A Kafka consumer of {{ $labels.job }} has been behind for 5 minutes"
-          description: "{{ $labels.client_id }} has not caught up with its topic for 5 minutes. A consumer that stops polling stops updating this metric — JudgeQueueStalled, OutboxBacklogStale and ProblemStatsDeadLettered cover that case."
+          description: "{{ $labels.client_id }} has not caught up with its topic for 5 minutes. A consumer that stops polling stops updating this metric — JudgeQueueStalled, OutboxBacklogStale and ProblemStatsDeadLettered cover that case, and ConsumerLagHigh (kafka-exporter, per consumer group) sees a group that stopped polling."
 
   - name: judge-abuse
     rules:
@@ -184,17 +182,6 @@ groups:
         annotations:
           summary: "A banned ip or device is still sending heavy traffic"
           description: "Over 100 requests were refused by the access-ban filter in 15 minutes — consider blocking upstream of the app."
-
-  # TODO(tuan): two load-shaped rules are missing, and their thresholds are a judgment call about
-  # this deployment rather than something derivable from the code:
-  #
-  #   - JudgeQueueBacklog: oj_queue_depth stays above N for M minutes.
-  #       N depends on how many submissions you expect at peak (a class of 40 all submitting at the
-  #       bell is normal; 200 pending is not) and on the 2-sandbox throughput.
-  #
-  #   - JudgeLatencyHigh: histogram_quantile(0.95, sum(rate(oj_judge_latency_seconds_bucket[10m])) by (le)) > S
-  #       S is a submit-to-verdict SLO. Anchor it to the worst-case problem: time limit x test count
-  #       x safety factor, not to the A+B measurement of ~20ms.
 
   - name: judge-dependencies
     # Sub-project 6 §3.1: a rule for each dependency sub-project 5's E4 stopped without any alert firing. `for: 15s`
@@ -268,3 +255,77 @@ groups:
         annotations:
           summary: "{{ $labels.job }} certificate expires within 30 days"
           description: "The soonest-expiring certificate in {{ $labels.instance }}'s SSL bundle has under 30 days left (ssl_chain_expiry_seconds). Re-issue with pki/pki.sh issue-all, run tls-init (docker compose up -d) and restart {{ $labels.job }}."
+
+  - name: oj-saturation
+    # Sp12 task 16: error rate, latency, backlog, and host/container saturation. HighErrorRate and HighLatency leave out
+    # /actuator (only api-gateway records its own; scrapes and healthchecks are constant) and HighLatency leaves out
+    # SSE verdict streams (they last as long as judging). Both need 0.1 req/s, so one failure on a quiet service is silent.
+    rules:
+      - alert: HighErrorRate
+        expr: sum by (job) (rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*"}[5m])) / sum by (job) (rate(http_server_requests_seconds_count{uri!~"/actuator.*"}[5m])) > 0.05 and sum by (job) (rate(http_server_requests_seconds_count{uri!~"/actuator.*"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} answers over 5% of its requests with a 5xx status"
+          description: "Find the failing uri and status in http_server_requests_seconds_count{job=\"{{ $labels.job }}\", status=~\"5..\"}, then read the {{ $labels.job }} log and check its upstream services (the *ServiceDown alerts)."
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, sum by (job, le) (rate(http_server_requests_seconds_bucket{uri!~"/actuator.*|.*/stream"}[10m]))) > 1 and sum by (job) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|.*/stream"}[10m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} has a 95th percentile latency over 1 second"
+          description: "Find the slow uri with histogram_quantile(0.95, sum by (uri, le) (rate(http_server_requests_seconds_bucket{job=\"{{ $labels.job }}\"}[10m]))), then check that service's database and its CPU (ContainerMemoryNearLimit, cAdvisor)."
+
+      - alert: JudgeQueueBacklog
+        # SPEC DEVIATION (controller ruling Q1): the spec says 200. The live queue is capped at JUDGE_MAX_QUEUE_DEPTH=200,
+        # and a threshold equal to the cap can never fire. Keep this threshold below any cap a deployment sets (README).
+        expr: oj_queue_depth > 150
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} has more than 150 submissions waiting for a judge"
+          description: "oj_queue_depth has been above 150 for 5 minutes. Check judge-worker and the sandboxes (SandboxDown, JudgeWorkerDown); submissions are refused with 503 at JUDGE_MAX_QUEUE_DEPTH, so keep this threshold below that cap."
+
+      - alert: JudgeLatencyHigh
+        # Submit to verdict, over every problem. Buckets reach 600 s, so 60 s is measurable.
+        expr: histogram_quantile(0.95, sum by (le) (rate(oj_judge_latency_seconds_bucket[10m]))) > 60
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Judging takes over 60 seconds at the 95th percentile (submit to verdict)"
+          description: "Compare oj_queue_depth (a backlog) with the sandboxes' load (cAdvisor) and the slowest problems' time limit times test count; a few heavy problems can lift the percentile on their own."
+
+      - alert: HostDiskAlmostFull
+        # Real filesystems only: tmpfs, overlay and a small vfat /boot/efi are not what fills up.
+        expr: node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs|btrfs"} < 0.10
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} has under 10% free"
+          description: "Check docker system df and the log volumes (json-file rotation is 3 x 10 MB per container), Prometheus and Postgres data, then prune images or grow the disk."
+
+      - alert: ContainerMemoryNearLimit
+        # A container without mem_limit reports a limit of 0 (ratio +Inf): `> 0` drops it.
+        expr: container_memory_working_set_bytes{name!=""} / (container_spec_memory_limit_bytes{name!=""} > 0) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} uses over 90% of its memory limit"
+          description: "Check docker stats for {{ $labels.name }} and its log for a leak or an oversized request; raise mem_limit in the compose file only if the load is legitimate (an OOM kill restarts the container)."
+
+      - alert: ConsumerLagHigh
+        # Exporter side: also sees a group that stopped polling, which KafkaConsumerLagging (client side) cannot.
+        expr: max by (consumergroup, topic) (kafka_consumergroup_lag_sum) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Consumer group {{ $labels.consumergroup }} is over 100 messages behind on {{ $labels.topic }}"
+          description: "Unlike KafkaConsumerLagging (the client's own records-lag-max, silent once a consumer stops polling) this sees a group that stopped. Check the consumer service's log and its Kafka connection (KafkaUnreachable)."
