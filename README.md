@@ -501,6 +501,10 @@ Notes:
 - `GOOGLE_REDIRECT_URI` must match the Google console. It points at the Vite dev origin
   (`:5173`); if you drive OAuth through the containerized portal (`https://<OJ_PUBLIC_HOST>`), update
   both the `.env` value and the console.
+- Google sign-in links an existing account that has no Google id yet (for example one an admin created) only when
+  Google vouches for the address: a `@gmail.com` address, or a Google Workspace account. Any other Google account with
+  that email is refused (`reason=GOOGLE_LINK_NOT_ALLOWED`) and its owner signs in with the password. A Google account
+  whose email matches no account still gets a new one.
 
 ### Overload and verdict-correctness knobs (sub-project 11)
 
