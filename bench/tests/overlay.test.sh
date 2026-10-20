@@ -17,14 +17,22 @@ docker compose -p "$BENCH_PROJECT" --project-directory "$DEPLOY_DIR" -f "$BENCH_
   config --format json > "$tmp/base.json"
 bench_compose config --format json > "$tmp/bench.json"
 
-if out=$(python3 - "$tmp/base.json" "$tmp/bench.json" "$(IFS=,; echo "${BUILT_SERVICES[*]}")" <<'EOF'
-import json, sys
+if out=$(python3 - "$tmp/base.json" "$tmp/bench.json" "$(IFS=,; echo "${BUILT_SERVICES[*]}")" "$BENCH_DIR/compose.bench.yml" <<'EOF'
+import json, sys, yaml
 base = json.load(open(sys.argv[1]))["services"]
 bench = json.load(open(sys.argv[2]))["services"]
 built = set(sys.argv[3].split(","))
+# Services the overlay puts in profile "off" drop out of the bench's resolved config: the portal, the exporters (sp12
+# task 15), Alertmanager (task 17) and Grafana (task 18). Nothing else may be switched off.
+off = {"judge-portal", "node-exporter", "cadvisor", "identity-db-exporter", "problem-db-exporter", "submission-db-exporter",
+       "redis-exporter", "kafka-exporter", "alertmanager", "grafana"}
 problems = []
-if set(bench) != set(base) - {"judge-portal"}:
-    problems.append("service set: " + ", ".join(sorted(set(base) ^ set(bench))))
+if set(bench) != set(base) - off:
+    problems.append("service set: " + ", ".join(sorted((set(base) - off) ^ set(bench))))
+overlay = yaml.safe_load(open(sys.argv[4]))["services"]
+for name in sorted(n for n, x in overlay.items() if "profiles" in x):
+    if name not in off or overlay[name] != {"profiles": ["off"]}:
+        problems.append(f"{name}: profiles is only for the off services, as exactly {{profiles: [off]}}")
 for name in sorted(set(bench) & set(base)):
     b, o = base[name], bench[name]
     allowed = {"command", "volumes"} if name == "prometheus" else ({"image", "pull_policy"} if name in built else set())
@@ -34,7 +42,7 @@ for name in sorted(set(bench) & set(base)):
 print("; ".join(problems))
 sys.exit(1 if problems else 0)
 EOF
-); then ok "the overlay changes only prometheus and the built services' image, and leaves judge-portal out"
+); then ok "the overlay changes only prometheus and the built services' image, and leaves judge-portal and the observability services out"
 else bad "the overlay changes more than intended: $out"; fi
 
 check "the built services run the live images (the base's resolved image), never pulled or built" \

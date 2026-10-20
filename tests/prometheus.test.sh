@@ -35,5 +35,14 @@ print(("ok   " if ok3 else "FAIL ") + "prometheus scrapes the identity, problem,
 worker = jobs.get("judge-worker", {})
 ok4 = worker.get("scheme") == "https" and worker.get("tls_config") == dict(tls, server_name="judge-worker")
 print(("ok   " if ok4 else "FAIL ") + "prometheus scrapes the judge-worker replicas over mutual TLS, verifying the name judge-worker")
-sys.exit(0 if ok and ok2 and ok3 and ok4 else 1)
+# The exporters (sp12 task 15): one job per service, named after it, target <service>:<port>. All over mutual TLS with
+# Prometheus's certificate, except cAdvisor, which has no TLS (plain HTTP on oj-net, like SP10's operator UIs).
+exporters = {"node-exporter": 9100, "cadvisor": 8080, "identity-db-exporter": 9187, "problem-db-exporter": 9187,
+             "submission-db-exporter": 9187, "redis-exporter": 9121, "kafka-exporter": 9308}
+ok5 = all(jobs.get(n, {}).get("static_configs") == [{"targets": [f"{n}:{p}"]}] for n, p in exporters.items())
+print(("ok   " if ok5 else "FAIL ") + "prometheus has one job per exporter, named after the service, target <service>:<port>")
+ok6 = all(jobs.get(n, {}).get("scheme") == "https" and jobs.get(n, {}).get("tls_config") == tls for n in exporters if n != "cadvisor") \
+  and jobs.get("cadvisor", {}).get("scheme", "http") == "http" and "tls_config" not in jobs.get("cadvisor", {"tls_config": None})
+print(("ok   " if ok6 else "FAIL ") + "prometheus scrapes the six TLS exporters over mutual TLS and cadvisor over plain HTTP")
+sys.exit(0 if ok and ok2 and ok3 and ok4 and ok5 and ok6 else 1)
 EOF

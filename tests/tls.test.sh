@@ -193,6 +193,17 @@ if grep -q '^HTTP/1.1 308 ' <<< "$got" && grep -qi '^Location: https://edge/prob
   pass "edge: http://edge/problems -> 308 https://edge/problems"
 else fail "edge: http://edge/problems -> 308 https://edge/problems: got: $(head -c 200 <<< "$got" | tr '\n' ' ')"; fi
 
+# ---- exporters: /metrics requires a CA-signed client certificate (sp12 task 15) ----------------------------------
+# Prometheus scrapes them with its own leaf. node-exporter and the postgres-exporters serve with the exporter-web config,
+# redis-exporter with -tls-server-*, kafka-exporter with --server.tls.*. Any CA-signed certificate passes (no CN list).
+# cAdvisor has no TLS (plain HTTP on oj-net) and is not probed here.
+for target in node-exporter:9100 identity-db-exporter:9187 problem-db-exporter:9187 submission-db-exporter:9187 \
+  redis-exporter:9121 kafka-exporter:9308; do
+  probe_handshake "$target" none fail
+  probe_handshake "$target" rogue fail
+  probe_http "https://$target/metrics" tls-probe 200
+done
+
 # (sections follow)
 
 tls_probe_exit

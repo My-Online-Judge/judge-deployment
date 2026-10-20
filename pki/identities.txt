@@ -16,6 +16,12 @@ redis 999:999
 minio 0:0
 jaeger 10001:10001
 prometheus 65534:65534
+node-exporter 65534:65534
+identity-db-exporter 65534:65534
+problem-db-exporter 65534:65534
+submission-db-exporter 65534:65534
+redis-exporter 59000:59000
+kafka-exporter 65534:65534
 edge 0:0 ${OJ_PUBLIC_HOST} edge
 tls-probe 0:0
 rogue 0:0

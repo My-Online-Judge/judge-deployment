@@ -196,6 +196,41 @@ _check "$tagged_cfg" "OJ_IDENTITY_TAG beats OJ_TAG: identity is :t2, every other
 check "both sandboxes run qduoj pinned by digest" \
   "all(s[n]['image'] == 'docker.io/qduoj/judge-server@sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e' for n in $sandboxes)"
 
+# Exporters (sp12 task 15). Six serve /metrics over mutual TLS with the leaf of their own tls subpath, as the image's own
+# user (the owner pki/identities.txt gives that subpath); cAdvisor has no TLS and stays plain HTTP on oj-net. None
+# publishes a port. mem_limit is controller ruling Q4; the resolved config prints bytes.
+exporter_images="{'node-exporter': 'prom/node-exporter:v1.9.1', 'cadvisor': 'ghcr.io/google/cadvisor:v0.60.6',
+  'identity-db-exporter': 'prometheuscommunity/postgres-exporter:v0.17.1', 'problem-db-exporter': 'prometheuscommunity/postgres-exporter:v0.17.1',
+  'submission-db-exporter': 'prometheuscommunity/postgres-exporter:v0.17.1', 'redis-exporter': 'oliver006/redis_exporter:v1.72.0',
+  'kafka-exporter': 'danielqsj/kafka-exporter:v1.9.0'}"
+tls_exporters="{'node-exporter': '65534:65534', 'identity-db-exporter': '65534:65534', 'problem-db-exporter': '65534:65534',
+  'submission-db-exporter': '65534:65534', 'redis-exporter': '59000:59000', 'kafka-exporter': '65534:65534'}"
+db_exporters="{'identity-db-exporter': 'identity-db', 'problem-db-exporter': 'problem-db', 'submission-db-exporter': 'submission-db'}"
+check "the seven exporters run exactly their pinned images" \
+  "all(s.get(n, {}).get('image') == i for n, i in $exporter_images.items())"
+check "no exporter publishes a port; each sits on oj-net only and restarts unless stopped (kafka-exporter exits while Kafka is away)" \
+  "all(n in s and not s[n].get('ports') and list(s[n].get('networks', {})) == ['oj-net'] and s[n].get('restart') == 'unless-stopped' for n in $exporter_images)"
+check "exporter memory caps: cadvisor 256 MiB, the six others 64 MiB each" \
+  "all(s.get(n, {}).get('mem_limit') in ((268435456, '268435456') if n == 'cadvisor' else (67108864, '67108864')) for n in $exporter_images)"
+check "the six TLS exporters mount their own tls subpath read-only and wait for tls-init; cadvisor mounts no tls" \
+  "all(n in s and [m.get('volume', {}).get('subpath') for m in s[n].get('volumes', []) if m.get('source') == 'tls'] == [n] and s[n]['depends_on']['tls-init']['condition'] == 'service_completed_successfully' for n in $tls_exporters) and not any(m.get('source') == 'tls' for m in s.get('cadvisor', {}).get('volumes', []))"
+check "each TLS exporter runs as its image's own user (no user override), the owner pki/identities.txt gives its subpath" \
+  "(lambda ids: all(n in s and 'user' not in s[n] and ids.get(n) == u for n, u in $tls_exporters.items()))({l.split()[0]: l.split()[1] for l in open('pki/identities.txt') if l.strip() and not l.startswith('#')})"
+check "config exporter-web: TLS with the subpath's leaf, a CA-signed client certificate required" \
+  "__import__('yaml').safe_load(c.get('configs', {}).get('exporter-web', {}).get('content', '')) == {'tls_server_config': {'cert_file': '/etc/oj/tls/tls.crt', 'key_file': '/etc/oj/tls/tls.key', 'client_ca_file': '/etc/oj/tls/ca.crt', 'client_auth_type': 'RequireAndVerifyClientCert'}}"
+check "node-exporter shares the host pid namespace, reads /proc, /sys and / read-only, and serves exporter-web" \
+  "(lambda x: x.get('pid') == 'host' and {(m['source'], m['target']) for m in x.get('volumes', []) if m.get('type') == 'bind' and m.get('read_only') is True} == {('/proc', '/host/proc'), ('/sys', '/host/sys'), ('/', '/rootfs')} and x.get('command') == ['--path.procfs=/host/proc', '--path.sysfs=/host/sys', '--path.rootfs=/rootfs', '--web.config.file=/etc/oj/exporter-web.yml'] and {'source': 'exporter-web', 'target': '/etc/oj/exporter-web.yml'} in [{k: y[k] for k in ('source', 'target')} for y in x.get('configs', [])])(s.get('node-exporter', {}))"
+check "cadvisor reads docker.sock and containerd.sock read-only, is not privileged, and collects only cpu and memory" \
+  "(lambda x: not x.get('privileged') and {(m['source'], m['target']) for m in x.get('volumes', []) if m.get('type') == 'bind' and m.get('read_only') is True} == {('/', '/rootfs'), ('/var/run/docker.sock', '/var/run/docker.sock'), ('/run/containerd/containerd.sock', '/run/containerd/containerd.sock'), ('/sys', '/sys'), ('/var/lib/docker', '/var/lib/docker')} and x.get('command') == ['--docker_only=true', '--store_container_labels=false', '--housekeeping_interval=15s', '--enable_metrics=cpu,memory'])(s.get('cadvisor', {}))"
+check "each postgres-exporter connects to its own database as oj_monitor over verify-full TLS with its client certificate, after the database is healthy" \
+  "all(n in s and s[n]['environment'].get('DATA_SOURCE_URI') == f'{db}:5432/postgres?sslmode=verify-full&sslrootcert=/etc/oj/tls/ca.crt&sslcert=/etc/oj/tls/tls.crt&sslkey=/etc/oj/tls/tls.key' and s[n]['environment'].get('DATA_SOURCE_USER') == 'oj_monitor' and s[n].get('command') == ['--web.config.file=/etc/oj/exporter-web.yml'] and {'source': 'exporter-web', 'target': '/etc/oj/exporter-web.yml'} in [{k: y[k] for k in ('source', 'target')} for y in s[n].get('configs', [])] and {k: d['condition'] for k, d in s[n]['depends_on'].items()} == {'tls-init': 'service_completed_successfully', db: 'service_healthy'} for n, db in $db_exporters.items())"
+check_raw "the postgres-exporters' password is \${PG_MONITOR_PASSWORD:?run migrations/sp12-env.sh}" \
+  "all(s.get(n, {}).get('environment', {}).get('DATA_SOURCE_PASS') == '\${PG_MONITOR_PASSWORD:?run migrations/sp12-env.sh}' for n in $db_exporters)"
+check "redis-exporter reads rediss://redis:6379 with its client certificate and serves /metrics over mutual TLS" \
+  "s.get('redis-exporter', {}).get('command') == ['-redis.addr=rediss://redis:6379', '-tls-ca-cert-file=/etc/oj/tls/ca.crt', '-tls-client-cert-file=/etc/oj/tls/tls.crt', '-tls-client-key-file=/etc/oj/tls/tls.key', '-tls-server-cert-file=/etc/oj/tls/tls.crt', '-tls-server-key-file=/etc/oj/tls/tls.key', '-tls-server-ca-cert-file=/etc/oj/tls/ca.crt']"
+check "kafka-exporter reads kafka:29092 over TLS (name kafka) with its client certificate, serves mutual TLS, and starts after kafka-init" \
+  "s.get('kafka-exporter', {}).get('command') == ['--kafka.server=kafka:29092', '--tls.enabled', '--tls.server-name=kafka', '--tls.ca-file=/etc/oj/tls/ca.crt', '--tls.cert-file=/etc/oj/tls/tls.crt', '--tls.key-file=/etc/oj/tls/tls.key', '--server.tls.enabled', '--server.tls.mutual-auth-enabled', '--server.tls.ca-file=/etc/oj/tls/ca.crt', '--server.tls.cert-file=/etc/oj/tls/tls.crt', '--server.tls.key-file=/etc/oj/tls/tls.key'] and {k: d['condition'] for k, d in s['kafka-exporter']['depends_on'].items()} == {'tls-init': 'service_completed_successfully', 'kafka-init': 'service_completed_successfully'}"
+
 # The mock sandbox speaks plain HTTP: its overlay points the worker at http:// and nothing expects TLS of the mock.
 mock=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" -f "$PWD/docker-compose.mock.yml" config --format json)
 _check "$mock" "with docker-compose.mock.yml the worker calls both mock sandboxes over http, and their healthcheck and SERVICE_URL expect no TLS" \

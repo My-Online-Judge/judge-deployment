@@ -48,8 +48,9 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 | `problem-db`   | `postgres:16`            | — (internal) | problem-service's database (`problem`) |
 | `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI (plain HTTP, loopback only) + OTLP collector (`jaeger/config.yaml`): `:4317`/`:4318` TLS + client certificate, in-memory, at most 100000 traces |
 | `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge; relays sandbox status to the registry (mutual TLS); `/metrics` `:9100` TLS + client certificate |
-| `judge-server` | `qduoj/judge-server`     | —         | Code sandbox (×2) on the internal `sandbox-net`; least privilege, see `x-sandbox`; API `:8080` TLS + client certificate (the worker's) |
+| `judge-server` | `docker.io/qduoj/judge-server@sha256:a580a164…` (2020-07-09, pinned) | — | Code sandbox (×2) on the internal `sandbox-net`; least privilege, see `x-sandbox`; API `:8080` TLS + client certificate (the worker's) |
 | `judge-portal` | build `../judge-portal`  | — (internal) | Vue 3 frontend (nginx, TLS, answers only CN=`edge`) |
+| `node-exporter`, `cadvisor`, `{identity,problem,submission}-db-exporter`, `redis-exporter`, `kafka-exporter` | see [Observability](#observability-sub-project-12) | — (internal) | Metrics for Prometheus: the host, every container, the three databases, Redis and Kafka |
 
 ## Run
 
@@ -287,7 +288,9 @@ the shared `.env`. The gateway and the sandboxes need no change: they have calle
 `judge-api-results` next to the running one and take verdicts for submissions it does not have. Its schema is
 built by `migrations/sp3-flyway.sh`, a one-shot Flyway container on the service's own migrations.
 
-Cutover runbook (all from `judge-deployment/`):
+Cutover runbook (all from `judge-deployment/`). Historical: its `docker tag judge-deployment-submission-service:latest|pre-sp3b`
+commands use the image names from before sub-project 12, which now names images `ghcr.io/my-online-judge/…` (see
+[Images](#images-sub-project-12)).
 
 1. **Prepare, no traffic yet.** `migrations/sp3-env.sh create` writes `.env.submission` (generated password).
    Keep the running image for a rollback:
@@ -358,6 +361,12 @@ with the tag `OJ_<NAME>_TAG`, else `OJ_TAG`, else `main` (`.env.example` lists t
 `build:`, so `docker compose build <service>` tags the local build with that name and `docker compose up -d --no-build`
 runs it without pulling. Build one image at a time on this host. The bench overlay runs the same names, never pulled.
 
+Compose v5 pulls first for a service with both `image:` and `build:`, and builds only when the pull fails. So once CI has
+pushed a readable `:main`, a bare `docker compose up` on a host without the local tag runs CI's image instead of building
+from the sibling checkouts. Pick the path explicitly. For a local build, run `docker compose build <service>` (one at a
+time on this host), then `docker compose up -d --no-build`. For CI's images, run `docker compose pull`, then
+`docker compose up -d --no-build`.
+
 - **Rollback** to an earlier image: `OJ_<NAME>_TAG=<old sha> docker compose up -d <service>`, or for every service tagged
   alike `OJ_TAG=<shared tag> docker compose up -d`.
 - **Logs** of every container rotate: json-file, 3 files of 10 MB (`x-logging`).
@@ -374,6 +383,50 @@ runs it without pulling. Build one image at a time on this host. The bench overl
   ```
 
   If the mirror's digest differs from `a580a164...` (it became an index), pin the mirror's own digest.
+
+## Observability (sub-project 12)
+
+Prometheus (`http://127.0.0.1:9090`) scrapes, besides the services' actuators and the workers, one exporter per thing
+it watches, each in its own job named after the service (`prometheus.yml`):
+
+| Service | Image | Port | What it exports |
+|---|---|---|---|
+| `node-exporter` | `prom/node-exporter:v1.9.1` | 9100 | The host: CPU, memory, filesystems (host pid namespace, read-only `/proc`, `/sys`, `/`) |
+| `cadvisor` | `ghcr.io/google/cadvisor:v0.60.6` | 8080 | CPU and memory of every container, labelled with its name |
+| `identity-db-exporter`, `problem-db-exporter`, `submission-db-exporter` | `prometheuscommunity/postgres-exporter:v0.17.1` | 9187 | Each database, as the read-only role `oj_monitor` |
+| `redis-exporter` | `oliver006/redis_exporter:v1.72.0` | 9121 | Redis |
+| `kafka-exporter` | `danielqsj/kafka-exporter:v1.9.0` | 9308 | Topic offsets and consumer-group lag |
+
+- **Mutual TLS, like every hop (sub-project 10).** Six exporters serve `/metrics` with the leaf of their own tls subpath
+  and require a client certificate signed by the CA; Prometheus presents its own. node-exporter and the
+  postgres-exporters read the compose config `exporter-web`, redis-exporter its `-tls-server-*` flags, kafka-exporter its
+  `--server.tls.*` flags. Each runs as its image's own user, the owner `pki/identities.txt` gives its identity. None
+  publishes a port. `bash tests/tls.test.sh` (section `exporters`) checks that no certificate and a foreign one are refused.
+- **cAdvisor is plain HTTP** inside oj-net: it has no TLS (a documented exception, like the loopback operator UIs). It
+  runs as root, not privileged, with read-only `docker.sock` and `containerd.sock`: this host's Docker keeps images in the
+  containerd snapshotter, which v0.52.1 could not follow (no container was registered); v0.60.6 reads them through
+  containerd. It collects only CPU and memory: the disk metrics filled about 200 MiB of kernel dentry cache charged to
+  its 256 MiB cap.
+- **The exporters' own connections are TLS with client certificates too.** The postgres-exporters use `verify-full`, plus
+  scram as `oj_monitor`, whose password is `PG_MONITOR_PASSWORD` in `.env`. redis-exporter uses `rediss://redis:6379`.
+  kafka-exporter uses `kafka:29092` as CN `kafka-exporter`, which `kafka/acls.sh` allows to describe every topic and group
+  and the cluster, and nothing else.
+- **Memory caps** (`mem_limit`): cadvisor 256 MiB, each of the others 64 MiB. On 2026-10-20 each used at most a third of
+  its cap.
+- **Bench:** the exporters are in profile `off` there (`bench/compose.bench.yml`), and the bench Prometheus reports their
+  targets down.
+
+Deploying them, once, from `judge-deployment/`:
+
+1. `PG_MONITOR_PASSWORD` must be in `.env` (`migrations/sp12-env.sh create` generates it). Compose refuses to start
+   without it.
+2. `pki/pki.sh issue <id>` for each new identity: `node-exporter`, the three `*-db-exporter`, `redis-exporter` and
+   `kafka-exporter`. Not `issue-all`, which re-issues every leaf (a rotation, see above).
+3. `migrations/sp12-pg-monitor.sh` creates `oj_monitor` in the three running databases (`docker exec` over the Unix
+   socket, password through stdin) and prints `ok <container>` for each. It is idempotent: run it again after the
+   password changes.
+4. `docker compose up -d --no-build`: `tls-init` installs the new leaves and `kafka-init` adds kafka-exporter's ACLs.
+   Then check that every exporter target is up at `http://127.0.0.1:9090/targets`.
 
 ## Configuration
 

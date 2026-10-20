@@ -7,7 +7,8 @@ set -euo pipefail
 acls=(/opt/kafka/bin/kafka-acls.sh --bootstrap-server kafka:29092 --command-config /opt/oj/kafka/admin-client.properties)
 
 # principal resource-type name operation — one rule per line (tests/kafka-acls.test.sh compares it with spec §4.5).
-# kafka-cluster is Kafka's fixed name for the cluster resource.
+# kafka-cluster is Kafka's fixed name for the cluster resource. * is Kafka's wildcard resource name (every topic or group): it
+# is passed quoted below, never expanded by the shell. kafka-exporter (sp12 task 15) only describes: metadata, offsets, lag.
 rules=$(cat <<'RULES'
 User:submission-service Topic submission.requested Write
 User:submission-service Topic submission.requested Describe
@@ -59,6 +60,9 @@ User:submission-service Topic submission.started Create
 User:submission-service Topic submission.started Alter
 User:submission-service Topic submission.started DescribeConfigs
 User:submission-service Group submission-started Read
+User:kafka-exporter Topic * Describe
+User:kafka-exporter Group * Describe
+User:kafka-exporter Cluster kafka-cluster Describe
 RULES
 )
 

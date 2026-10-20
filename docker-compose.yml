@@ -473,6 +473,191 @@ services:
         condition: service_started
     networks: [oj-net]
 
+  # ---- exporters (sub-project 12) ---------------------------------------------
+  # Prometheus scrapes each by service name (prometheus.yml, one job per service). Six serve /metrics over mutual TLS with
+  # the leaf of their own tls subpath and accept any CA-signed client (Prometheus presents its own); each runs as its
+  # image's own user, the owner pki/identities.txt gives that subpath. cAdvisor has no TLS: plain HTTP on oj-net. None
+  # publishes a port.
+  node-exporter:
+    logging: *logging
+    # The host: CPU, memory, filesystems (HostDiskAlmostFull). Host pid namespace and read-only views of /proc, /sys and /.
+    image: prom/node-exporter:v1.9.1
+    container_name: oj-node-exporter
+    restart: unless-stopped
+    pid: host
+    command: ["--path.procfs=/host/proc", "--path.sysfs=/host/sys", "--path.rootfs=/rootfs", "--web.config.file=/etc/oj/exporter-web.yml"]
+    configs:
+      - source: exporter-web
+        target: /etc/oj/exporter-web.yml
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro,rslave
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: node-exporter
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+    mem_limit: 64m
+    networks: [oj-net]
+
+  cadvisor:
+    logging: *logging
+    # Per-container CPU and memory, named after the container (ContainerMemoryNearLimit). The host's Docker stores images
+    # with the containerd snapshotter, which cAdvisor v0.52.1 cannot follow (no container is registered: it looks for the
+    # removed /var/lib/docker/image/<driver>/layerdb), privileged or not. v0.60.6's Docker handler reads the containers
+    # through containerd's API, hence containerd.sock (read-only, like docker.sock; either socket is root on the host).
+    # Only cpu and memory are collected: the disk metrics walk every container's filesystem, and the kernel's dentry
+    # cache they fill is charged to this container (measured 2026-10-20: 222 of its 256 MiB, 194 MiB of it slab; 15 MiB
+    # with cpu and memory only).
+    # Runs as root (the image's user) without privileged.
+    image: ghcr.io/google/cadvisor:v0.60.6
+    container_name: oj-cadvisor
+    restart: unless-stopped
+    command: ["--docker_only=true", "--store_container_labels=false", "--housekeeping_interval=15s", "--enable_metrics=cpu,memory"]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    mem_limit: 256m
+    networks: [oj-net]
+
+  # The three databases, each through the read-only role oj_monitor (pg_monitor; migrations/sp12-pg-monitor.sh creates it).
+  # pg-hba admits it like every client: scram with PG_MONITOR_PASSWORD plus a CA-signed client certificate, verify-full.
+  identity-db-exporter:
+    logging: *logging
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    container_name: oj-identity-db-exporter
+    restart: unless-stopped
+    command: ["--web.config.file=/etc/oj/exporter-web.yml"]
+    configs:
+      - source: exporter-web
+        target: /etc/oj/exporter-web.yml
+    environment:
+      DATA_SOURCE_URI: identity-db:5432/postgres?sslmode=verify-full&sslrootcert=/etc/oj/tls/ca.crt&sslcert=/etc/oj/tls/tls.crt&sslkey=/etc/oj/tls/tls.key
+      DATA_SOURCE_USER: oj_monitor
+      DATA_SOURCE_PASS: ${PG_MONITOR_PASSWORD:?run migrations/sp12-env.sh}
+    volumes:
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: identity-db-exporter
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+      identity-db:
+        condition: service_healthy
+    mem_limit: 64m
+    networks: [oj-net]
+
+  problem-db-exporter:
+    logging: *logging
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    container_name: oj-problem-db-exporter
+    restart: unless-stopped
+    command: ["--web.config.file=/etc/oj/exporter-web.yml"]
+    configs:
+      - source: exporter-web
+        target: /etc/oj/exporter-web.yml
+    environment:
+      DATA_SOURCE_URI: problem-db:5432/postgres?sslmode=verify-full&sslrootcert=/etc/oj/tls/ca.crt&sslcert=/etc/oj/tls/tls.crt&sslkey=/etc/oj/tls/tls.key
+      DATA_SOURCE_USER: oj_monitor
+      DATA_SOURCE_PASS: ${PG_MONITOR_PASSWORD:?run migrations/sp12-env.sh}
+    volumes:
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: problem-db-exporter
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+      problem-db:
+        condition: service_healthy
+    mem_limit: 64m
+    networks: [oj-net]
+
+  submission-db-exporter:
+    logging: *logging
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    container_name: oj-submission-db-exporter
+    restart: unless-stopped
+    command: ["--web.config.file=/etc/oj/exporter-web.yml"]
+    configs:
+      - source: exporter-web
+        target: /etc/oj/exporter-web.yml
+    environment:
+      DATA_SOURCE_URI: submission-db:5432/postgres?sslmode=verify-full&sslrootcert=/etc/oj/tls/ca.crt&sslcert=/etc/oj/tls/tls.crt&sslkey=/etc/oj/tls/tls.key
+      DATA_SOURCE_USER: oj_monitor
+      DATA_SOURCE_PASS: ${PG_MONITOR_PASSWORD:?run migrations/sp12-env.sh}
+    volumes:
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: submission-db-exporter
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+      submission-db:
+        condition: service_healthy
+    mem_limit: 64m
+    networks: [oj-net]
+
+  redis-exporter:
+    logging: *logging
+    # Redis over TLS with its own client certificate (Redis requires one); /metrics over mutual TLS (-tls-server-*).
+    image: oliver006/redis_exporter:v1.72.0
+    container_name: oj-redis-exporter
+    restart: unless-stopped
+    command: ["-redis.addr=rediss://redis:6379", "-tls-ca-cert-file=/etc/oj/tls/ca.crt", "-tls-client-cert-file=/etc/oj/tls/tls.crt", "-tls-client-key-file=/etc/oj/tls/tls.key", "-tls-server-cert-file=/etc/oj/tls/tls.crt", "-tls-server-key-file=/etc/oj/tls/tls.key", "-tls-server-ca-cert-file=/etc/oj/tls/ca.crt"]
+    volumes:
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: redis-exporter
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+    mem_limit: 64m
+    networks: [oj-net]
+
+  kafka-exporter:
+    logging: *logging
+    # Topic offsets and consumer-group lag (ConsumerLagHigh) through kafka:29092 over TLS as CN kafka-exporter, which
+    # kafka/acls.sh lets describe every topic and group and the cluster; /metrics over mutual TLS (--server.tls.*). It
+    # exits when Kafka cannot be reached, so it starts after kafka-init and restarts until Kafka is back.
+    image: danielqsj/kafka-exporter:v1.9.0
+    container_name: oj-kafka-exporter
+    restart: unless-stopped
+    command: ["--kafka.server=kafka:29092", "--tls.enabled", "--tls.server-name=kafka", "--tls.ca-file=/etc/oj/tls/ca.crt", "--tls.cert-file=/etc/oj/tls/tls.crt", "--tls.key-file=/etc/oj/tls/tls.key", "--server.tls.enabled", "--server.tls.mutual-auth-enabled", "--server.tls.ca-file=/etc/oj/tls/ca.crt", "--server.tls.cert-file=/etc/oj/tls/tls.crt", "--server.tls.key-file=/etc/oj/tls/tls.key"]
+    volumes:
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: kafka-exporter
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    mem_limit: 64m
+    networks: [oj-net]
+
   # ---- application services -------------------------------------------------
   # Submissions, judging, languages and judge servers: the remainder of the judge-api monolith, its own service
   # with its own database since sub-project 3b.
@@ -904,6 +1089,15 @@ configs:
     content: |
       networkaddress.cache.ttl=1
       networkaddress.cache.negative.ttl=0
+  exporter-web:
+    # The Prometheus exporter toolkit's web config (node-exporter, the postgres-exporters: --web.config.file): /metrics
+    # over TLS with the leaf of the exporter's own tls subpath, and only for a client certificate signed by the CA.
+    content: |
+      tls_server_config:
+        cert_file: /etc/oj/tls/tls.crt
+        key_file: /etc/oj/tls/tls.key
+        client_ca_file: /etc/oj/tls/ca.crt
+        client_auth_type: RequireAndVerifyClientCert
 
 networks:
   oj-net:
