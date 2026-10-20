@@ -235,10 +235,15 @@ check "kafka-exporter reads kafka:29092 over TLS (name kafka) with its client ce
 
 # Non-root containers (sp12 task 13). volume-init hands the test-case cache to uid 10001 before the worker (which runs as
 # 10001) writes it; the one-shot has no network. The check allows only `logging` (and compose's null `command`) beyond the definition, in one place.
-check "volume-init: alpine one-shot that chowns the test_case_cache volume to 10001:10001, no network" \
-  "(lambda x: {k: val for k, val in x.items() if k not in ('logging', 'command')} == {'image': 'alpine:3.22', 'restart': 'no', 'network_mode': 'none', 'volumes': [{'type': 'volume', 'source': 'test_case_cache', 'target': '/test_case', 'volume': {}}], 'entrypoint': ['/bin/sh', '-c', 'chown -R 10001:10001 /test_case']})(s.get('volume-init', {}))"
+# It changes the owner only (sp13): compose runs it again on every `up` of the worker, and a checker bundle keeps group 12003.
+check "volume-init: alpine one-shot that gives the test_case_cache volume to owner 10001 and keeps each group, no network" \
+  "(lambda x: {k: val for k, val in x.items() if k not in ('logging', 'command')} == {'image': 'alpine:3.22', 'restart': 'no', 'network_mode': 'none', 'volumes': [{'type': 'volume', 'source': 'test_case_cache', 'target': '/test_case', 'volume': {}}], 'entrypoint': ['/bin/sh', '-c', 'chown -R 10001 /test_case']})(s.get('volume-init', {}))"
 check "judge-worker waits for volume-init to complete" \
   "s['judge-worker']['depends_on'].get('volume-init', {}).get('condition') == 'service_completed_successfully'"
+# A checker bundle's directory and inputs go to group 12003, qduoj's spj, which runs the checker; a submission (code,
+# 12002) is not in it (sp13). The worker can give its files only to a group it is in.
+check "judge-worker joins group 12003 (qduoj's spj) and nothing else, as uid 10001 (its image's user)" \
+  "s['judge-worker'].get('group_add') == ['12003'] and 'user' not in s['judge-worker']"
 
 # Grafana (sp12 task 18).
 check "grafana: grafana-oss 12.0.2 on loopback 127.0.0.1:3000 only, oj-net only, restarts unless stopped, mem_limit 256 MiB" \

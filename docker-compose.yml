@@ -961,6 +961,8 @@ services:
 
   # One-shot: the worker runs as uid 10001 and the named volume test_case_cache is created root-owned, so hand it over
   # before the worker starts (Docker copies image content into a new volume only for the image's own directories).
+  # The owner only: compose runs this again on every `up` of the worker, and a checker bundle's directory and inputs
+  # keep group 12003 (judge-worker below).
   volume-init:
     logging: *logging
     image: alpine:3.22
@@ -968,7 +970,7 @@ services:
     network_mode: none
     volumes:
       - test_case_cache:/test_case
-    entrypoint: ["/bin/sh", "-c", "chown -R 10001:10001 /test_case"]
+    entrypoint: ["/bin/sh", "-c", "chown -R 10001 /test_case"]
 
   judge-worker:
     image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/judge-worker:${OJ_WORKER_TAG:-${OJ_TAG:-main}}
@@ -978,6 +980,10 @@ services:
     # and are meant to scale horizontally — `docker compose up -d --scale judge-worker=3` spreads
     # the 6 submission.requested partitions across the instances. A fixed name would block scaling.
     restart: unless-stopped
+    # Group 12003 is qduoj's spj, the user that runs a problem's checker. The worker gives a checker bundle's directory
+    # and inputs to that group (0750, 0640), so the checker reads them and a submission (code, 12002) does not; the
+    # expected outputs stay the worker's (0600), and a bundle without a checker stays 0700.
+    group_add: ["12003"]
     volumes:
       - test_case_cache:/test_case
       - type: volume
