@@ -51,6 +51,7 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 | `judge-server` | `docker.io/qduoj/judge-server@sha256:a580a164…` (2020-07-09, pinned) | — | Code sandbox (×2) on the internal `sandbox-net`; least privilege, see `x-sandbox`; API `:8080` TLS + client certificate (the worker's) |
 | `judge-portal` | build `../judge-portal`  | — (internal) | Vue 3 frontend (nginx, TLS, answers only CN=`edge`) |
 | `alertmanager` | see [Alerting](#alerting-sub-project-12) | 9093 (loopback) | Receives Prometheus's alerts; Telegram when configured |
+| `grafana` | see [Dashboards](#dashboards-sub-project-12) | 3000 (loopback) | Provisioned dashboards over Prometheus |
 | `node-exporter`, `cadvisor`, `{identity,problem,submission}-db-exporter`, `redis-exporter`, `kafka-exporter` | see [Observability](#observability-sub-project-12) | — (internal) | Metrics for Prometheus: the host, every container, the three databases, Redis and Kafka |
 
 ## Run
@@ -446,6 +447,34 @@ still-firing alert every 4 h.
   message is `[FIRING] <alertname> (<severity>): <summary>` (`alertmanager/telegram.tmpl`); resolved alerts are sent too.
 - **Bench:** `alertmanager` is in profile `off` there; the bench Prometheus logs one failed notification per alert.
 - Check: `bash tests/alertmanager.test.sh` (amtool in the pinned image, with and without the variables).
+
+## Dashboards (sub-project 12)
+
+Grafana (`grafana/grafana-oss:12.0.2`, `mem_limit` 256 MiB, container `oj-grafana`) is at `http://127.0.0.1:3000`
+(plain HTTP, loopback only, like the other operator UIs). Log in as `admin` with `GRAFANA_ADMIN_PASSWORD` from `.env`.
+Everything is provisioned read-only from `grafana/`, so a dashboard is changed in the repo, not in the UI.
+
+- **Datasource:** `prometheus` (uid `prometheus`, `http://prometheus:9090`, the default).
+- **Dashboards** (folder-less, tag `oj`): *OJ Overview* (`oj-overview`: verdicts per minute, judge latency p50/p95, queue
+  depth, 5xx rate and p95 latency per service, firing alerts, a pointer to Jaeger), *Infrastructure* (`oj-infrastructure`:
+  host CPU, memory and disk; container CPU and memory from cAdvisor; Postgres connections; Redis memory; Kafka consumer
+  lag) and *JVM* (`oj-jvm`: heap, GC pause time and live threads, with a `job` variable). The HighErrorRate, HighLatency and
+  HostDiskAlmostFull expressions are the ones in `alerts.yml`, so a panel shows what the alert sees. The Infrastructure
+  panels fill in once the exporters (sp12 task 15) are running.
+- **The admin password applies only on first start.** `GF_SECURITY_ADMIN_PASSWORD` is read when the `grafanadata` volume is
+  first created. A later change of `GRAFANA_ADMIN_PASSWORD` in `.env` does nothing; set the new value with
+  `docker exec -it oj-grafana grafana cli admin reset-admin-password`, typing it at the prompt (never on a command line,
+  where it would land in the shell history and the process list), then update `.env` to match.
+- **No Jaeger datasource (deviation from spec 3.4).** Jaeger 2.21.0 removed the v1 HTTP endpoints Grafana's Jaeger
+  datasource uses (release note #9260; `/api/services` answers 404). Checked on 2026-10-20 with a throwaway Grafana 12.0.2:
+  the datasource health check fails ("cannot unmarshal number into ... ServicesResponse"), also with
+  `GF_FEATURE_TOGGLES_ENABLE=jaegerEnableGrpcEndpoint`, which 12.0.2 accepts but which changes nothing for the health check.
+  Traces are read in Jaeger's UI, `http://127.0.0.1:16686`; OJ Overview has a text panel that says so. Revisit when
+  Grafana's Jaeger datasource speaks Jaeger v2's API.
+- **Plugins:** `GF_PLUGINS_PREINSTALL_DISABLED=true`. By default Grafana 12 downloads three Grafana-Labs apps at start.
+- **Bench:** `grafana` is in profile `off` there.
+- Check: `bash tests/grafana.test.sh` (throwaway `prom/prometheus:v3.1.0` and Grafana: every panel query is valid, the
+  three dashboards load) and the Grafana checks in `tests/compose.test.sh`.
 
 ## Configuration
 

@@ -8,6 +8,8 @@ cd "$(dirname "$0")/.."
 if [[ -n ${OJ_ENV_DIR:-} ]]; then deploy_dir=$OJ_ENV_DIR
 elif [[ -f .env ]]; then deploy_dir=$PWD
 else deploy_dir=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); fi
+# Grafana's admin password is required (:?); the checks never read its value.
+export GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-dummy}
 config=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
 # The same file before interpolation: which ${VARIABLE} a value names, not what it resolves to.
 raw=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --no-interpolate --format json)
@@ -230,6 +232,14 @@ check "redis-exporter reads rediss://redis:6379 with its client certificate and 
   "s.get('redis-exporter', {}).get('command') == ['-redis.addr=rediss://redis:6379', '-tls-ca-cert-file=/etc/oj/tls/ca.crt', '-tls-client-cert-file=/etc/oj/tls/tls.crt', '-tls-client-key-file=/etc/oj/tls/tls.key', '-tls-server-cert-file=/etc/oj/tls/tls.crt', '-tls-server-key-file=/etc/oj/tls/tls.key', '-tls-server-ca-cert-file=/etc/oj/tls/ca.crt']"
 check "kafka-exporter reads kafka:29092 over TLS (name kafka) with its client certificate, serves mutual TLS, and starts after kafka-init" \
   "s.get('kafka-exporter', {}).get('command') == ['--kafka.server=kafka:29092', '--tls.enabled', '--tls.server-name=kafka', '--tls.ca-file=/etc/oj/tls/ca.crt', '--tls.cert-file=/etc/oj/tls/tls.crt', '--tls.key-file=/etc/oj/tls/tls.key', '--server.tls.enabled', '--server.tls.mutual-auth-enabled', '--server.tls.ca-file=/etc/oj/tls/ca.crt', '--server.tls.cert-file=/etc/oj/tls/tls.crt', '--server.tls.key-file=/etc/oj/tls/tls.key'] and {k: d['condition'] for k, d in s['kafka-exporter']['depends_on'].items()} == {'tls-init': 'service_completed_successfully', 'kafka-init': 'service_completed_successfully'}"
+
+# Grafana (sp12 task 18).
+check "grafana: grafana-oss 12.0.2 on loopback 127.0.0.1:3000 only, oj-net only, restarts unless stopped, mem_limit 256 MiB" \
+  "(lambda g: g.get('image') == 'grafana/grafana-oss:12.0.2' and g.get('container_name') == 'oj-grafana' and [(p.get('host_ip'), p.get('published'), p.get('target')) for p in g.get('ports', [])] == [('127.0.0.1', '3000', 3000)] and list(g.get('networks', {})) == ['oj-net'] and g.get('restart') == 'unless-stopped' and g.get('mem_limit') in (268435456, '268435456'))(s.get('grafana', {}))"
+check_raw "grafana: the admin password is \${GRAFANA_ADMIN_PASSWORD:?run migrations/sp12-env.sh}; sign-up and analytics are off" \
+  "(lambda e: e.get('GF_SECURITY_ADMIN_PASSWORD') == '\${GRAFANA_ADMIN_PASSWORD:?run migrations/sp12-env.sh}' and e.get('GF_USERS_ALLOW_SIGN_UP') == 'false' and e.get('GF_ANALYTICS_REPORTING_ENABLED') == 'false' and e.get('GF_ANALYTICS_CHECK_FOR_UPDATES') == 'false')(s.get('grafana', {}).get('environment', {}))"
+check "grafana: provisioning and dashboards are mounted read-only, its data is the named volume grafanadata, and it logs like the others" \
+  "(lambda g: {(m['source'], m['target'], bool(m.get('read_only'))) for m in g.get('volumes', []) if m.get('type') == 'bind'} == {(m['source'], m['target'], True) for m in g.get('volumes', []) if m.get('type') == 'bind' and m['target'] in ('/etc/grafana/provisioning', '/var/lib/grafana/dashboards')} and len([m for m in g.get('volumes', []) if m.get('type') == 'bind']) == 2 and any(m.get('source') == 'grafanadata' and m.get('target') == '/var/lib/grafana' for m in g.get('volumes', [])) and 'grafanadata' in v and g.get('logging') == s['prometheus'].get('logging'))(s.get('grafana', {}))"
 
 # The mock sandbox speaks plain HTTP: its overlay points the worker at http:// and nothing expects TLS of the mock.
 mock=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" -f "$PWD/docker-compose.mock.yml" config --format json)

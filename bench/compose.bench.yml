@@ -26,3 +26,5 @@ services:
   kafka-exporter: {profiles: ["off"]}
   # Alerts have nowhere to go on the bench: Prometheus logs one failed notification each (alerting: in prometheus.yml).
   alertmanager: {profiles: ["off"]}
+  # Dashboards are for the live stack, not the bench.
+  grafana: {profiles: ["off"]}

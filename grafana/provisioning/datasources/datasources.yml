@@ -1,0 +1,12 @@
+apiVersion: 1
+# No Jaeger datasource (spec 3.4 deviation, README): Jaeger 2.21 dropped the v1 HTTP API that Grafana's Jaeger datasource
+# calls (/api/services answers 404; its health check fails, with or without the jaegerEnableGrpcEndpoint toggle). Traces are
+# read in Jaeger's own UI, http://127.0.0.1:16686.
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

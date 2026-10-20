@@ -679,6 +679,31 @@ services:
     mem_limit: 64m
     networks: [oj-net]
 
+  # ---- dashboards (sub-project 12) --------------------------------------------
+  # Grafana on loopback (plain HTTP, like the other operator UIs). The datasource and the three dashboards are provisioned
+  # read-only from ./grafana; there is no Jaeger datasource (README: Jaeger 2.21 dropped the v1 HTTP API it calls).
+  # GF_SECURITY_ADMIN_PASSWORD only applies when the grafanadata volume is first created (README). The image's own user
+  # (472) writes /var/lib/grafana. Plugin preinstall is off: it downloads from the internet at start and costs memory.
+  grafana:
+    logging: *logging
+    image: grafana/grafana-oss:12.0.2
+    container_name: oj-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run migrations/sp12-env.sh}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"   # operator UI, loopback only
+    mem_limit: 256m
+    networks: [oj-net]
+
   # ---- application services -------------------------------------------------
   # Submissions, judging, languages and judge servers: the remainder of the judge-api monolith, its own service
   # with its own database since sub-project 3b.
@@ -1139,6 +1164,7 @@ volumes:
   test_case_cache:
   promdata:
   alertmanagerdata:
+  grafanadata:
   kafkadata:
   tls:
   caddydata:
