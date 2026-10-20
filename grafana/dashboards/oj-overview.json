@@ -166,6 +166,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "Submits refused (queue full) per minute",
+      "description": "Every call refused with 503 QUEUE_FULL because the judge queue was full: submits and admin rejudges (single and per-problem) alike.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -183,7 +184,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(oj_admission_refused_total[$__rate_interval])) * 60",
+          "expr": "sum(rate(oj_admission_refused_total[$__rate_interval])) * 60 or vector(0)",
           "legendFormat": "refused / min"
         }
       ],
