@@ -28,6 +28,17 @@ pinned image) to trust the private CA. `bench/probe.sh` calls `https://localhost
 pki/out/ca/ca.crt` (override with `OJ_CA`). Prometheus stays plain HTTP on `127.0.0.1:9090`; the edge's ports 80/443 are
 published by the bench stack too, hence the live stack must be down.
 
+## Environment inherited from the live stack
+
+The bench stack reads the same env files as the live one. Two consequences:
+
+- `JUDGE_MAX_QUEUE_DEPTH=200` comes from `.env.submission`, so a bench run admits at most 200 queued submissions. REPORT §13's
+  numbers were measured at 500: a run that needs 500 must set it on purpose and say so in its report.
+- `.env.identity` now gives access tokens 15 minutes (`JWT_ACCESS_TOKEN_EXPIRATION=900000`, set by `migrations/sp12-env.sh`).
+  `bench/k6` logs every user in once in `setup()` (and `check.js` again at the end), so a k6 phase that lasts longer than
+  15 minutes after its login meets expired access tokens. Today's runs fit (the longest step is 600 s); keep that limit in mind
+  before adding a longer phase.
+
 ## Runs
 
 | command | what |

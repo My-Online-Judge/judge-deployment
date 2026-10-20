@@ -456,7 +456,7 @@ Everything is provisioned read-only from `grafana/`, so a dashboard is changed i
 
 - **Datasource:** `prometheus` (uid `prometheus`, `http://prometheus:9090`, the default).
 - **Dashboards** (folder-less, tag `oj`): *OJ Overview* (`oj-overview`: verdicts per minute, judge latency p50/p95, queue
-  depth, submits refused with 503 `QUEUE_FULL` per minute, 5xx rate and p95 latency per service, firing alerts, a
+  depth, calls refused with 503 `QUEUE_FULL` per minute (submits and admin rejudges), 5xx rate and p95 latency per service, firing alerts, a
   pointer to Jaeger), *Infrastructure* (`oj-infrastructure`:
   host CPU, memory and disk; container CPU and memory from cAdvisor; Postgres connections; Redis memory; Kafka consumer
   lag) and *JVM* (`oj-jvm`: heap, GC pause time and live threads, with a `job` variable). The HighErrorRate, HighLatency and
@@ -522,6 +522,44 @@ the one worker, under the 30-minute PENDING timeout. **Scaling the workers means
 `JudgeQueueBacklog` threshold (150) must stay below the cap, or the alert can never fire. A problem rejudge on a busy
 queue queues only the newest submissions that fit; its answer's `queued` says how many.
 
+With the live cap (200) below the batch size (500), even an idle queue takes at most the free slots. A repeated
+**unfiltered** problem rejudge takes the newest finished submissions again, including the ones it just rejudged, so the
+older ones are never reached. To reach them, filter with `?status=<verdict>` (rows that change verdict leave the filter),
+rejudge them one by one, or raise `JUDGE_MAX_QUEUE_DEPTH` for the operation.
+
+The bench stack (`bench/`) reads these same env files, so a bench run inherits `JUDGE_MAX_QUEUE_DEPTH=200` from
+`.env.submission`. `bench/REPORT.md` §13 was measured at 500: a run that needs 500 must set it on purpose and say so in
+its report. It also reads the same `.env.identity`, where the access token now lives 15 minutes
+(`JWT_ACCESS_TOKEN_EXPIRATION=900000`, `migrations/sp12-env.sh`); `bench/k6` logs every user in once in `setup()`, so a
+k6 phase that runs longer than 15 minutes after its login meets expired access tokens. Today's runs fit (the longest
+step is 600 s); this is a limit to remember when adding a longer one.
+
+### Login limits (sub-project 12)
+
+identity-service counts failed password logins in Redis, before the password is checked:
+
+- per (username, IP) pair: 5 failures in 5 minutes lock that pair for 15 minutes (keys `oj:rl:login:pair:<username>|<ip>`);
+  the 4th and 5th failures also wait 2 s and 4 s;
+- per account: 50 failures in an hour lock the username for 15 minutes, from any address (`oj:rl:login:account:<username>`);
+- per IP: 30 failures in 5 minutes lock every login from that address for 15 minutes, correct passwords included
+  (`oj:rl:login:ip:<ip>`);
+- `PUT /users/me/password`: 5 wrong current passwords in 5 minutes lock it for 15 minutes (`pwchange:<user id>`).
+
+Known limits, both the spec's values for sub-project 12 and a follow-up: a lab behind one NAT address shares the IP
+limit, and anyone can keep one account locked by sending wrong passwords for it (50 an hour is enough).
+
+There is **no admin endpoint** to clear a lock. A lock ends by itself after 15 minutes. To clear one earlier, delete both
+the lock key and the counter of the same suffix in Redis (a counter at its limit refuses too), for example for the pair
+`alice|10.0.0.5`:
+
+```bash
+docker exec oj-redis redis-cli --tls --cacert /etc/oj/tls/ca.crt --cert /etc/oj/tls/tls.crt --key /etc/oj/tls/tls.key \
+  del 'oj:rl:lock:pair:alice|10.0.0.5' 'oj:rl:login:pair:alice|10.0.0.5'
+```
+
+For an account use `oj:rl:lock:account:<username>` and `oj:rl:login:account:<username>`; for an address,
+`oj:rl:lock:ip:<ip>` and `oj:rl:login:ip:<ip>`. Redis fails open: while it is down, no limit applies.
+
 ### Deploying sub-project 11: backfill `last_status`, check the statistics
 
 Once, after problem-service has started with Flyway V5 and before any rejudge, from `judge-deployment/`:
@@ -572,7 +610,7 @@ Replaying `submission.judged.dlq`:
   job marked it SYSTEM_ERROR (`Judging timed out` / `Judging request lost`), the replay is a no-op (the log says
   "late or duplicate verdict"): rejudge that submission instead (`POST /api/v1/submissions/{id}/rejudge`).
 - A dead-lettered verdict of an earlier generation (the submission was rejudged since) is ignored: 0 rows, logged as
-  late or duplicate. Verdicts carry their generation (`rejudgeCount`) from sub-project 12's worker on; a record without
+  late or duplicate. Verdicts carry their generation (`rejudgeCount`) from sub-project 12 on (requests queued by the new submission-service and judged by the new worker); a record without
   one (dead-lettered before that deploy) is still applied as before, so replay those only for submissions not
   rejudged since.
 - After a Kafka outage longer than about 2.5 minutes, in-flight judgements may have been timed out; rejudge them with
