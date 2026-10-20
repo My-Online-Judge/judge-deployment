@@ -688,7 +688,7 @@ services:
   # (472) writes /var/lib/grafana. Plugin preinstall is off: it downloads from the internet at start and costs memory.
   grafana:
     logging: *logging
-    image: grafana/grafana-oss:12.0.2
+    image: grafana/grafana-oss:13.0.2
     container_name: oj-grafana
     restart: unless-stopped
     environment:
