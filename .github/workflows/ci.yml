@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Env files from the examples
+        run: for f in .env*.example; do cp "$f" "${f%.example}"; done
+
+      - name: Compose renders (stack and mock overlay)
+        run: docker compose config -q && docker compose -f docker-compose.yml -f docker-compose.mock.yml config -q
+
+      - name: shellcheck
+        run: git ls-files -z '*.sh' | xargs -0 docker run --rm -v "$PWD":/mnt:ro -w /mnt koalaman/shellcheck:v0.11.0 -S warning
+
+      - name: Offline tests
+        run: |
+          fail=0
+          for t in tests/*.test.sh; do
+            if sed -n 2p "$t" | grep -q '^# ci: skip'; then echo "skip $t"; continue; fi
+            echo "== $t"
+            bash "$t" || fail=1
+          done
+          exit $fail

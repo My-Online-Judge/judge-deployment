@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # backup/lib.sh compare_counts: PASS/FAIL lines and exit status (SP9 T9).
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 source backup/lib.sh
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 fail=0

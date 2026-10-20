@@ -92,9 +92,9 @@ cmd_issue() {
 }
 
 cmd_issue_all() {
-  local id uid rest host=${OJ_PUBLIC_HOST:-localhost} x
+  local id rest host=${OJ_PUBLIC_HOST:-localhost} x
   local -a extra
-  while read -r id uid rest; do
+  while read -r id _ rest; do
     case "$id" in ''|'#'*|rogue) continue ;; esac
     valid_id "$id"
     read -ra extra <<< "${rest:-}"

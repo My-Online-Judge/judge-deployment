@@ -2,6 +2,7 @@
 # Shared helpers for backup.sh and restore-drill.sh. Source this file; it has no side effects.
 
 # service:table pairs whose row counts are recorded at backup time and re-checked by the drill.
+# shellcheck disable=SC2034  # read by backup.sh and restore-drill.sh, which source this file
 BACKUP_COUNT_TABLES="identity:t_users problem:t_problems problem:t_test_cases submission:t_submissions submission:t_outbox"
 
 # Rows listed here are reported as INFO and never fail (they churn constantly on a live system).

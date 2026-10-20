@@ -2,7 +2,7 @@
 # probe.sh refuses a wrong argument, and refuses to run without an oj-bench stack (sub-project 6 §3.2): it stops
 # containers, and only ever those of oj-bench, through chaos/fault.sh.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 fail=0
 out=$(bash probe.sh nonsense 2>&1); code=$?
 if [ $code -ne 0 ] && grep -q 'usage: probe.sh dns|redis|grpc|kafka|worker|minio' <<< "$out"; then echo "ok   a wrong argument is refused"

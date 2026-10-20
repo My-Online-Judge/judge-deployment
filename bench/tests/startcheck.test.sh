@@ -2,7 +2,7 @@
 # startcheck.sh lists the alerts that fired in Prometheus's first 180 s, in seconds after its start, or "none"; and it
 # refuses to run without an oj-bench stack (sub-project 7 §3.4).
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 fail=0
 answer='{"data":{"result":[{"metric":{"alertname":"ProblemServiceDown"},"values":[[1025,"1"],[1030,"1"]]},
   {"metric":{"alertname":"ApiGatewayDown"},"values":[[1040,"1"]]}]}}'

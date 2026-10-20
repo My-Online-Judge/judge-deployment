@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ci: skip (needs built images)
 # The JVM services' DNS cache, measured in their runtime image with compose's JAVA_TOOL_OPTIONS and configs (sub-project
 # 6 §3.2 A): a resolved address kept 1 s, a failed lookup not at all. It checks the effect, not a flag: the image's
 # java.security sets networkaddress.cache.negative.ttl=10, which a -Dsun.net.inetaddr.* system property cannot

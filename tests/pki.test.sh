@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pki/pki.sh, pki/install.sh and the compose tls-mount rules (sub-project 10, task 1). Needs host openssl and docker.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 pki=$PWD/pki/pki.sh
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 export PKI_OUT=$work/out

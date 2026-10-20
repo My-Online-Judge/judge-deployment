@@ -1,4 +1,6 @@
 # Shared by every bench script (sub-project 5): where things are, and the one way to talk to the oj-bench stack.
+# shellcheck shell=bash
+# shellcheck disable=SC2034  # sourced: the variables below are read by the scripts that source this file
 # Sourced, never executed. Never prints a value from .env.
 BENCH_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # The checkout that owns the .env files and sits beside the sibling repositories. In a worktree it is the main
@@ -31,6 +33,7 @@ bench_compose() { # BENCH_EXTRA_COMPOSE=<file> adds one more overlay (relative t
   if [ -n "${BENCH_EXTRA_COMPOSE:-}" ]; then
     case "$BENCH_EXTRA_COMPOSE" in /*) extra=(-f "$BENCH_EXTRA_COMPOSE") ;; *) extra=(-f "$BENCH_DIR/../$BENCH_EXTRA_COMPOSE") ;; esac
   fi
+  # shellcheck disable=SC2097,SC2098  # the compose files read BENCH_DIR from the environment; the value is unchanged
   BENCH_DIR="$BENCH_DIR" docker compose -p "$BENCH_PROJECT" --project-directory "$DEPLOY_DIR" \
     -f "$BENCH_DIR/../docker-compose.yml" -f "$BENCH_DIR/compose.bench.yml" "${extra[@]}" "$@"
 }

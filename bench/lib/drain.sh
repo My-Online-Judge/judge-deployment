@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # drain_queue <max_s> — waits until the run's work is really done, twice in a row (5 s apart): the judge queue
 # (max(oj_queue_depth) on the bench Prometheus) reads 0 AND the judge-workers group has consumed every
 # submission.requested message. The queue alone is not enough: the reconcile job flips a submission judging > 3 min

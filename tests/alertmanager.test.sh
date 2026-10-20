@@ -57,7 +57,7 @@ grep -q 'define "oj.telegram"' alertmanager/telegram.tmpl && ok "telegram.tmpl d
 if [[ -n ${OJ_ENV_DIR:-} ]]; then deploy_dir=$OJ_ENV_DIR
 elif [[ -f .env ]]; then deploy_dir=$PWD
 else deploy_dir=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); fi
-config=$(ALERT_TELEGRAM_BOT_TOKEN= ALERT_TELEGRAM_CHAT_ID= docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
+config=$(ALERT_TELEGRAM_BOT_TOKEN='' ALERT_TELEGRAM_CHAT_ID='' docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
 raw=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --no-interpolate --format json)
 py() { python3 -c "import json,sys; c=json.load(sys.stdin); s=c['services']; a=s.get('alertmanager', {}); sys.exit(0 if ($2) else 1)" <<< "$1"; }
 chk() { if py "$config" "$2"; then ok "$1"; else bad "$1"; fi; }

@@ -20,7 +20,7 @@ fail=0
 check() {
     if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: expected $3, got $2"; fail=1; fi
 }
-check "one dump is written" "$(ls "$work" | grep -c '^oj-db-final-.*\.dump$')" 1
+check "one dump is written" "$(find "$work" -maxdepth 1 -name 'oj-db-final-*.dump' | wc -l)" 1
 check "the dump is owner-only" "$(stat -c %a "$dump")" 600
 check "pg_restore lists both tables' data" \
     "$(docker run --rm -v "$work:/b:ro" postgres:16 pg_restore --list "/b/$(basename "$dump")" | grep -c 'TABLE DATA public t_')" 2

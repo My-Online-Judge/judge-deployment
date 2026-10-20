@@ -24,7 +24,7 @@ show() {   # case-name, then curl arguments
     local status retry
     status=$(printf '%s' "$headers" | head -1 | awk '{print $2}')
     retry=$(printf '%s' "$headers" | tr -d '\r' | awk -F': ' 'tolower($1)=="retry-after" {print $2}')
-    case $name in cooldown*) [ -n "$retry" ] && retry=set ;; esac
+    case $name in cooldown*) [ -n "$retry" ] && retry='set' ;; esac
     printf '%-28s %s retry-after=%s %s\n' "$name" "$status" "${retry:--}" \
         "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d.pop("timestamp",None); print(json.dumps(d,sort_keys=True))' "$OUT" 2>/dev/null || echo '<not json>')"
 }

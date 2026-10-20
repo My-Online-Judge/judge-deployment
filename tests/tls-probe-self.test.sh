@@ -4,7 +4,7 @@
 # Tomcat's fixed answer to plaintext on a TLS port, and the TLS 1.3 case where a rejected certificate shows up only after
 # the handshake. Never touches the live stack.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 source tests/lib/tls-probe.sh
 tag=tlsself$$; work=$(mktemp -d)
 export OJ_NET=$tag-net TLS_VOLUME=$tag-tls

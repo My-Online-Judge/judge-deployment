@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
+# ci: skip (needs the running stack)
 # TLS matrix against the running stack (sub-project 10). Sections are added by the tasks that turn TLS on per hop.
 # Helpers: tests/lib/tls-probe.sh (self-tested by tests/tls-probe-self.test.sh).
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 source tests/lib/tls-probe.sh
 
 # ---- postgres: TLS + a CA-signed client certificate required (task 4) -------------------------------------------
