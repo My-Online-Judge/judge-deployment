@@ -525,13 +525,13 @@ tests:
         alertname: HighErrorRate
         exp_alerts: []
 
-  # A quiet service (0.05 req/s) with one 5xx is above 5 % for a while, but below the 0.1 req/s floor: silent.
+  # A quiet service (0.05 req/s, one 5xx a minute: 33 % errors) is above 5 %, but below the 0.1 req/s floor: silent.
   - interval: 1m
     input_series:
       - series: 'http_server_requests_seconds_count{job="problem-service", status="200", uri="/api/v1/problems"}'
         values: '0+2x20'
       - series: 'http_server_requests_seconds_count{job="problem-service", status="500", uri="/api/v1/problems"}'
-        values: '0x6 1x14'
+        values: '0+1x20'
     alert_rule_test:
       - eval_time: 14m
         alertname: quietServiceWithOneErrorStaysSilent
@@ -551,7 +551,7 @@ tests:
       - series: 'http_server_requests_seconds_count{job="api-gateway", status="200", uri="/api/v1/problems"}'
         values: '0+2x20'
       - series: 'http_server_requests_seconds_count{job="api-gateway", status="500", uri="/api/v1/problems"}'
-        values: '0x6 1x14'
+        values: '0+1x20'
     alert_rule_test:
       - eval_time: 14m
         alertname: HighErrorRate
@@ -602,6 +602,8 @@ tests:
     input_series:
       - series: 'http_server_requests_seconds_bucket{job="api-gateway", uri="/api/v1/submissions/{id}/stream", le="1.0"}'
         values: '0x25'
+      - series: 'http_server_requests_seconds_bucket{job="api-gateway", uri="/api/v1/submissions/{id}/stream", le="30.0"}'
+        values: '0+60x25'
       - series: 'http_server_requests_seconds_bucket{job="api-gateway", uri="/api/v1/submissions/{id}/stream", le="+Inf"}'
         values: '0+60x25'
       - series: 'http_server_requests_seconds_count{job="api-gateway", uri="/api/v1/submissions/{id}/stream"}'
