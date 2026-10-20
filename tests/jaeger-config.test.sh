@@ -7,6 +7,8 @@ cd "$(dirname "$0")/.."
 config=jaeger/config.yaml
 [[ -f $config ]] || { echo "FAIL $config exists"; exit 1; }
 fail=0
+# Pull first: on a cold host, docker run's "Unable to find image … Pulling" lines would land in the first check's output.
+docker --context default pull -q mikefarah/yq:4.44.3 > /dev/null
 check() { # check <description> <yq expression that must print true>
   local got
   got=$(docker --context default run --rm -i --network none mikefarah/yq:4.44.3 "$2" < "$config" 2>&1) || true
