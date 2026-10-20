@@ -594,7 +594,8 @@ For an account use `oj:rl:lock:account:<username>` and `oj:rl:login:account:<use
 ### Sessions (sub-project 12)
 
 An access token lives `JWT_ACCESS_TOKEN_EXPIRATION` (15 minutes), and its cookie lives exactly as long; the refresh
-cookie lives 7 days at `Path=/api/v1/auth`. A disable, a soft delete, a role change, a password change or reset, a
+cookie lives 7 days at `Path=/api/v1/auth`, but the session itself ends `JWT_REFRESH_TOKEN_EXPIRATION` (3 days) after
+the login, however often it is refreshed (rotation keeps the first login's expiry). A disable, a soft delete, a role change, a password change or reset, a
 refresh-token reuse and a logout end every session of the user at once: identity-service writes a cutoff
 (`oj:token:revoked-before:<user id>`) and the gateway strips every access token of that user issued before it. The cutoff
 stays in Redis for `OJ_SESSION_REVOCATION_MARKER_TTL` (default `25h`, never less than the access-token lifetime plus a
