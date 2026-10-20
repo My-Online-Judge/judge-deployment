@@ -2,8 +2,10 @@
 # Build contexts point back at the sibling repos; only configuration lives here.
 #
 #   cd judge-deployment
-#   docker compose up -d --build                                          # real qduoj sandbox
-#   docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d # mock sandbox
+#   docker compose build <service>    # each built service, one image at a time on this host (README "Images")
+#   docker compose up -d --no-build                                                   # real qduoj sandbox
+#   docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --no-build  # mock sandbox (build its
+#                                                                                     # judge-server with both files first)
 #
 # Config is centralized in ./.env (loaded automatically by Compose); identity-db and identity-service
 # read ./.env.identity instead, which alone holds the JWT signing keys and the Google OAuth secret;

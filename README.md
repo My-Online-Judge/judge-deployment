@@ -62,11 +62,15 @@ cd judge-deployment
 # refuse to build from sibling repos that are off main or dirty (exit 1 on FAIL)
 scripts/preflight.sh   # from a git worktree, set OJ_ROOT to the directory holding the sibling repos
 
-# real sandbox (default)
-docker compose up -d --build
+# real sandbox (default): build one image at a time on this host (see Images), then start without building
+for svc in identity-service problem-service submission-service api-gateway judge-worker judge-portal; do
+  docker compose build "$svc"
+done
+docker compose up -d --no-build
 
-# mock sandbox — offline / CI
-docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --build
+# mock sandbox — offline / CI: the same builds, plus the mock sandbox's image, then start without building
+docker compose -f docker-compose.yml -f docker-compose.mock.yml build judge-server
+docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --no-build
 
 # logs
 docker compose logs -f submission-service judge-worker
