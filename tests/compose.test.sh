@@ -233,6 +233,13 @@ check "redis-exporter reads rediss://redis:6379 with its client certificate and 
 check "kafka-exporter reads kafka:29092 over TLS (name kafka) with its client certificate, serves mutual TLS, and starts after kafka-init" \
   "s.get('kafka-exporter', {}).get('command') == ['--kafka.server=kafka:29092', '--tls.enabled', '--tls.server-name=kafka', '--tls.ca-file=/etc/oj/tls/ca.crt', '--tls.cert-file=/etc/oj/tls/tls.crt', '--tls.key-file=/etc/oj/tls/tls.key', '--server.tls.enabled', '--server.tls.mutual-auth-enabled', '--server.tls.ca-file=/etc/oj/tls/ca.crt', '--server.tls.cert-file=/etc/oj/tls/tls.crt', '--server.tls.key-file=/etc/oj/tls/tls.key'] and {k: d['condition'] for k, d in s['kafka-exporter']['depends_on'].items()} == {'tls-init': 'service_completed_successfully', 'kafka-init': 'service_completed_successfully'}"
 
+# Non-root containers (sp12 task 13). volume-init hands the test-case cache to uid 10001 before the worker (which runs as
+# 10001) writes it; the one-shot has no network. The check allows only `logging` (and compose's null `command`) beyond the definition, in one place.
+check "volume-init: alpine one-shot that chowns the test_case_cache volume to 10001:10001, no network" \
+  "(lambda x: {k: val for k, val in x.items() if k not in ('logging', 'command')} == {'image': 'alpine:3.22', 'restart': 'no', 'network_mode': 'none', 'volumes': [{'type': 'volume', 'source': 'test_case_cache', 'target': '/test_case', 'volume': {}}], 'entrypoint': ['/bin/sh', '-c', 'chown -R 10001:10001 /test_case']})(s.get('volume-init', {}))"
+check "judge-worker waits for volume-init to complete" \
+  "s['judge-worker']['depends_on'].get('volume-init', {}).get('condition') == 'service_completed_successfully'"
+
 # Grafana (sp12 task 18).
 check "grafana: grafana-oss 12.0.2 on loopback 127.0.0.1:3000 only, oj-net only, restarts unless stopped, mem_limit 256 MiB" \
   "(lambda g: g.get('image') == 'grafana/grafana-oss:12.0.2' and g.get('container_name') == 'oj-grafana' and [(p.get('host_ip'), p.get('published'), p.get('target')) for p in g.get('ports', [])] == [('127.0.0.1', '3000', 3000)] and list(g.get('networks', {})) == ['oj-net'] and g.get('restart') == 'unless-stopped' and g.get('mem_limit') in (268435456, '268435456'))(s.get('grafana', {}))"

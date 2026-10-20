@@ -387,6 +387,18 @@ time on this host), then `docker compose up -d --no-build`. For CI's images, run
 
   If the mirror's digest differs from `a580a164...` (it became an index), pin the mirror's own digest.
 
+## Non-root containers (sub-project 12)
+
+The four Java services, the worker and the portal run as uid 10001 (portal: nginx, uid 101). `pki/identities.txt` gives
+each the matching owner, so `tls-init` chowns its certificate directory (0700) and key (0600) to it. `volume-init` chowns
+the `test_case_cache` volume to 10001 before the worker starts. The portal binds 443 as uid 101 because Docker sets
+`net.ipv4.ip_unprivileged_port_start=0` in a container (Docker 20.10 or newer, bridge networking). On a host where it is
+not, switch to `listen 8443 ssl` in `portal/nginx-tls.conf`, `reverse_proxy https://judge-portal:8443` in
+`edge/Caddyfile`, and `judge-portal:8443` in `tests/tls.test.sh`. `cap_add: NET_BIND_SERVICE` is no fallback.
+
+`scripts/nonroot-audit.sh [project]` lists any root process in a running project (`ROOT <service> <comm>`, exit 1; else
+`PASS`). Allowed to be root by default: the sandboxes, edge, minio, cadvisor and node-exporter (`NONROOT_ALLOW`).
+
 ## Observability (sub-project 12)
 
 Prometheus (`http://127.0.0.1:9090`) scrapes, besides the services' actuators and the workers, one exporter per thing

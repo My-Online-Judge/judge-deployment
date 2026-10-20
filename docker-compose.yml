@@ -957,6 +957,17 @@ services:
       - "127.0.0.1:16686:16686"
     networks: [oj-net]
 
+  # One-shot: the worker runs as uid 10001 and the named volume test_case_cache is created root-owned, so hand it over
+  # before the worker starts (Docker copies image content into a new volume only for the image's own directories).
+  volume-init:
+    logging: *logging
+    image: alpine:3.22
+    restart: "no"
+    network_mode: none
+    volumes:
+      - test_case_cache:/test_case
+    entrypoint: ["/bin/sh", "-c", "chown -R 10001:10001 /test_case"]
+
   judge-worker:
     image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/judge-worker:${OJ_WORKER_TAG:-${OJ_TAG:-main}}
     logging: *logging
@@ -979,6 +990,8 @@ services:
       kafka:
         condition: service_healthy
       kafka-init:
+        condition: service_completed_successfully
+      volume-init:
         condition: service_completed_successfully
       # Now that the sandbox healthcheck reflects reality (see x-sandbox-health), wait for it:
       # a worker that starts first burns its retries dispatching to a sandbox still booting.

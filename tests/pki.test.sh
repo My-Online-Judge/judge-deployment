@@ -72,7 +72,10 @@ install_run >/dev/null 2>&1 && ok "install.sh succeeds (rogue absent is fine)" |
 st() { docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 stat -c "$1" "/tls/$2"; }
 [[ $(st '%u:%g %a' redis/tls.key) == "999:999 600" ]] && ok "redis key 999:999 600" || bad "redis key 999:999 600"
 [[ $(st '%u:%g %a' jaeger/tls.key) == "10001:10001 600" ]] && ok "jaeger key 10001:10001 600" || bad "jaeger key 10001:10001 600"
-[[ $(st '%u:%g %a' api-gateway) == "0:0 700" ]] && ok "api-gateway dir 0:0 700" || bad "api-gateway dir 0:0 700"
+[[ $(st '%u:%g %a' api-gateway) == "10001:10001 700" ]] && ok "api-gateway dir 10001:10001 700" || bad "api-gateway dir 10001:10001 700"
+# sp12 task 13: the application containers run as uid 10001 (portal: nginx 101) and read their own key
+[[ $(st '%u:%g %a' identity-service/tls.key) == "10001:10001 600" ]] && ok "identity-service key 10001:10001 600" || bad "identity-service key 10001:10001 600"
+[[ $(st '%u:%g %a' judge-portal/tls.key) == "101:101 600" ]] && ok "judge-portal key 101:101 600" || bad "judge-portal key 101:101 600"
 [[ $(st '%a' api-gateway/tls.crt) == 644 && $(st '%a' kafka/keystore.pem) == 600 && $(st '%a' minio/private.key) == 600 && $(st '%a' minio/CAs) == 700 ]] && ok "cert 644, keystore.pem 600, private.key 600, nested dir 700" || bad "modes of cert, keystore.pem, private.key, nested dir"
 # The sandboxes compile and run submitted code as users 12001-12003 (compiler, code, spj) while gunicorn, root, reads the
 # key: their identities stay root's, the directory 0700 and every file but the certificates 0600 (task 12 checked through

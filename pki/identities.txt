@@ -1,12 +1,12 @@
 # id uid:gid [extra-san...]   (unlisted uid is 0:0). ${OJ_PUBLIC_HOST} is expanded by pki.sh (default localhost).
-identity-service 0:0
-problem-service 0:0
-submission-service 0:0
-api-gateway 0:0
-judge-worker 0:0
+identity-service 10001:10001
+problem-service 10001:10001
+submission-service 10001:10001
+api-gateway 10001:10001
+judge-worker 10001:10001
 judge-server 0:0
 judge-server-2 0:0
-judge-portal 0:0
+judge-portal 101:101
 identity-db 999:999
 problem-db 999:999
 submission-db 999:999
