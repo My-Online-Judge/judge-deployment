@@ -15,6 +15,14 @@
 # submissions and their wall-clock is irrelevant. NOTE: every Spring service also pins the JVM zone in code
 # (its *Application.main) — that is what fixes its stored LocalDateTime timestamps; the TZ
 # here only aligns its logs. TZ is best-effort on images without OS tzdata (alpine) — harmless if unset.
+# Every container's json-file log is rotated: at most 3 files of 10 MB. Set as `logging: *logging` on every service
+# (the sandboxes through x-sandbox).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 x-tz-env: &tz-env
   TZ: Asia/Ho_Chi_Minh
 
@@ -71,7 +79,8 @@ x-sandbox-health: &sandbox-health
 #   root, while compiling and running a submission drop to the users compiler, code and spj (12001-12003),
 #   which cannot enter the 0700 root-owned /etc/oj/tls (checked through the judger itself on 2026-10-20).
 x-sandbox: &sandbox
-  image: qduoj/judge-server
+  image: docker.io/qduoj/judge-server@sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e
+  logging: *logging
   restart: always
   shm_size: 256m
   mem_limit: 3g
@@ -143,6 +152,7 @@ services:
   # One-shot: copies pki/out/<id>/ into the tls volume, owned per pki/identities.txt. Every service that gets a
   # certificate mounts tls with volume.subpath: <its id> at /etc/oj/tls and waits for this to complete.
   tls-init:
+    logging: *logging
     image: alpine:3.22
     restart: "no"
     entrypoint: ["/bin/sh", "/install.sh"]
@@ -156,6 +166,7 @@ services:
 
   # ---- infrastructure ------------------------------------------------------
   identity-db:
+    logging: *logging
     image: postgres:16
     container_name: oj-identity-db
     restart: unless-stopped
@@ -183,6 +194,7 @@ services:
     networks: [oj-net]
 
   problem-db:
+    logging: *logging
     image: postgres:16
     container_name: oj-problem-db
     restart: unless-stopped
@@ -209,6 +221,7 @@ services:
     networks: [oj-net]
 
   submission-db:
+    logging: *logging
     image: postgres:16
     container_name: oj-submission-db
     restart: unless-stopped
@@ -236,6 +249,7 @@ services:
     networks: [oj-net]
 
   kafka:
+    logging: *logging
     # 3.9.0's image ships a broken /bin/bash (readline relocation errors) that makes the
     # entrypoint exit 127 on this host. 3.8.1 has a working bash and identical env convention.
     image: apache/kafka:3.8.1
@@ -306,6 +320,7 @@ services:
     networks: [oj-net]
 
   kafka-init:
+    logging: *logging
     # One-shot (sub-project 10 §4.5): writes the services' ACLs (kafka/acls.sh) with the super user kafka-admin's
     # certificate, then exits. --add is idempotent, so it runs on every `up`; the services that use Kafka wait for it.
     image: apache/kafka:3.8.1
@@ -327,6 +342,7 @@ services:
     networks: [oj-net]
 
   redis:
+    logging: *logging
     # Pub/sub for the verdict SSE fan-out, and the ban mirror, logout blocklist, session-revocation cutoffs and rate
     # limits. Append-only file on a named volume: a logged-out or revoked token must stay revoked across
     # `docker compose down`/`up` (access tokens live 24 h). everysec: a crash loses at most a second of writes.
@@ -355,6 +371,7 @@ services:
     networks: [oj-net]
 
   minio:
+    logging: *logging
     # S3-compatible object storage: single source of truth for problem test cases (T3-8).
     # Pinned for reproducibility — this is the release the T3-8 stack was verified against. MinIO no longer
     # publishes images (Docker Hub and quay.io are empty), so this is the org's byte-identical mirror of
@@ -397,6 +414,7 @@ services:
     networks: [oj-net]
 
   minio-init:
+    logging: *logging
     # One-shot (sub-project 10): with the root account, makes sure of the test-case bucket, the policies oj-problem-rw and
     # oj-worker-ro and the two service users (minio/minio-init.sh). Idempotent and non-destructive, so it runs on every
     # `up`; problem-service and the worker wait for it. Mounts the minio subpath for the CA.
@@ -428,6 +446,7 @@ services:
     networks: [oj-net]
 
   prometheus:
+    logging: *logging
     # Scrapes every service's /actuator/prometheus (prometheus.yml). Pinned for reproducibility.
     image: prom/prometheus:v3.1.0
     container_name: oj-prometheus
@@ -458,6 +477,8 @@ services:
   # Submissions, judging, languages and judge servers: the remainder of the judge-api monolith, its own service
   # with its own database since sub-project 3b.
   submission-service:
+    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-submission-service:${OJ_SUBMISSION_TAG:-${OJ_TAG:-main}}
+    logging: *logging
     configs: *jvm-dns-configs
     build:
       context: ../oj-submission-service
@@ -515,6 +536,8 @@ services:
     networks: [oj-net]
 
   identity-service:
+    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-identity-service:${OJ_IDENTITY_TAG:-${OJ_TAG:-main}}
+    logging: *logging
     configs: *jvm-dns-configs
     build:
       context: ../oj-identity-service
@@ -559,6 +582,8 @@ services:
     networks: [oj-net]
 
   problem-service:
+    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-problem-service:${OJ_PROBLEM_TAG:-${OJ_TAG:-main}}
+    logging: *logging
     configs: *jvm-dns-configs
     build:
       context: ../oj-problem-service
@@ -618,6 +643,8 @@ services:
     networks: [oj-net]
 
   api-gateway:
+    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-api-gateway:${OJ_GATEWAY_TAG:-${OJ_TAG:-main}}
+    logging: *logging
     configs: *jvm-dns-configs
     build:
       context: ../oj-api-gateway
@@ -673,6 +700,7 @@ services:
     networks: [oj-net]
 
   jaeger:
+    logging: *logging
     image: jaegertracing/jaeger:2.21.0
     container_name: oj-jaeger
     restart: unless-stopped
@@ -699,6 +727,8 @@ services:
     networks: [oj-net]
 
   judge-worker:
+    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/judge-worker:${OJ_WORKER_TAG:-${OJ_TAG:-main}}
+    logging: *logging
     build: ../judge-worker
     # No fixed container_name: judge-workers form a Kafka consumer group (group_id=judge-workers)
     # and are meant to scale horizontally — `docker compose up -d --scale judge-worker=3` spreads
@@ -797,6 +827,8 @@ services:
           subpath: judge-server-2
 
   judge-portal:
+    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/judge-portal:${OJ_PORTAL_TAG:-${OJ_TAG:-main}}
+    logging: *logging
     build:
       context: ../judge-portal
       args:
@@ -826,6 +858,7 @@ services:
   # judge-portal:443, both over mutual TLS with the edge certificate; http on 80 redirects to https. The site
   # certificate is the edge leaf (its SAN carries OJ_PUBLIC_HOST, pki/identities.txt), signed by the private CA.
   edge:
+    logging: *logging
     image: caddy:2.10.0-alpine
     container_name: oj-edge
     restart: unless-stopped

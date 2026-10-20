@@ -39,8 +39,9 @@ for i, ref in enumerate(s.get("configs") or []):
 print(shlex.join(out))
 PY
 )
+  image=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["services"][sys.argv[2]]["image"])' "$tmp/config.json" "$svc")
   got=$(eval docker run --rm --network none --user "$(id -u):$(id -g)" "$args" -v "$tmp:/probe:ro" --entrypoint java \
-    "judge-deployment-$svc:latest" --add-exports java.base/sun.net=ALL-UNNAMED -cp /probe DnsPolicy 2>/dev/null | tail -1)
+    "$image" --add-exports java.base/sun.net=ALL-UNNAMED -cp /probe DnsPolicy 2>/dev/null | tail -1)
   if [ "$got" = "positive=1 negative=0 grpc=1" ]; then echo "ok   $svc keeps a resolved address 1 s, never caches a failed lookup, and grpc-java's resolver keeps an answer 1 s"
   else echo "FAIL $svc: $got (want positive=1 negative=0 grpc=1)"; fail=1; fi
 done

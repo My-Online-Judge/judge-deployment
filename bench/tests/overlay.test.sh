@@ -37,8 +37,8 @@ EOF
 ); then ok "the overlay changes only prometheus and the built services' image, and leaves judge-portal out"
 else bad "the overlay changes more than intended: $out"; fi
 
-check "the built services run the live images, never pulled or built" \
-  "all(s[n].get('image') == f'judge-deployment-{n}:latest' and s[n].get('pull_policy') == 'never' for n in '${BUILT_SERVICES[*]}'.split())"
+check "the built services run the live images (the base's resolved image), never pulled or built" \
+  "all(s[n].get('image') == b[n].get('image') and s[n].get('pull_policy') == 'never' for n in '${BUILT_SERVICES[*]}'.split())"
 check "prometheus accepts remote write and reads the generated config" \
   "'--web.enable-remote-write-receiver' in s['prometheus']['command'] and any(m['source'].endswith('/bench/.gen/prometheus.yml') and m['target'] == '/etc/prometheus/prometheus.yml' for m in s['prometheus']['volumes'])"
 check "prometheus evaluates this checkout's alerts.yml (in a worktree, not the main checkout's)" \

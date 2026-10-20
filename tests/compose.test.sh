@@ -180,6 +180,22 @@ check "identity-service marks its cookies Secure (APP_COOKIE_SECURE)" \
 check "no environment value in docker-compose.yml is an http:// URL of a stack service" \
   "not any(re.search(r'http://(identity|problem|submission)-service|http://api-gateway|http://minio|http://jaeger|http://judge-server', str(val)) for x in s.values() for val in (x.get('environment') or {}).values())"
 
+# Log rotation and image references (sp12 task 14). Compose resolves the nested default ${OJ_X_TAG:-${OJ_TAG:-main}} itself;
+# the second config below proves it. The unset variables keep the operator's shell from deciding the first.
+check "every service (the one-shots too) rotates its json-file logs: max-size 10m, max-file 3" \
+  "all(x.get('logging') == {'driver': 'json-file', 'options': {'max-size': '10m', 'max-file': '3'}} for x in s.values())"
+built="{'identity-service': 'oj-identity-service', 'problem-service': 'oj-problem-service', 'submission-service': 'oj-submission-service', 'api-gateway': 'oj-api-gateway', 'judge-worker': 'judge-worker', 'judge-portal': 'judge-portal'}"
+default_cfg=$(env -u OJ_TAG -u OJ_REGISTRY -u OJ_IDENTITY_TAG -u OJ_PROBLEM_TAG -u OJ_SUBMISSION_TAG -u OJ_GATEWAY_TAG -u OJ_WORKER_TAG -u OJ_PORTAL_TAG \
+  docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
+_check "$default_cfg" "built services reference ghcr.io/my-online-judge/<name>:main and keep their build" \
+  "all(s[n]['image'] == f'ghcr.io/my-online-judge/{img}:main' and s[n].get('build') for n, img in $built.items())"
+tagged_cfg=$(env -u OJ_REGISTRY -u OJ_PROBLEM_TAG -u OJ_SUBMISSION_TAG -u OJ_GATEWAY_TAG -u OJ_WORKER_TAG -u OJ_PORTAL_TAG OJ_TAG=t1 OJ_IDENTITY_TAG=t2 \
+  docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
+_check "$tagged_cfg" "OJ_IDENTITY_TAG beats OJ_TAG: identity is :t2, every other built service :t1" \
+  "all(s[n]['image'].endswith(':t2' if n == 'identity-service' else ':t1') for n in $built)"
+check "both sandboxes run qduoj pinned by digest" \
+  "all(s[n]['image'] == 'docker.io/qduoj/judge-server@sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e' for n in $sandboxes)"
+
 # The mock sandbox speaks plain HTTP: its overlay points the worker at http:// and nothing expects TLS of the mock.
 mock=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" -f "$PWD/docker-compose.mock.yml" config --format json)
 _check "$mock" "with docker-compose.mock.yml the worker calls both mock sandboxes over http, and their healthcheck and SERVICE_URL expect no TLS" \

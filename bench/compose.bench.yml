@@ -1,7 +1,7 @@
 # The benchmark overlay (sub-project 5). Only ever used through bench/lib/common.sh bench_compose:
 #   docker compose -p oj-bench --project-directory <main checkout> -f docker-compose.yml -f bench/compose.bench.yml
 # It differs from production in Prometheus only — k6 writes into it, and it scrapes every 5 s. The built services
-# run the live stack's images (never rebuilt), and the portal is not part of what is measured.
+# run the live stack's images (the GHCR names docker-compose.yml gives them, never rebuilt or pulled), and the portal is not part of what is measured.
 services:
   prometheus:
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.enable-remote-write-receiver"]
@@ -10,9 +10,9 @@ services:
       # This checkout's rules, like the generated prometheus.yml above: the base file's ./alerts.yml resolves
       # against the main checkout (--project-directory), which in a worktree is not the code being measured.
       - ${BENCH_DIR}/../alerts.yml:/etc/prometheus/alerts.yml:ro
-  submission-service: {image: "judge-deployment-submission-service:latest", pull_policy: never}
-  identity-service: {image: "judge-deployment-identity-service:latest", pull_policy: never}
-  problem-service: {image: "judge-deployment-problem-service:latest", pull_policy: never}
-  api-gateway: {image: "judge-deployment-api-gateway:latest", pull_policy: never}
-  judge-worker: {image: "judge-deployment-judge-worker:latest", pull_policy: never}
+  submission-service: {image: "${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-submission-service:${OJ_SUBMISSION_TAG:-${OJ_TAG:-main}}", pull_policy: never}
+  identity-service: {image: "${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-identity-service:${OJ_IDENTITY_TAG:-${OJ_TAG:-main}}", pull_policy: never}
+  problem-service: {image: "${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-problem-service:${OJ_PROBLEM_TAG:-${OJ_TAG:-main}}", pull_policy: never}
+  api-gateway: {image: "${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-api-gateway:${OJ_GATEWAY_TAG:-${OJ_TAG:-main}}", pull_policy: never}
+  judge-worker: {image: "${OJ_REGISTRY:-ghcr.io/my-online-judge}/judge-worker:${OJ_WORKER_TAG:-${OJ_TAG:-main}}", pull_policy: never}
   judge-portal: {profiles: ["off"]}

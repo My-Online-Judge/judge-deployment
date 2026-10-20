@@ -7,6 +7,21 @@
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
 
+# The image compose gives a built service: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/<name>:${OJ_<X>_TAG:-${OJ_TAG:-main}}
+# (docker-compose.yml). The overlay runs exactly that, never pulled.
+built_image() {
+  local name var
+  case "$1" in
+    submission-service) name=oj-submission-service var=OJ_SUBMISSION_TAG ;;
+    identity-service) name=oj-identity-service var=OJ_IDENTITY_TAG ;;
+    problem-service) name=oj-problem-service var=OJ_PROBLEM_TAG ;;
+    api-gateway) name=oj-api-gateway var=OJ_GATEWAY_TAG ;;
+    judge-worker) name=judge-worker var=OJ_WORKER_TAG ;;
+    *) die "no image known for $1" ;;
+  esac
+  echo "${OJ_REGISTRY:-ghcr.io/my-online-judge}/$name:${!var:-${OJ_TAG:-main}}"
+}
+
 live_containers() { docker ps -aq --filter "label=com.docker.compose.project=$LIVE_PROJECT"; }
 
 case "${1:-}" in
@@ -14,7 +29,8 @@ case "${1:-}" in
     shift
     [ -z "$(live_containers)" ] || die "the live stack ($LIVE_PROJECT) still has containers. Stop it first, keeping its data: cd $DEPLOY_DIR && docker compose down"
     for s in "${BUILT_SERVICES[@]}"; do
-      docker image inspect "judge-deployment-$s:latest" >/dev/null 2>&1 || die "image judge-deployment-$s:latest is missing"
+      img=$(built_image "$s")
+      docker image inspect "$img" >/dev/null 2>&1 || die "image $img is missing (docker compose build $s, or pull it)"
     done
     "$BENCH_DIR/gen-prometheus.sh"
     log "starting $BENCH_PROJECT on fresh volumes"

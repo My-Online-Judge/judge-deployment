@@ -350,6 +350,31 @@ Nothing reads oj-db once submission-service runs on submission-db. Retire it in 
 analysis that turns each run into CSV, charts and tables. The live stack is stopped while it runs. See
 [bench/README.md](bench/README.md).
 
+## Images (sub-project 12)
+
+Every built service names its image `${OJ_REGISTRY:-ghcr.io/my-online-judge}/<name>:<tag>` in `docker-compose.yml`
+(`oj-identity-service`, `oj-problem-service`, `oj-submission-service`, `oj-api-gateway`, `judge-worker`, `judge-portal`),
+with the tag `OJ_<NAME>_TAG`, else `OJ_TAG`, else `main` (`.env.example` lists the variables). Each service keeps its
+`build:`, so `docker compose build <service>` tags the local build with that name and `docker compose up -d --no-build`
+runs it without pulling. Build one image at a time on this host. The bench overlay runs the same names, never pulled.
+
+- **Rollback** to an earlier image: `OJ_<NAME>_TAG=<old sha> docker compose up -d <service>`, or for every service tagged
+  alike `OJ_TAG=<shared tag> docker compose up -d`.
+- **Logs** of every container rotate: json-file, 3 files of 10 MB (`x-logging`).
+- **The sandbox** is pinned by digest at its source: `docker.io/qduoj/judge-server@sha256:a580a164...` (the 2020-07-09
+  image). The first `up` after this change pulls it (2.25 GB).
+- **Optional: mirror the sandbox into the org's GHCR** so a Docker Hub outage cannot stop a deploy. It needs a GitHub token
+  with `write:packages`; run it yourself, then point `x-sandbox.image` at the mirror:
+
+  ```bash
+  gh auth token | docker --context default login ghcr.io -u <github user> --password-stdin
+  docker --context default buildx imagetools create --tag ghcr.io/my-online-judge/judge-server:qduoj-2020-07-09 \
+    docker.io/qduoj/judge-server@sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e
+  docker --context default buildx imagetools inspect ghcr.io/my-online-judge/judge-server:qduoj-2020-07-09
+  ```
+
+  If the mirror's digest differs from `a580a164...` (it became an index), pin the mirror's own digest.
+
 ## Configuration
 
 Shared knobs live in **`.env`**. No service loads it through `env_file`: each gets only the variables it
