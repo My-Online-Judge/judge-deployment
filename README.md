@@ -568,9 +568,16 @@ checked, so a burst of guesses cannot get past them):
 
 Known limits, both the spec's values for sub-project 12 and a follow-up: a lab behind one NAT address shares the IP
 limit, so 30 wrong passwords from the whole lab within 5 minutes lock every login from it for 15 minutes; and anyone can
-keep one account locked by sending wrong passwords for it (50 an hour is enough). For a lab or a contest behind one
-address, raise the IP limit before the session: set `OJ_LOGIN_IP_LIMIT` in `.env.identity` (default 30; for example
-`OJ_LOGIN_IP_LIMIT=300` for a hall of 150), then `docker compose up -d --no-deps identity-service` to recreate it.
+keep one account locked by sending wrong passwords for it (50 an hour is enough). An account also counts its logins
+still in flight, so more than 50 simultaneous logins to one shared account (a class on a demo account) get `429` with
+`Retry-After: 2` until the one attempt let past the limit has been checked, and a wrong password among them locks the
+account for 15 minutes. As correct logins do not count toward the IP limit, it is decided after the password check: a
+burst of parallel guesses against many different usernames from one address gets a password check each until the 30th
+failure locks the address, as before sub-project 12 (the pair and account limits still bound each account).
+
+For a lab or a contest, raise the limits before the session in `.env.identity`: `OJ_LOGIN_IP_LIMIT` (default 30; for
+example `OJ_LOGIN_IP_LIMIT=300` for a hall of 150 behind one address) and `OJ_LOGIN_ACCOUNT_LIMIT` (default 50; for a
+shared account), then `docker compose up -d --no-deps identity-service` to recreate it.
 
 There is **no admin endpoint** to clear a lock. A lock ends by itself after 15 minutes. To clear one earlier, delete both
 the lock key and the counter of the same suffix in Redis (with only the lock gone, a counter over its limit locks the
