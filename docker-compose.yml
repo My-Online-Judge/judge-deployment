@@ -450,7 +450,7 @@ services:
   prometheus:
     logging: *logging
     # Scrapes every service's /actuator/prometheus (prometheus.yml). Pinned for reproducibility.
-    image: prom/prometheus:v3.1.0
+    image: prom/prometheus:v3.15.0
     container_name: oj-prometheus
     restart: unless-stopped
     environment: *tz-env
