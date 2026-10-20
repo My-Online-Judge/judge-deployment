@@ -1,0 +1,52 @@
+{
+  "id": "20261020-095546-e2-w6",
+  "exp": "e2",
+  "args": {
+    "steps": [
+      4.4
+    ],
+    "step_s": 600,
+    "warmup_s": 60,
+    "workers": 6,
+    "pilot": false
+  },
+  "smoke": false,
+  "git": {
+    "judge-deployment": "ade3780",
+    "oj-common": "e336e60",
+    "oj-api-gateway": "44714bd",
+    "oj-identity-service": "f3086e1",
+    "oj-problem-service": "809b16d",
+    "oj-submission-service": "3d03cec",
+    "judge-worker": "c740221"
+  },
+  "images": {
+    "oj-api-gateway": "4da8f92e06f8",
+    "oj-bench-judge-worker-1": "63d170ece6d4",
+    "oj-bench-judge-worker-2": "63d170ece6d4",
+    "oj-bench-judge-worker-3": "63d170ece6d4",
+    "oj-bench-judge-worker-4": "63d170ece6d4",
+    "oj-bench-judge-worker-5": "63d170ece6d4",
+    "oj-bench-judge-worker-6": "63d170ece6d4",
+    "oj-edge": "ae4458638da8",
+    "oj-identity-db": "1a6ab3f5345e",
+    "oj-identity-service": "6b86df3126c3",
+    "oj-jaeger": "3d0ac795ff98",
+    "oj-judge-server": "d15b30048f5e",
+    "oj-judge-server-2": "d15b30048f5e",
+    "oj-kafka": "22c4bea38875",
+    "oj-minio": "2fb7f0bdb150",
+    "oj-problem-db": "1a6ab3f5345e",
+    "oj-problem-service": "45d7c702bff6",
+    "oj-prometheus": "6559acbd5d77",
+    "oj-redis": "858f009f9709",
+    "oj-submission-db": "1a6ab3f5345e",
+    "oj-submission-service": "e29855114cc8"
+  },
+  "loadavg_before": "9.23 8.07 4.92",
+  "workers": 6,
+  "started_at": 1792464957,
+  "load_ended_at": 1792465636,
+  "drain": "empty",
+  "ended_at": 1792466567
+}

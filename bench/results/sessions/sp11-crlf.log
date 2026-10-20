@@ -1,0 +1,2 @@
+create 200 {"status":201,"message":"Created","data":{"id":"6afd7053-53f6-4ed7-a197-27af0755221d","createdAt":"2026-10-20T11:27:16.5
+python3 sum -> {'status': 0, 'result': 0, 'cpu': 9, 'error': '', 'detailRows': 1}

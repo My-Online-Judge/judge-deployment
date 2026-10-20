@@ -1,0 +1,5 @@
+[11:11:58] t+1s oj-bench-judge-worker-4 killed while it judges 22aa0de8-caa5-4cac-b7f4-ecee3bd871b2
+[11:12:08] t+11s oj-bench-judge-worker-4 started again
+[11:12:25] submission 22aa0de8-caa5-4cac-b7f4-ecee3bd871b2 final status: 0 (6 PENDING and 7 JUDGING are not terminal)
+[11:12:31] 'Judging submission 22aa0de8-caa5-4cac-b7f4-ecee3bd871b2' lines across all workers: 2
+[11:12:32] bench-sum t_problem_stats total: 1726 before, 1727 after, change 1 (expected 1)

@@ -1,0 +1,14 @@
+test case 8f5c6f54-e142-4923-9875-9f11889c59f4 keys ['id', 'input', 'name', 'output', 'sample']
+before: queue drained in 0s
+baseline: stats-check rc=0 PASS
+PUT 200 {"status":200,"message":"Success","data":{"id":"8f5c6f54-e142-4923-9875-9f11889c59f4","name":"1","sample":false,"inputSize":4,"outputSize":10,"inputPreview":"1 
+rejudge(break) 200 {"status":200,"message":"Success","data":{"queued":6},"timestamp":"20261020111646"}
+after break: queue drained in 0s
+bench-ab verdicts after break: -1|6
+after break: stats-check rc=0 PASS
+PUT 200 {"status":200,"message":"Success","data":{"id":"8f5c6f54-e142-4923-9875-9f11889c59f4","name":"1","sample":false,"inputSize":4,"outputSize":2,"inputPreview":"1 2
+rejudge(restore) 200 {"status":200,"message":"Success","data":{"queued":6},"timestamp":"20261020111658"}
+after restore: queue drained in 0s
+bench-ab verdicts after restore: 0|6
+after restore: stats-check rc=0 PASS
+STEP7 PASS

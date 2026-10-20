@@ -1027,3 +1027,205 @@ From the probes:
   evaluates every 15 s.
 - **`run.json`'s `git` field** names the main checkouts' commits (§10.7). The `images` ids are the builds named
   above.
+
+## 13. Overload and verdict correctness (sub-project 11)
+
+Sub-project 11 took on follow-up 2 of §8 (overload turns accepted submissions into SYSTEM_ERROR; the pilots of §8
+lost 326 of 1,410 and 935 of 2,115) and follow-up 3 (the judge-latency histogram ends at 30 s), and added rejudge
+and a set of judging-correctness fixes (spec §§3–6).
+
+Measured on 2026-10-20 on the same host, in this order: the overload run on the pre-SP11 images (BEFORE), the same
+run on the SP11 images (AFTER), then the chaos probes, the rejudge and DLQ steps and the CRLF check. The overload
+command was the same both times:
+
+```
+bench/run.sh e2 --workers 6 --steps 4.4 --step-s 600
+```
+
+4.4 submits per second is 2 × the 6-worker capacity of §4 (2.20 verdicts/s), held for 10 minutes after the 60 s
+warm-up. The runs are `bench/results/20261020-095546-e2-w6` (BEFORE) and `bench/results/20261020-105508-e2-w6`
+(AFTER); the other evidence is in `bench/results/sessions/sp11-*.log`, `rejudge_check.py` and `dlq_check.py`.
+
+### 13.1 What changed
+
+Commits per repo, from the base each repo had before the sub-project to its head:
+
+| repo | commits | what |
+|---|---|---|
+| oj-common | 1 (`e336e60`) | `SubmissionVerdictRecorded.rejudge`, `TextCaps` (0.6.0) |
+| oj-submission-service | 13 (`952361f`..`3d03cec`) | see below |
+| judge-worker | 2 (`5043a13`, `c740221`) | `submission.started` before each dispatch; MinIO or all sandboxes down is retried 2 s doubling to 60 s for up to 300 s before SYSTEM_ERROR |
+| oj-problem-service | 6 (`3306e50`..`809b16d`) | `stripped_output_md5` normalises CRLF and trailing whitespace; bundles republished once when the format changes; sample and expected output capped at 64 Ki characters; `last_status` (V5) moves a rejudged verdict's count; a deleted test case's number is never reused (V6) |
+| oj-identity-service | 3 (`f3086e1`, `36a0e91`) | `submission:rejudge` for ADMIN and SYS_ROOT (V4); oj-common 0.6.0 |
+| oj-api-gateway | 2 (`44714bd`, `2f39f6d`) | `/api/v1/problems/{slug}/rejudge` routed to submission-service; oj-common 0.6.0 |
+| judge-portal | 2 (`05bb17b`, `94bf021`) | rejudge buttons; a busy judge shows its message with a 30 s cooldown |
+| judge-deployment | 8 (`e387688`..`db993b4`) | Kafka ACLs for `submission.started`, the `VerdictDeadLettered` alert, `replay-dlq.sh`; `last_status` backfill and a cross-database statistics check; bench invariant and probes |
+
+oj-submission-service, in the order of the commits:
+
+- **Lifecycle.** A submission goes JUDGING with the worker's own start time (`submission.started`). Only lost work
+  times out: JUDGING after 3 minutes, PENDING 30 minutes after its request left. A late verdict is written only
+  over PENDING or JUDGING.
+- **Verdicts.** They retry 1 s doubling to 30 s for 5 minutes before the DLQ; a permanent failure goes to the DLQ at
+  once; `oj_verdict_dead_lettered_total` counts after a successful dead-letter publish. An invalid status becomes
+  SYSTEM_ERROR.
+- **Overload.** At 500 queued, a submit is refused with 503 `QUEUE_FULL` and `Retry-After: 30`. The queue depth is
+  cached every 5 s with slot reservations; the judge-latency histogram now reaches 10 minutes.
+- **Rejudge.** An admin rejudges one finished submission, or up to the 500 newest finished submissions of a problem,
+  optionally of one verdict.
+
+The live rollout, for context (not part of the bench): "Bundle format 2: republished 0 of 77 problems", because
+no live expected output had trailing whitespace or CRLF and so no bundle hash changed; the `last_status` backfill
+set 327 values; the live 6-language smoke gave 10/10, as before; `tls.test.sh` passed 64/64.
+
+### 13.2 The overload run, before and after
+
+One run per side. "Accepted" is a submit answered 201; "refused" is a 503 with a message. k6 started 2,937 submits
+in both runs (no dropped iterations).
+
+| | BEFORE (pre-SP11) | AFTER (SP11) |
+|---|---|---|
+| submits accepted | 2,937 | 1,724 |
+| submits refused (503 "The judge is busy, try again in a moment") | 0 | 1,213 (41.3 % of submits) |
+| SYSTEM_ERROR by reconcile timeout | 1,903 (64.8 % of accepted) | 0 |
+| other SYSTEM_ERROR | 0 | 0 |
+| terminal verdicts by status | 0: 1,030; −2: 4; 5: 1,903 | 0: 1,722; −2: 2 |
+| non-terminal after the drain | 0 | 0 |
+| invariant | held, but 1,903 SYSTEM_ERROR | held, 0 SYSTEM_ERROR |
+| submit p95 (k6, route `submit`) | 59 ms | 74 ms |
+| peak `oj_queue_depth` | 1,570 | 500 |
+| judge p95 (`summary`/`results.json`) | ≥ 30 s (censored at the histogram's top) | 292 s (p50 217 s, p99 330 s) |
+| run length until the series ends | 1,610 s | 965 s |
+
+- **No accepted submission is failed any more.** The 1,903 SYSTEM_ERRORs of BEFORE all carry "Judging timed out: no
+  verdict within 5 minutes" (`found.json`): the same failure as the pilots of §8, here 65 % of the accepted work
+  rather than 23 % and 44 %. In AFTER every accepted submission ended with a real verdict; the two status −2
+  results are the same kind as BEFORE's four and are not analysed here.
+- **The queue is bounded.** BEFORE's queue peaked at 1,570 (at t+665 s of the series). AFTER's peaked at exactly 500, the
+  refusal limit (at t+200 s), and the 1,213 refusals are what held it there. k6 counts them in `http_req_failed` (0.413 for the submit route), which is why that metric
+  is no longer 0.
+- **What the accepted work pays.** An accepted submission waited a median of 217 s and a p95 of 292 s for its
+  verdict (`results.json`, uncensored now that the histogram reaches 10 minutes). That is below the 30-minute PENDING
+  limit and, as the rows above show, no longer turned into an error.
+- **Throughput.** The step's verdict throughput was 1.86/s in AFTER against 1.53/s in BEFORE (n = 1,116 and 919
+  verdicts in the step). BEFORE's figure is lower because its 1,903 timed-out submissions were still being
+  judged after they had been failed, and those verdicts were discarded. `verdicts_counted` (all verdicts the workers
+  produced) is 1,731 in AFTER and 1,037 in BEFORE; `verdict_delta` is 6.9 against −1,899.8, i.e. in AFTER the
+  verdict counter matches the accepted submissions to within 7, in BEFORE it is short by the timeouts.
+- **Alerts.** `alerts.csv` reads 1 at the end of both series; I did not break it down by rule here.
+
+Charts: `queue_depth.png`, `judge_p95.png` and `throughput.png` in each run's directory.
+
+### 13.3 Chaos
+
+Both probes are in `bench/results/sessions/`.
+
+| probe | file | result |
+|---|---|---|
+| worker killed mid-judge | `sp11-probe-worker.log` | `oj-bench-judge-worker-4` killed 1 s into a judge and started again 10 s later; the submission ended status 0; 2 "Judging submission" lines across all workers; `t_problem_stats` total 1,726 → 1,727 (+1, expected 1) |
+| MinIO stopped 60 s | `sp11-probe-minio.log` | 4 of 4 submissions status 0 with no error message; `oj_judge_infra_retries_total{reason="minio"}` 0 → 12 |
+
+- **Worker kill.** The work was done twice (the second "Judging submission" line is the redelivery), but the
+  verdict was applied once and the statistics counted it once. That is the C2 behaviour of §6 with the new write
+  guard.
+- **MinIO.** The four submissions were queued, waited out the outage in the worker's retry (12 retries over the
+  60 s) and were judged after MinIO returned. None became SYSTEM_ERROR.
+- **A finding from the first MinIO attempt.** A submit itself needs MinIO. problem-service reads the bundle's
+  CURRENT hash from it to build the judge spec, so with MinIO down `GetJudgeSpec` ends in DEADLINE_EXCEEDED and
+  the submit is a fail-fast 503. That is not a SYSTEM_ERROR and not a lost submission, but "queued submissions wait"
+  only holds for submissions accepted before the outage. The probe was changed (`db993b4`): pause the workers,
+  submit, stop MinIO, resume the workers. Without that ordering it measures the refusal and not the worker's wait.
+
+### 13.4 Rejudge, statistics and the DLQ
+
+`sp11-rejudge.log` (`rejudge_check.py`). A problem `bench-ab` with 6 finished submissions; the check compares
+`t_problem_stats` in the problem-service database against a count from `t_submissions` in the submission-service
+database.
+
+| step | rejudge queued | verdicts of the 6 | stats-check |
+|---|---|---|---|
+| baseline | — | 6 AC | PASS |
+| test case 1's expected output edited to a wrong one, problem rejudged | 6 | 6 WA (status −1) | PASS |
+| expected output restored, problem rejudged | 6 | 6 AC (status 0) | PASS |
+
+The queue drained in under a second each time. The statistics moved with the verdicts (`last_status`) and agreed with
+the count each time.
+
+`dlq_check.py`, two cases:
+
+| case | file | result |
+|---|---|---|
+| submission-db stopped 6.5 min | `sp11-dlq-replay.log` | at 6.5 min the verdict was **not** dead-lettered (DLQ 0, counter absent, no alert); when the DB returned, the retry applied it and the submission ended ACCEPTED |
+| a verdict with a non-UUID id | `sp11-dlq-forced.log` | dead-lettered at once (1 record, partition 4); `oj_verdict_dead_lettered_total` 1; `VerdictDeadLettered` firing |
+| the same record replayed | `sp11-dlq-forced.log` | `replay-dlq.sh`: "replayed 1 record(s)"; it was dead-lettered again (counter 2, 2 records), as a poison record should be |
+
+- **The DLQ wall-time finding.** The 5-minute budget counts the back-off sleeps only. Each attempt also waits on the
+  database connection timeout, so with the database down the budget is spent in more than 5 minutes of wall time,
+  and 6.5 minutes was not enough to reach the DLQ. The outage was still a no-loss one: the verdict waited and was
+  applied. The consequence is only that an alert based on the DLQ fires later than "5 minutes" suggests.
+- **What the replay shows.** The replay mechanism works (consume from the DLQ, produce to `submission.judged`) and a
+  record that cannot be fixed returns to the DLQ. A record dead-lettered for a fixable cause and then restored by
+  the replay was not exercised: the database case never reached the DLQ, and the non-UUID record has no fix.
+- The `records on submission.judged.dlq: 0` lines of both logs are an artefact: `GetOffsetShell` moved in Kafka 3.8
+  and prints nothing. `kafka-get-offsets` gives the counts quoted above (the per-partition lines of
+  `sp11-dlq-forced.log`).
+
+### 13.5 Correctness
+
+`sp11-crlf.log`. A problem created with the expected output `7 \r\n\r\n` (a trailing space, CRLF and an empty
+line); a Python 3 `print(sum(...))` solution printing `7\n`. The verdict is status 0, ACCEPTED (`cpu` 9 ms). Before
+SP11, `stripped_output_md5` kept the whitespace and this would be WA.
+
+The live 6-language smoke gave 10/10, the same as before the rollout (§13.1).
+
+### 13.6 Targets
+
+The bullets of spec §7:
+
+- PASS overload run, zero SYSTEM_ERROR caused by timeouts (0 of 1,724 accepted; BEFORE 1,903 of 2,937)
+- PASS overload run, refused submits get 503 (1,213 refusals, all "503 The judge is busy, try again in a moment";
+  the `QUEUE_FULL` code and `Retry-After` are in the service's response and portal; the bench invariant records the
+  status and message only)
+- PASS overload run, every accepted submission ends terminal once the run drains (nonterminal: none; missing: none)
+- PASS overload run was at 2 × the 6-worker capacity for 10 minutes (4.4/s against 2.20/s; `--step-s 600`)
+- PASS chaos, a worker killed mid-judge: the verdict is applied once (status 0, statistics +1); the work was
+  started twice
+- PASS chaos, MinIO stopped 60 s: queued submissions wait and then pass (4 of 4 ACCEPTED, 12 retries, no
+  SYSTEM_ERROR), with the probe ordering of §13.3
+- PASS rejudge, a test case edit and a rejudge change the verdicts (6 AC → 6 WA → 6 AC)
+- PASS `t_problem_stats` equals a count from `t_submissions` (stats-check PASS three times)
+- PARTIAL the DLQ replay of a poisoned record restores it after the fix: replay works and a still-poisoned record
+  is dead-lettered again, but no record was dead-lettered by a cause that was then fixed (§13.4)
+- PASS a CRLF / trailing-space problem is AC
+- PASS the 6-language smoke is AC (10/10 on the live stack)
+- NOT MEASURED here: "suites green in all touched repos" (the suites ran in the plan's tasks, not in this
+  campaign); the section itself is this one
+
+**11 of 12 measured bullets met, 1 partial; 1 not measured here.**
+
+### 13.7 Threats to validity
+
+- **One host.** All runs share one machine with the load generator, Docker, Kafka, MinIO and both databases
+  (§1). Absolute latencies and the 217 s median wait are of this host.
+- **Single runs.** BEFORE and AFTER are one overload run each, 10 minutes at one rate; the chaos, rejudge and DLQ
+  steps ran once. No range is given because there is none.
+- **A fresh, seeded bench database.** The runs started from an empty submissions table and a seeded problem set.
+  The `last_status` backfill, the bundle republish and the 327 historical rows were exercised on the live stack
+  only, not in the bench.
+- **The capacity figure is borrowed.** 2.20 verdicts/s (§4) was measured before SP11. If SP11 changed capacity,
+  4.4/s is no longer exactly 2×. The AFTER throughput (1.86/s in the step, 2.08/s at its peak in
+  `throughput.csv`) is not higher than §4's 1.82–2.20, so a large shift is unlikely, but it was not measured
+  separately.
+- **Refusals are a client-visible cost.** 41.3 % of the submits in AFTER were refused. The 0 SYSTEM_ERROR is bought
+  with those refusals and with a 217 s median wait for the accepted work. A user who is refused must resubmit; the
+  bench's clients do not, so the comparison is of work accepted, not of work eventually done.
+- **BEFORE and AFTER also differ in what k6 saw.** `http_req_failed` is 0 in BEFORE and 0.387 in AFTER because the
+  503s count as failures; the submit p95 (59 vs 74 ms) mixes accepted and refused answers.
+- **The DLQ case.** The 6.5-minute wait did not reach the DLQ (§13.4), so the DB-outage case shows the retry path,
+  not the dead-letter path. The dead-letter path was shown with a poison record instead, which differs in cause.
+- **The MinIO probe was changed after its first run.** The final probe submits before MinIO stops, so it does not
+  cover a submit made during a MinIO outage, which is refused (§13.3).
+- **`run.json`'s `git` field** names the main checkouts' commits (§10.7). Its `images` ids are what separates the
+  two runs: the gateway, identity and worker images differ between BEFORE and AFTER, and the `git` field for
+  submission-service reads `3d03cec` in both.
+- **Statuses.** Status −2 appeared in both runs (4, then 2 submissions). It was not investigated.

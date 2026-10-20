@@ -1,0 +1,15 @@
+11:25:10
+produced poison verdict rc=0
+dlq records: 0
+oj_verdict_dead_lettered_total: 1
+VerdictDeadLettered: ['firing']
+submission.judged.dlq:0:0
+submission.judged.dlq:1:0
+submission.judged.dlq:2:0
+submission.judged.dlq:3:0
+submission.judged.dlq:4:1
+submission.judged.dlq:5:0
+replayed 1 record(s) from submission.judged.dlq to submission.judged
+replay rc=0
+oj_verdict_dead_lettered_total after replaying the poison record: 2
+dlq records now: 2

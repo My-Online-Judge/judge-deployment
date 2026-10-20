@@ -1,0 +1,13 @@
+11:17:33 paused 6 workers
+11:17:33 submitted e4d2c49a-9477-4bf4-8b60-bb6f60be40fb
+11:17:36 submission-db stopped
+11:17:37 workers resumed; waiting 6.5 min for the verdict consumer's 5-min budget
+11:24:07 records on submission.judged.dlq: 0
+11:24:07 oj_verdict_dead_lettered_total: absent
+11:24:07 VerdictDeadLettered: 
+11:24:07 submission-db started
+11:24:09 status after the DB returned: 6 (6 PENDING expected)
+11:24:21 replay rc=0: replayed 0 record(s) from submission.judged.dlq to submission.judged 
+11:24:39 final status: 0 (0 = ACCEPTED)
+STEP8 PASS
+rc=0

@@ -1,0 +1,33 @@
+{
+ "id": "20261020-105508-e2-w6",
+ "exp": "e2",
+ "dropped_iterations": 0,
+ "verdicts_counted": 1730.9002708333335,
+ "steps": [
+  {
+   "rate": 4.4,
+   "arrivals": 1428,
+   "measured_rate": 2.38,
+   "n": 1116.3025210084033,
+   "throughput": 1.8605042016806723,
+   "histogram_top_s": 600.0,
+   "p50": 216.657239151625,
+   "p50_censored": false,
+   "p95": 292.0708393792,
+   "p95_censored": false,
+   "p99": 329.69398060051265,
+   "p99_censored": false,
+   "queue_start": 181.0,
+   "queue_end": 500.0,
+   "saturated": true,
+   "verdict_lag_max": 0.0
+  }
+ ],
+ "invariant_ok": true,
+ "system_errors": 0,
+ "by_status": {
+  "-2": 2,
+  "0": 1722
+ },
+ "verdict_delta": 6.9
+}

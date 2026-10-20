@@ -1,0 +1,19 @@
+[11:15:09] installed test-case bundles removed from oj-bench-judge-worker-1: 0 entries left
+[11:15:09] installed test-case bundles removed from oj-bench-judge-worker-2: 0 entries left
+[11:15:09] installed test-case bundles removed from oj-bench-judge-worker-3: 0 entries left
+[11:15:09] installed test-case bundles removed from oj-bench-judge-worker-4: 0 entries left
+[11:15:09] installed test-case bundles removed from oj-bench-judge-worker-5: 0 entries left
+[11:15:09] installed test-case bundles removed from oj-bench-judge-worker-6: 0 entries left
+[11:15:10] workers paused
+[11:15:10] t+0s submit by bench_u060: id e817ea66-e090-46de-85dd-3355b0de4198
+[11:15:10] t+0s submit by bench_u061: id 6c5811ef-c2d1-4641-9e76-642d1b767305
+[11:15:10] t+0s submit by bench_u062: id aeaa05f5-845b-4319-89f3-b7aeec2c2a24
+[11:15:10] t+0s submit by bench_u063: id 8ebc2d34-a493-4776-b24d-ea6ffcf1b190
+[11:15:10] t+0s MinIO stopped
+[11:15:10] t+0s workers resumed
+[11:16:10] t+60s MinIO started again
+[11:16:11] submission e817ea66-e090-46de-85dd-3355b0de4198: status 0 error message: none
+[11:16:11] submission 6c5811ef-c2d1-4641-9e76-642d1b767305: status 0 error message: none
+[11:16:11] submission aeaa05f5-845b-4319-89f3-b7aeec2c2a24: status 0 error message: none
+[11:16:11] submission 8ebc2d34-a493-4776-b24d-ea6ffcf1b190: status 0 error message: none
+[11:16:17] oj_judge_infra_retries_total{reason="minio"}: 0 before, 12 after, change 12
