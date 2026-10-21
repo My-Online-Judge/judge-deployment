@@ -574,7 +574,11 @@ checked, so a burst of guesses cannot get past them):
 - per account: 50 failures in an hour lock the username for 15 minutes, from any address (`oj:rl:login:account:<username>`);
 - per IP: 30 failures in 5 minutes lock every login from that address for 15 minutes, correct passwords included
   (`oj:rl:login:ip:<ip>`). Only failures count toward it: correct logins never do, however many arrive at once;
-- `PUT /users/me/password`: 5 wrong current passwords in 5 minutes lock it for 15 minutes (`pwchange:<user id>`).
+- `PUT /users/me/password`: the check takes a place before the current password is checked, 5 places per 5 minutes per
+  user (`pwchange:<user id>`), so parallel guesses cannot all reach the password check. The sixth request is the single
+  probe and everything after it gets `429`. A 5th wrong current password locks password changes for 15 minutes. A
+  success, or an outcome that says nothing about the current password (`PASSWORD_UNCHANGED`, `PASSWORD_INVALID`), hands
+  its place back.
 
 Known limits, both the spec's values for sub-project 12 and a follow-up: a lab behind one NAT address shares the IP
 limit, so 30 wrong passwords from the whole lab within 5 minutes lock every login from it for 15 minutes; and anyone can
@@ -587,7 +591,9 @@ failure locks the address, as before sub-project 12 (the pair and account limits
 
 For a lab or a contest, raise the limits before the session in `.env.identity`: `OJ_LOGIN_IP_LIMIT` (default 30; for
 example `OJ_LOGIN_IP_LIMIT=300` for a hall of 150 behind one address) and `OJ_LOGIN_ACCOUNT_LIMIT` (default 50; for a
-shared account), then `docker compose up -d --no-deps identity-service` to recreate it.
+shared account), then `docker compose up -d --no-deps identity-service` to recreate it. Both must be at least 1:
+identity-service refuses to start with a lower value (0 included) and names the variable in the error. To relax the
+limits for a contest, raise them; there is no setting that turns them off.
 
 There is **no admin endpoint** to clear a lock. A lock ends by itself after 15 minutes. To clear one earlier, delete both
 the lock key and the counter of the same suffix in Redis (with only the lock gone, a counter over its limit locks the
@@ -611,6 +617,50 @@ refresh-token reuse and a logout end every session of the user at once: identity
 stays in Redis for `OJ_SESSION_REVOCATION_MARKER_TTL` (default `25h`, never less than the access-token lifetime plus a
 minute), so it also covers the 1-day access tokens issued before sub-project 12 was deployed; a 16-minute cutoff would
 let those back in for the rest of their day. The cost is one small Redis key per revoked user for 25 hours.
+
+Revocation precision (sub-project 14). identity-service now puts the claim `iat_ms` (issue time in epoch milliseconds)
+in every access token, and a revocation writes a second cutoff, `oj:token:revoked-before-ms:<user id>`, next to the
+seconds key. The gateway compares a token that has `iat_ms` against the millisecond cutoff, so a login a few
+milliseconds after a logout or a role change keeps its session. The gateway's old 2-second rule (a whole-second
+comparison) now applies only to tokens minted before sub-project 14 was deployed, which are gone within 15 minutes. The
+order of deployment does not matter: an older gateway reads the seconds key as before, and a newer gateway falls back to
+it for any token without `iat_ms`. Nothing needs configuring.
+
+### Handles, checker keys, avatars and logs (sub-project 14)
+
+Public handles. A Google account no longer has its email address as its username. A new Google sign-in gets a handle
+made from the Google display name: diacritics removed (Vietnamese included, `đ` becomes `d`), lowercase, letters,
+digits and `_` only, at most 32 characters, and a numeric suffix (`_2`, `_3`, ...) if the handle is taken. A name that
+leaves nothing usable becomes `user` plus 6 random hex digits. The email address is never used for the handle and stays
+in the `email` field. Notes for the operator:
+
+- identity's Flyway migration V8 replaced the email usernames of the existing accounts when sub-project 14 was deployed
+  (the oldest account gets the plain handle). Soft-deleted accounts keep theirs. V8 logs only a count.
+- An admin password reset on a Google account logs in with the handle, not the email address. Tell the user the handle
+  (`GET /api/v1/users/<id>` as an admin shows it).
+- Admin search by email in the submission list is gone: `/users/public/<name>` answers `404` for any name containing
+  `@`, for every caller. Admins search submissions by handle, and find a user by email only in the user list.
+- Rollback: V8 stays. An older identity image starts on a V8 database (Flyway ignores a newer migration) and serves the
+  handles as usernames. A Google account created during a rollback gets an email username again; it gets its handle at
+  its next sign-in on sub-project 14. Going back to email usernames would need a backup taken before the deploy and
+  would undo everything written since, so it is not offered.
+
+Checker sources. problem-service stores a custom checker at `sources/<slug>/spj-<sha256>.cpp` in the test-case bucket,
+where the hash is the problem's checker version. An upload never overwrites or deletes another key, and removing a
+checker deletes nothing, so old keys stay (at most 64 KiB each) and no clean-up job exists yet. A checker stored under
+the old key `sources/<slug>/spj.cpp` is still read while its hash matches the version. After a rollback to the
+sub-project 13 image, re-upload any checker that was uploaded on sub-project 14: the older image reads only
+`spj.cpp`. When the stored source does not match its version, the judge spec fails with `PROBLEMS_UNAVAILABLE` (503)
+and problem-service logs a WARN.
+
+Avatars. Public profile reads (`/users/public/...`, the profile pages) carry no avatar at all. The admin screens and
+a user's own profile still show the Google picture, and the portal loads it with `referrerpolicy="no-referrer"`, so
+Google sees no page address.
+
+Logs. A 4xx answer logs one line at WARN, `CODE (status): message`, with no stack trace; a 404 logs at DEBUG. A 5xx
+refusal that is a deliberate overload answer (`ACCOUNT_BUSY`, `QUEUE_FULL`, `STREAMS_FULL`, `PROBLEMS_UNAVAILABLE`) logs
+one WARN line with its `Retry-After`. Other 5xx answers keep their ERROR and stack trace. When looking for a refusal,
+grep for the code, for example `docker logs oj-identity-service 2>&1 | grep ACCOUNT_BUSY`.
 
 ### Deploying sub-project 11: backfill `last_status`, check the statistics
 
