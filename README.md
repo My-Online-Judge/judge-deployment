@@ -38,7 +38,7 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 | Service        | Image / Build            | Host port | Purpose                          |
 |----------------|--------------------------|-----------|----------------------------------|
 | `kafka`        | `apache/kafka:3.8.1`     | — (internal) | Submission event bus (KRaft): `kafka:29092` TLS + client certificate; `127.0.0.1:9092` PLAINTEXT only inside the container |
-| `edge`         | `caddy:2.10.0-alpine`    | 80, 443   | The one public listener: HTTPS with the private-CA certificate, `/api/*` to the gateway, the rest to the portal, both over mutual TLS (`edge/Caddyfile`) |
+| `edge`         | `caddy:2.11.7-alpine`    | 80, 443   | The one public listener: HTTPS with the private-CA certificate, `/api/*` to the gateway, the rest to the portal, both over mutual TLS (`edge/Caddyfile`) |
 | `api-gateway`  | build `../oj-api-gateway`| — (internal) | API entry behind the edge (CORS, client IP from the edge's `X-Forwarded-For`); answers only CN=`edge`; calls the services over mutual TLS; actuator `:8081` TLS + client certificate |
 | `submission-service` | build `../oj-submission-service` | — (internal) | Submissions, judging, languages, judge servers; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |
 | `submission-db` | `postgres:16`           | — (internal) | submission-service's database (`submission`) |
@@ -410,10 +410,10 @@ it watches, each in its own job named after the service (`prometheus.yml`):
 
 | Service | Image | Port | What it exports |
 |---|---|---|---|
-| `node-exporter` | `prom/node-exporter:v1.9.1` | 9100 | The host: CPU, memory, filesystems (host pid namespace, read-only `/proc`, `/sys`, `/`) |
+| `node-exporter` | `prom/node-exporter:v1.12.1` | 9100 | The host: CPU, memory, filesystems (host pid namespace, read-only `/proc`, `/sys`, `/`) |
 | `cadvisor` | `ghcr.io/google/cadvisor:v0.60.6` | 8080 | CPU and memory of every container, labelled with its name |
 | `identity-db-exporter`, `problem-db-exporter`, `submission-db-exporter` | `prometheuscommunity/postgres-exporter:v0.17.1` | 9187 | Each database, as the read-only role `oj_monitor` |
-| `redis-exporter` | `oliver006/redis_exporter:v1.72.0` | 9121 | Redis |
+| `redis-exporter` | `oliver006/redis_exporter:v1.94.0` | 9121 | Redis |
 | `kafka-exporter` | `danielqsj/kafka-exporter:v1.9.0` | 9308 | Topic offsets and consumer-group lag |
 
 - **Mutual TLS, like every hop (sub-project 10).** Six exporters serve `/metrics` with the leaf of their own tls subpath
@@ -490,7 +490,7 @@ Everything is provisioned read-only from `grafana/`, so a dashboard is changed i
   Grafana's Jaeger datasource speaks Jaeger v2's API.
 - **Plugins:** `GF_PLUGINS_PREINSTALL_DISABLED=true`. By default Grafana 12 downloads three Grafana-Labs apps at start.
 - **Bench:** `grafana` is in profile `off` there.
-- Check: `bash tests/grafana.test.sh` (throwaway `prom/prometheus:v3.1.0` and Grafana: every panel query is valid, the
+- Check: `bash tests/grafana.test.sh` (throwaway `prom/prometheus:v3.15.0` and Grafana: every panel query is valid, the
   three dashboards load) and the Grafana checks in `tests/compose.test.sh`.
 
 ## Configuration

@@ -166,8 +166,8 @@ check "api-gateway and judge-portal publish nothing" \
   "not s['api-gateway'].get('ports') and not s['judge-portal'].get('ports')"
 check "every Java service runs with SPRING_PROFILES_INCLUDE=tls" \
   "all('tls' in s[n]['environment'].get('SPRING_PROFILES_INCLUDE', '').split(',') for n in $java_services)"
-check "edge runs caddy:2.10.0-alpine on 80 and 443 with edge/Caddyfile, the caddydata volume and the edge tls subpath" \
-  "(lambda e: e['image'] == 'caddy:2.10.0-alpine' and sorted((str(p['published']), p['target']) for p in e.get('ports', [])) == [('443', 443), ('80', 80)] and any(m.get('type') == 'bind' and m['source'].endswith('/edge/Caddyfile') and m['target'] == '/etc/caddy/Caddyfile' and m.get('read_only') is True for m in e['volumes']) and any(m.get('source') == 'caddydata' and m['target'] == '/data' for m in e['volumes']) and 'caddydata' in v and any(m.get('volume', {}).get('subpath') == 'edge' for m in e['volumes'] if m.get('source') == 'tls'))(s.get('edge', {'image': None}))"
+check "edge runs caddy:2.11.7-alpine on 80 and 443 with edge/Caddyfile, the caddydata volume and the edge tls subpath" \
+  "(lambda e: e['image'] == 'caddy:2.11.7-alpine' and sorted((str(p['published']), p['target']) for p in e.get('ports', [])) == [('443', 443), ('80', 80)] and any(m.get('type') == 'bind' and m['source'].endswith('/edge/Caddyfile') and m['target'] == '/etc/caddy/Caddyfile' and m.get('read_only') is True for m in e['volumes']) and any(m.get('source') == 'caddydata' and m['target'] == '/data' for m in e['volumes']) and 'caddydata' in v and any(m.get('volume', {}).get('subpath') == 'edge' for m in e['volumes'] if m.get('source') == 'tls'))(s.get('edge', {'image': None}))"
 check "edge is capped at 128 MiB and healthy when Caddy's admin API (127.0.0.1:2019, in the container) answers" \
   "s['edge'].get('mem_limit') in (134217728, '134217728') and s['edge'].get('healthcheck', {}).get('test') == ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:2019/config/']"
 check_raw "edge and api-gateway get OJ_PUBLIC_HOST, default localhost (the site address; the gateway's CORS origin)" \
@@ -201,9 +201,9 @@ check "both sandboxes run qduoj pinned by digest" \
 # Exporters (sp12 task 15). Six serve /metrics over mutual TLS with the leaf of their own tls subpath, as the image's own
 # user (the owner pki/identities.txt gives that subpath); cAdvisor has no TLS and stays plain HTTP on oj-net. None
 # publishes a port. mem_limit is controller ruling Q4; the resolved config prints bytes.
-exporter_images="{'node-exporter': 'prom/node-exporter:v1.9.1', 'cadvisor': 'ghcr.io/google/cadvisor:v0.60.6',
+exporter_images="{'node-exporter': 'prom/node-exporter:v1.12.1', 'cadvisor': 'ghcr.io/google/cadvisor:v0.60.6',
   'identity-db-exporter': 'prometheuscommunity/postgres-exporter:v0.17.1', 'problem-db-exporter': 'prometheuscommunity/postgres-exporter:v0.17.1',
-  'submission-db-exporter': 'prometheuscommunity/postgres-exporter:v0.17.1', 'redis-exporter': 'oliver006/redis_exporter:v1.72.0',
+  'submission-db-exporter': 'prometheuscommunity/postgres-exporter:v0.17.1', 'redis-exporter': 'oliver006/redis_exporter:v1.94.0',
   'kafka-exporter': 'danielqsj/kafka-exporter:v1.9.0'}"
 tls_exporters="{'node-exporter': '65534:65534', 'identity-db-exporter': '65534:65534', 'problem-db-exporter': '65534:65534',
   'submission-db-exporter': '65534:65534', 'redis-exporter': '59000:59000', 'kafka-exporter': '65534:65534'}"

@@ -42,7 +42,7 @@ net=$tag-net
 cleanup() { docker rm -f "$tag-prom" "$tag-graf" >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker network create "$net" >/dev/null
-docker run -d --name "$tag-prom" --network "$net" --network-alias prometheus --memory 256m prom/prometheus:v3.1.0 >/dev/null
+docker run -d --name "$tag-prom" --network "$net" --network-alias prometheus --memory 256m prom/prometheus:v3.15.0 >/dev/null
 ip_of() { docker inspect -f "{{(index .NetworkSettings.Networks \"$net\").IPAddress}}" "$1"; }
 prom_ip=$(ip_of "$tag-prom")
 for _ in $(seq 30); do curl -fsS "http://$prom_ip:9090/-/ready" >/dev/null 2>&1 && break; sleep 1; done
@@ -53,7 +53,7 @@ while IFS= read -r expr; do
   q=${expr//\$__rate_interval/1m}; q=${q//\$job/.*}
   if [[ $(curl -s "http://$prom_ip:9090/api/v1/query" --data-urlencode "query=$q" | jq -r .status) != success ]]; then bad "query rejected by Prometheus: $q"; bad_n=$((bad_n + 1)); fi
 done < <(jq -r '.panels[].targets[]?.expr' "${files[@]}")
-((n == 19 && bad_n == 0)) && ok "all $n panel queries return status success on prom/prometheus:v3.1.0"
+((n == 19 && bad_n == 0)) && ok "all $n panel queries return status success on prom/prometheus:v3.15.0"
 ((n != 19)) && bad "expected 19 panel queries, found $n"
 
 pw=$(openssl rand -hex 12)
