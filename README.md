@@ -522,6 +522,16 @@ Notes:
   that email is refused (`reason=GOOGLE_LINK_NOT_ALLOWED`) and its owner signs in with the password. A Google account
   whose email matches no account still gets a new one.
 
+### Root admin password
+
+identity's V2 migration seeds the root admin `admin` with a published default password, and the `DefaultAdminPassword`
+alert (gauge `oj_identity_default_admin_password`) fires until it is changed. On this host it was changed on
+2026-10-21 and the new one is `OJ_ADMIN_PASSWORD` in `.env` (0600, in the restic backup with the other secrets; compose
+does not read it). Read it without printing it, for example for the seed loader:
+`OJ_PASSWORD=$(grep '^OJ_ADMIN_PASSWORD=' .env | cut -d= -f2-) python3 seed/problems/load.py`. To change it again:
+`PUT /api/v1/users/me/password` as the admin (`currentPassword`, `newPassword`; every admin session ends), then update
+`.env`. The bench stack seeds its own throwaway identity-db and keeps the default (`BENCH_ADMIN_PASSWORD` overrides it).
+
 ### Overload and verdict-correctness knobs (sub-project 11)
 
 Defaults are in the services; none of these needs setting. submission-service reads the first three from
