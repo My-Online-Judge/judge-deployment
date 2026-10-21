@@ -650,17 +650,29 @@ where the hash is the problem's checker version. An upload never overwrites or d
 checker deletes nothing, so old keys stay (at most 64 KiB each) and no clean-up job exists yet. A checker stored under
 the old key `sources/<slug>/spj.cpp` is still read while its hash matches the version. After a rollback to the
 sub-project 13 image, re-upload any checker that was uploaded on sub-project 14: the older image reads only
-`spj.cpp`. When the stored source does not match its version, the judge spec fails with `PROBLEMS_UNAVAILABLE` (503)
-and problem-service logs a WARN.
+`spj.cpp`. When the stored source does not match its version, the judge spec fails and the submit is refused with
+`PROBLEMS_UNAVAILABLE` (503). problem-service logs a WARN; submission-service logs an ERROR line,
+`checker source missing for <slug>`, besides the handler's WARN `PROBLEMS_UNAVAILABLE (503), Retry-After 5s`.
 
-Avatars. Public profile reads (`/users/public/...`, the profile pages) carry no avatar at all. The admin screens and
-a user's own profile still show the Google picture, and the portal loads it with `referrerpolicy="no-referrer"`, so
-Google sees no page address.
+Avatars. Public profile reads (`/users/public/...`) carry no avatar at all, and every profile page shows initials
+only, the owner's own included. The header's account menu and the admin screens (the admin layout and `/admin/users`)
+still show the Google picture, and the portal loads it with `referrerpolicy="no-referrer"`, so Google sees no page
+address.
 
-Logs. A 4xx answer logs one line at WARN, `CODE (status): message`, with no stack trace; a 404 logs at DEBUG. A 5xx
-refusal that is a deliberate overload answer (`ACCOUNT_BUSY`, `QUEUE_FULL`, `STREAMS_FULL`, `PROBLEMS_UNAVAILABLE`) logs
-one WARN line with its `Retry-After`. Other 5xx answers keep their ERROR and stack trace. When looking for a refusal,
-grep for the code, for example `docker logs oj-identity-service 2>&1 | grep ACCOUNT_BUSY`.
+Logs. A 4xx answer with an error code logs one WARN line, `CODE (status): message`, with no stack trace; that
+includes 404 codes such as `USER_NOT_FOUND`. Other 4xx answers also log one WARN line with no stack trace, in their own
+form (`Bad request: ...`, `Already exists: ...`, `Validation failed: ...`, `Access denied: ...`, and `No resource: ...`
+or `No handler: ...` for an unknown path); an invalid argument whose message is withheld still logs its stack trace.
+Two answers log only at DEBUG, so they do not show at the default level: a 404 for a missing record (`Not found: ...`)
+and a 429 rate-limit refusal (`CODE (429), Retry-After Ns`). A 5xx refusal that is a deliberate overload answer
+(`ACCOUNT_BUSY`, `QUEUE_FULL`, `STREAMS_FULL`, `PROBLEMS_UNAVAILABLE`) logs one WARN line, `CODE (status), Retry-After
+Ns`. Other 5xx answers keep their ERROR and stack trace, and a missing checker source also logs an ERROR line in
+submission-service (see Checker sources). When looking for a refusal, grep for the code, for example
+`docker logs oj-identity-service 2>&1 | grep ACCOUNT_BUSY`.
+
+Dependabot. The `ignore` rules in the repos' `.github/dependabot.yml` (springdoc majors, Spring Cloud minors and
+majors, the docker `maven` image) also suppress security-update PRs: a security alert on springdoc or Spring Cloud
+whose fix needs a Boot 4 line is handled by hand (the alert still shows in the Security tab).
 
 ### Deploying sub-project 11: backfill `last_status`, check the statistics
 
