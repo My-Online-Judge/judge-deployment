@@ -1111,7 +1111,7 @@ services:
   # certificate is the edge leaf (its SAN carries OJ_PUBLIC_HOST, pki/identities.txt), signed by the private CA.
   edge:
     logging: *logging
-    image: caddy:2.10.0-alpine
+    image: caddy:2.11.7-alpine
     container_name: oj-edge
     restart: unless-stopped
     environment:
