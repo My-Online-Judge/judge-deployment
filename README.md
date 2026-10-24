@@ -461,6 +461,8 @@ still-firing alert every 4 h.
   at container start and prints only `alertmanager receiver: telegram` or `ui-only`; the token goes to a 0600 file in
   the container's `/tmp`, so it is not in `docker compose config` output beyond the environment passthrough. Each
   message is `[FIRING] <alertname> (<severity>): <summary>` (`alertmanager/telegram.tmpl`); resolved alerts are sent too.
+- **Run lane:** `RunWorkerDown` (warning) fires when no `run-worker` replica answers its scrape for 15 s — Run answers
+  504 meanwhile, Submit is unaffected (see "Run lane (custom test cases)").
 - **Bench:** `alertmanager` is in profile `off` there; the bench Prometheus logs one failed notification per alert.
 - Check: `bash tests/alertmanager.test.sh` (amtool in the pinned image, with and without the variables).
 
@@ -521,6 +523,29 @@ Notes:
   Google vouches for the address: a `@gmail.com` address, or a Google Workspace account. Any other Google account with
   that email is refused (`reason=GOOGLE_LINK_NOT_ALLOWED`) and its owner signs in with the password. A Google account
   whose email matches no account still gets a new one.
+
+### Run lane (custom test cases)
+
+The portal's **Run** button (`POST /api/v1/submissions/run`, `docs/superpowers/specs/2026-10-24-run-code-design.md`)
+judges the user's code on the sample case and their own inputs and answers synchronously; nothing is stored. It goes
+through its own lane: submission-service publishes `run.requested` (the cases inline, a deadline) and waits for
+`run.judged`; **`run-worker`** — the judge-worker image on its own topics, consumer group `run-workers` and certificate
+identity `run-worker`, no MinIO, no heartbeat relay — judges in the same sandboxes. Submit never queues behind Run and
+Run never behind Submit.
+
+- **Replicas:** two by default (`deploy.replicas`); `docker compose up -d --scale run-worker=N` changes it. One replica
+  judges one run at a time (the sandbox runs a run's cases in parallel, not runs).
+- **submission-service knobs** (`.env`, optional): `RUN_COOLDOWN_SECONDS` (3, per user), `RUN_MAX_INFLIGHT` (20: runs
+  one instance keeps waiting; beyond it 503 `RUN_BUSY` — keep it around replicas × 10), `RUN_TIMEOUT` (45s: then 504
+  `RUN_TIMED_OUT`, and the worker skips a run past its deadline — `oj_run_expired_total`). Also one pending run per
+  user (429 `RUN_IN_PROGRESS`); limits of 6 cases and 64 KiB per input or expected output are fixed in the service.
+- **Rollout (once):** add `run-worker` to `pki/identities.txt` (done), `pki/pki.sh issue run-worker`, then
+  `docker compose up -d`: `tls-init` installs the certificate, `kafka-init` adds the ACLs (`kafka/acls.sh`),
+  submission-service creates the topics, the replicas join. Rollback: stop `run-worker`, redeploy the previous
+  submission-service image; the topics and ACLs persist harmlessly.
+- **Alert:** `RunWorkerDown` (warning) when no replica answers its scrape (job `run-worker`, found through DNS like
+  `judge-worker`). Metrics: `oj_run_*` on submission-service (latency, outcome, inflight, refused, timed_out,
+  late_replies, unreadable_replies), `oj_run_expired_total` on the run-workers.
 
 ### Root admin password
 

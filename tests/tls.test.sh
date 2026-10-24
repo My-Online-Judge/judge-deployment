@@ -95,6 +95,9 @@ probe_http "https://api-gateway:8081/actuator/health" tls-probe 200
 probe_handshake "api-gateway:8081" none fail
 probe_http "https://judge-worker:9100/metrics" tls-probe 200
 probe_handshake "judge-worker:9100" none fail
+# The run lane (Run code design §9): the same image under its own name and certificate, two replicas.
+probe_http "https://run-worker:9100/metrics" tls-probe 200
+probe_handshake "run-worker:9100" none fail
 
 # ---- grpc: problem-service's internal API (9090) requires a CA-signed client certificate and answers only the CN ----
 # submission-service (task 10). grpcurl verifies problem-service's certificate against the CA and the name

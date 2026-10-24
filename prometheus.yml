@@ -61,6 +61,17 @@ scrape_configs:
         port: 9100
         refresh_interval: 5s
 
+  - job_name: run-worker
+    # The run lane (Run code design §9): the judge-worker image under its own name and certificate, found the same way.
+    # RunWorkerDown asks whether any replica is still up.
+    scheme: https
+    tls_config: {ca_file: /etc/oj/tls/ca.crt, cert_file: /etc/oj/tls/tls.crt, key_file: /etc/oj/tls/tls.key, server_name: run-worker}
+    dns_sd_configs:
+      - names: ['run-worker']
+        type: A
+        port: 9100
+        refresh_interval: 5s
+
   # The exporters (sub-project 12): one job per service, named after it. Over mutual TLS with the same client certificate;
   # each exporter's leaf names its service, the target's host.
   - job_name: node-exporter

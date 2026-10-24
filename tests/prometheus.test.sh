@@ -44,5 +44,11 @@ print(("ok   " if ok5 else "FAIL ") + "prometheus has one job per exporter, name
 ok6 = all(jobs.get(n, {}).get("scheme") == "https" and jobs.get(n, {}).get("tls_config") == tls for n in exporters if n != "cadvisor") \
   and jobs.get("cadvisor", {}).get("scheme", "http") == "http" and "tls_config" not in jobs.get("cadvisor", {"tls_config": None})
 print(("ok   " if ok6 else "FAIL ") + "prometheus scrapes the six TLS exporters over mutual TLS and cadvisor over plain HTTP")
-sys.exit(0 if ok and ok2 and ok3 and ok4 and ok5 and ok6 else 1)
+# The run lane (Run code design §9): run-worker replicas are found and verified the same way, under their own name.
+rw = jobs.get("run-worker", {})
+sd7 = (rw.get("dns_sd_configs") or [{}])[0]
+ok7 = sd7.get("names") == ["run-worker"] and sd7.get("type") == "A" and sd7.get("port") == 9100 \
+  and rw.get("scheme") == "https" and rw.get("tls_config") == dict(tls, server_name="run-worker")
+print(("ok   " if ok7 else "FAIL ") + "prometheus scrapes every run-worker replica on :9100 through DNS, over mutual TLS as run-worker")
+sys.exit(0 if ok and ok2 and ok3 and ok4 and ok5 and ok6 and ok7 else 1)
 EOF

@@ -236,3 +236,33 @@ tests:
             exp_annotations:
               summary: "No judge-worker is running"
               description: "No judge-worker has answered a scrape for 15 seconds, so nothing is being judged. Check the judge-worker containers."
+
+  # RunWorkerDown (Run code design §9): no run-worker is scraped at all — Run answers 504 while Submit keeps working...
+  - interval: 15s
+    input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
+      - series: 'up{job="judge-worker", instance="172.18.0.9:9100"}'
+        values: '1x8'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: RunWorkerDown
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: "No run-worker is running"
+              description: "No run-worker has answered a scrape for 15 seconds, so Run answers 504 while Submit keeps working. Check the run-worker containers."
+
+  # ...but one replica of two being down is not "no run-worker".
+  - interval: 15s
+    input_series:
+      - series: 'process_start_time_seconds{job="prometheus", instance="localhost:9090"}'
+        values: '-3600x40'
+      - series: 'up{job="run-worker", instance="172.18.0.11:9100"}'
+        values: '0x8'
+      - series: 'up{job="run-worker", instance="172.18.0.12:9100"}'
+        values: '1x8'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RunWorkerDown
+        exp_alerts: []
