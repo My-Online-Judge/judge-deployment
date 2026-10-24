@@ -26,10 +26,17 @@ def make_case(result, error=0, tc="1"):
     }
 
 
-def judge_payload(src):
+def judge_payload(src, test_case=None):
     # err-envelope branches
     if "TRIGGER_CE" in src:
         return {"err": "CompileError", "data": "mock: error: expected ';' before '}'"}
+    # A run (inline test_case, Run code design §13): one accepted result per case, echoing the case's input as the
+    # program's output, so the portal's panel shows something per case. The TRIGGER_* markers below still apply.
+    if isinstance(test_case, list) and not any(m in src for m in ("TRIGGER_SE", "TRIGGER_WA", "TRIGGER_TLE",
+                                                                  "TRIGGER_MLE", "TRIGGER_RE")):
+        return {"err": None, "data": [
+            {**make_case(0, tc=str(i + 1)), "output": (c.get("input", "") if isinstance(c, dict) else "")}
+            for i, c in enumerate(test_case)]}
     # per-testcase array branches: first AC, then the triggered verdict (tests ACM aggregation)
     if "TRIGGER_SE" in src:
         return {"err": None, "data": [make_case(0), make_case(5, error=-10, tc="2")]}
@@ -85,7 +92,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.rstrip("/").endswith("/judge") or self.path == "/judge":
             src = data.get("src", "")
             print(f"[judge] keys={list(data.keys())} src={src[:80]!r}", flush=True)
-            return self._send(200, judge_payload(src))
+            return self._send(200, judge_payload(src, data.get("test_case")))
         return self._send(200, {"err": None, "data": "ok"})
 
     def do_GET(self):

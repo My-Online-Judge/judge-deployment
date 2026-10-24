@@ -1035,6 +1035,52 @@ services:
     # oj-net for Kafka/MinIO/the registry, sandbox-net for the sandboxes — the only service on both.
     networks: [oj-net, sandbox-net]
 
+  run-worker:
+    # The Run lane (docs/superpowers/specs/2026-10-24-run-code-design.md §9): the judge-worker image on its own topics
+    # and consumer group, so runs never queue behind submissions and submissions never behind runs. A run carries its
+    # cases inline: no bundle cache, no MinIO credentials, no heartbeat relay (the submit workers report the sandboxes).
+    # Its own certificate identity (run-worker): Kafka lets it read run.requested and write run.judged, nothing of the
+    # submit lane. Like judge-worker it has no fixed container name and scales (`--scale run-worker=N`).
+    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/judge-worker:${OJ_WORKER_TAG:-${OJ_TAG:-main}}
+    logging: *logging
+    build: ../judge-worker
+    restart: unless-stopped
+    deploy:
+      # One replica judges one run at a time (the sandbox runs a run's cases in parallel, not runs): two answer about
+      # 20-40 runs inside submission-service's 45 s wait, which its in-flight cap (RUN_MAX_INFLIGHT, 20) assumes.
+      replicas: 2
+    volumes:
+      - type: volume
+        source: tls
+        target: /etc/oj/tls
+        read_only: true
+        volume:
+          subpath: run-worker
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      judge-server:
+        condition: service_healthy
+      judge-server-2:
+        condition: service_healthy
+    environment:
+      <<: [*tz-env, *otel-env]
+      OTEL_SERVICE_NAME: run-worker
+      OJ_TLS_DIR: /etc/oj/tls
+      JUDGE_SERVER_TOKEN: ${JUDGE_SERVER_TOKEN}
+      JUDGE_SERVER_URL: https://judge-server:8080,https://judge-server-2:8080
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      REQUESTED_TOPIC: run.requested
+      JUDGED_TOPIC: run.judged
+      CONSUMER_GROUP: run-workers
+      # A run's caller waits 45 s: retrying a sandbox outage for the worker's default 5 minutes would judge for nobody.
+      JUDGE_INFRA_RETRY_SECONDS: "30"
+    networks: [oj-net, sandbox-net]
+
   judge-server:
     # Official QingdaoU sandbox on Docker Hub (qduoj account) — the canonical
     # registry.cn-hangzhou.aliyuncs.com/onlinejudge/judge_server is unreachable outside China.

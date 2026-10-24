@@ -46,3 +46,8 @@ services:
   judge-worker:
     environment:
       JUDGE_SERVER_URL: http://judge-server:8080,http://judge-server-2:8080
+
+  # The run lane talks to the same mock sandboxes (it answers one result per inline case).
+  run-worker:
+    environment:
+      JUDGE_SERVER_URL: http://judge-server:8080,http://judge-server-2:8080

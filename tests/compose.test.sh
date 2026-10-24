@@ -30,6 +30,18 @@ worker_allowlist="['JUDGE_SERVER_TOKEN','JUDGE_SERVER_URL','KAFKA_BROKERS','MINI
   'OTEL_METRICS_EXPORTER','OTEL_SERVICE_NAME','SANDBOX_HEARTBEAT_URL','TZ']"
 # The resolved config inlines an env_file into environment, so this one check also catches an env_file coming back.
 check "judge-worker gets exactly the variables it reads" "sorted(s['judge-worker']['environment']) == $worker_allowlist"
+# The run lane (Run code design §9): the judge-worker image on its own topics, with no MinIO and no heartbeat relay.
+run_worker_allowlist="sorted(['CONSUMER_GROUP','JUDGED_TOPIC','JUDGE_INFRA_RETRY_SECONDS','JUDGE_SERVER_TOKEN','JUDGE_SERVER_URL',
+  'KAFKA_BROKERS','OJ_TLS_DIR','OTEL_EXPORTER_OTLP_CERTIFICATE','OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE','OTEL_EXPORTER_OTLP_CLIENT_KEY',
+  'OTEL_EXPORTER_OTLP_ENDPOINT','OTEL_EXPORTER_OTLP_PROTOCOL','OTEL_LOGS_EXPORTER','OTEL_METRICS_EXPORTER','OTEL_SERVICE_NAME',
+  'REQUESTED_TOPIC','TZ'])"
+check "run-worker gets exactly the variables it reads (no MinIO, no heartbeat relay)" "sorted(s['run-worker']['environment']) == $run_worker_allowlist"
+check "run-worker consumes run.requested as run-workers, answers on run.judged, retries infra for 30 s" \
+  "{k: s['run-worker']['environment'].get(k) for k in ('REQUESTED_TOPIC', 'JUDGED_TOPIC', 'CONSUMER_GROUP', 'JUDGE_INFRA_RETRY_SECONDS')} == {'REQUESTED_TOPIC': 'run.requested', 'JUDGED_TOPIC': 'run.judged', 'CONSUMER_GROUP': 'run-workers', 'JUDGE_INFRA_RETRY_SECONDS': '30'}"
+check "run-worker is the judge-worker image on both networks with its own certificate, two replicas, no bundle cache" \
+  "s['run-worker']['image'] == s['judge-worker']['image'] and set(s['run-worker']['networks']) == {'oj-net', 'sandbox-net'} and any(m.get('volume', {}).get('subpath') == 'run-worker' for m in s['run-worker']['volumes'] if m.get('source') == 'tls') and not any(m.get('source') == 'test_case_cache' for m in s['run-worker']['volumes']) and s['run-worker'].get('deploy', {}).get('replicas') == 2"
+check_raw "run-worker calls both sandboxes over https" \
+  "s['run-worker']['environment'].get('JUDGE_SERVER_URL') == 'https://judge-server:8080,https://judge-server-2:8080'"
 
 check "kafka keeps its logs on the named volume kafkadata" \
   "s['kafka']['environment'].get('KAFKA_LOG_DIRS') == '/var/lib/kafka/data' and any(m.get('source') == 'kafkadata' and m.get('target') == '/var/lib/kafka/data' for m in s['kafka'].get('volumes', [])) and 'kafkadata' in v"
@@ -155,7 +167,7 @@ otlp_tls="{'OTEL_EXPORTER_OTLP_ENDPOINT': 'https://jaeger:4318', 'OTEL_EXPORTER_
   'OTEL_EXPORTER_OTLP_CERTIFICATE': '/etc/oj/tls/ca.crt', 'OTEL_EXPORTER_OTLP_CLIENT_KEY': '/etc/oj/tls/tls.key',
   'OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE': '/etc/oj/tls/tls.crt'}"
 check "the gateway, the three services and the worker export OTLP/HTTP to https://jaeger:4318 with the CA and their own certificate" \
-  "sorted(n for n, x in s.items() if 'OTEL_SERVICE_NAME' in (x.get('environment') or {})) == ['api-gateway', 'identity-service', 'judge-worker', 'problem-service', 'submission-service'] and all({k: x['environment'].get(k) for k in $otlp_tls} == $otlp_tls and any(m.get('source') == 'tls' for m in x.get('volumes', [])) for x in s.values() if 'OTEL_SERVICE_NAME' in (x.get('environment') or {}))"
+  "sorted(n for n, x in s.items() if 'OTEL_SERVICE_NAME' in (x.get('environment') or {})) == ['api-gateway', 'identity-service', 'judge-worker', 'problem-service', 'run-worker', 'submission-service'] and all({k: x['environment'].get(k) for k in $otlp_tls} == $otlp_tls and any(m.get('source') == 'tls' for m in x.get('volumes', [])) for x in s.values() if 'OTEL_SERVICE_NAME' in (x.get('environment') or {}))"
 
 # The HTTPS edge (task 14): Caddy is the one service on non-loopback host ports (80, 443). The portal and the gateway
 # publish nothing; on oj-net they serve TLS and answer only the edge's certificate (portal/nginx-tls.conf; the gateway's
@@ -186,7 +198,7 @@ check "no environment value in docker-compose.yml is an http:// URL of a stack s
 # the second config below proves it. The unset variables keep the operator's shell from deciding the first.
 check "every service (the one-shots too) rotates its json-file logs: max-size 10m, max-file 3" \
   "all(x.get('logging') == {'driver': 'json-file', 'options': {'max-size': '10m', 'max-file': '3'}} for x in s.values())"
-built="{'identity-service': 'oj-identity-service', 'problem-service': 'oj-problem-service', 'submission-service': 'oj-submission-service', 'api-gateway': 'oj-api-gateway', 'judge-worker': 'judge-worker', 'judge-portal': 'judge-portal'}"
+built="{'identity-service': 'oj-identity-service', 'problem-service': 'oj-problem-service', 'submission-service': 'oj-submission-service', 'api-gateway': 'oj-api-gateway', 'judge-worker': 'judge-worker', 'run-worker': 'judge-worker', 'judge-portal': 'judge-portal'}"
 default_cfg=$(env -u OJ_TAG -u OJ_REGISTRY -u OJ_IDENTITY_TAG -u OJ_PROBLEM_TAG -u OJ_SUBMISSION_TAG -u OJ_GATEWAY_TAG -u OJ_WORKER_TAG -u OJ_PORTAL_TAG \
   docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
 _check "$default_cfg" "built services reference ghcr.io/my-online-judge/<name>:main and keep their build" \
