@@ -60,6 +60,24 @@ User:submission-service Topic submission.started Create
 User:submission-service Topic submission.started Alter
 User:submission-service Topic submission.started DescribeConfigs
 User:submission-service Group submission-started Read
+User:submission-service Topic run.requested Write
+User:submission-service Topic run.requested Describe
+User:submission-service Topic run.requested Create
+User:submission-service Topic run.requested Alter
+User:submission-service Topic run.requested DescribeConfigs
+User:submission-service Topic run.judged Read
+User:submission-service Topic run.judged Describe
+User:submission-service Topic run.judged Create
+User:submission-service Topic run.judged Alter
+User:submission-service Topic run.judged DescribeConfigs
+User:submission-service Group run-results Read
+User:run-worker Topic run.requested Read
+User:run-worker Topic run.requested Describe
+User:run-worker Topic run.requested Create
+User:run-worker Topic run.judged Write
+User:run-worker Topic run.judged Describe
+User:run-worker Topic run.judged Create
+User:run-worker Group run-workers Read
 User:kafka-exporter Topic * Describe
 User:kafka-exporter Group * Describe
 User:kafka-exporter Cluster kafka-cluster Describe'
@@ -116,7 +134,7 @@ check "kafka authorizes with StandardAuthorizer; super users are kafka, kafka-ad
   "e.get('KAFKA_AUTHORIZER_CLASS_NAME') == 'org.apache.kafka.metadata.authorizer.StandardAuthorizer' and e.get('KAFKA_SUPER_USERS') == 'User:kafka;User:kafka-admin;User:ANONYMOUS'"
 check "kafka-init runs kafka/acls.sh once in apache/kafka:3.8.1 on oj-net as kafka-admin, after kafka is healthy" \
   "(lambda k: k['image'] == 'apache/kafka:3.8.1' and k.get('entrypoint') == ['/bin/bash', '/opt/oj/kafka/acls.sh'] and k.get('restart') == 'no' and list(k.get('networks', {})) == ['oj-net'] and {n: d['condition'] for n, d in k['depends_on'].items()} == {'tls-init': 'service_completed_successfully', 'kafka': 'service_healthy'} and any(m.get('type') == 'bind' and m['source'].endswith('/kafka') and m['target'] == '/opt/oj/kafka' and m.get('read_only') is True for m in k['volumes']) and any(m.get('source') == 'tls' and m.get('volume', {}).get('subpath') == 'kafka-admin' and m['target'] == '/etc/oj/tls' for m in k['volumes']))(s.get('kafka-init', {'image': None}))"
-check "problem-service, submission-service and judge-worker start only after kafka-init wrote the ACLs" \
-  "all(s[n]['depends_on'].get('kafka-init', {}).get('condition') == 'service_completed_successfully' for n in ('problem-service', 'submission-service', 'judge-worker'))"
+check "problem-service, submission-service, judge-worker and run-worker start only after kafka-init wrote the ACLs" \
+  "all(s[n]['depends_on'].get('kafka-init', {}).get('condition') == 'service_completed_successfully' for n in ('problem-service', 'submission-service', 'judge-worker', 'run-worker'))"
 
 exit $fail

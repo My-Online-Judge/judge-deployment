@@ -7,6 +7,8 @@ set -euo pipefail
 acls=(/opt/kafka/bin/kafka-acls.sh --bootstrap-server kafka:29092 --command-config /opt/oj/kafka/admin-client.properties)
 
 # principal resource-type name operation — one rule per line (tests/kafka-acls.test.sh compares it with spec §4.5).
+# The Run lane (Run code design §9): submission-service publishes run.requested and reads run.judged as run-results;
+# run-worker (its own certificate) reads run.requested as run-workers and publishes run.judged — nothing of the submit lane.
 # kafka-cluster is Kafka's fixed name for the cluster resource. * is Kafka's wildcard resource name (every topic or group): it
 # is passed quoted below, never expanded by the shell. kafka-exporter (sp12 task 15) only describes: metadata, offsets, lag.
 rules=$(cat <<'RULES'
@@ -60,6 +62,24 @@ User:submission-service Topic submission.started Create
 User:submission-service Topic submission.started Alter
 User:submission-service Topic submission.started DescribeConfigs
 User:submission-service Group submission-started Read
+User:submission-service Topic run.requested Write
+User:submission-service Topic run.requested Describe
+User:submission-service Topic run.requested Create
+User:submission-service Topic run.requested Alter
+User:submission-service Topic run.requested DescribeConfigs
+User:submission-service Topic run.judged Read
+User:submission-service Topic run.judged Describe
+User:submission-service Topic run.judged Create
+User:submission-service Topic run.judged Alter
+User:submission-service Topic run.judged DescribeConfigs
+User:submission-service Group run-results Read
+User:run-worker Topic run.requested Read
+User:run-worker Topic run.requested Describe
+User:run-worker Topic run.requested Create
+User:run-worker Topic run.judged Write
+User:run-worker Topic run.judged Describe
+User:run-worker Topic run.judged Create
+User:run-worker Group run-workers Read
 User:kafka-exporter Topic * Describe
 User:kafka-exporter Group * Describe
 User:kafka-exporter Cluster kafka-cluster Describe

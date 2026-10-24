@@ -4,6 +4,7 @@ problem-service 10001:10001
 submission-service 10001:10001
 api-gateway 10001:10001
 judge-worker 10001:10001
+run-worker 10001:10001
 judge-server 0:0
 judge-server-2 0:0
 judge-portal 101:101
