@@ -155,7 +155,7 @@ services:
   # certificate mounts tls with volume.subpath: <its id> at /etc/oj/tls and waits for this to complete.
   tls-init:
     logging: *logging
-    image: alpine:3.22
+    image: alpine:3.24
     restart: "no"
     entrypoint: ["/bin/sh", "/install.sh"]
     volumes:
@@ -965,7 +965,7 @@ services:
   # keep group 12003 (judge-worker below).
   volume-init:
     logging: *logging
-    image: alpine:3.22
+    image: alpine:3.24
     restart: "no"
     network_mode: none
     volumes:
