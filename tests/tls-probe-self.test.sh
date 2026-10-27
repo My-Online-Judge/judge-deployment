@@ -12,7 +12,7 @@ cleanup() {
   docker --context default rm -f $tag-mtls $tag-open $tag-plain $tag-silent $tag-tlsonly $tag-plain400 >/dev/null 2>&1
   docker --context default network rm "$OJ_NET" >/dev/null 2>&1
   docker --context default volume rm "$TLS_VOLUME" >/dev/null 2>&1
-  docker --context default run --rm -v "$work:/w" alpine:3.22 rm -rf /w/out >/dev/null 2>&1
+  docker --context default run --rm -v "$work:/w" alpine:3.24 rm -rf /w/out >/dev/null 2>&1
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -21,7 +21,7 @@ pki/pki.sh init-ca >/dev/null && pki/pki.sh issue edge >/dev/null && pki/pki.sh 
 printf 'edge 0:0\ntls-probe 0:0\nrogue 0:0\n' > "$work/ids"
 docker --context default network create "$OJ_NET" >/dev/null
 docker --context default run --rm -v "$PKI_OUT:/pki:ro" -v "$PWD/pki/install.sh:/install.sh:ro" -v "$work/ids:/identities.txt:ro" \
-  -v "$TLS_VOLUME:/tls" --entrypoint /bin/sh alpine:3.22 /install.sh >/dev/null || { echo "FAIL install"; exit 1; }
+  -v "$TLS_VOLUME:/tls" --entrypoint /bin/sh alpine:3.24 /install.sh >/dev/null || { echo "FAIL install"; exit 1; }
 
 serve() { # <name> <extra s_server args...>
   local n=$1; shift
