@@ -468,7 +468,7 @@ still-firing alert every 4 h.
 
 ## Dashboards (sub-project 12)
 
-Grafana (`grafana/grafana-oss:12.0.2`, `mem_limit` 256 MiB, container `oj-grafana`) is at `http://127.0.0.1:3000`
+Grafana (`grafana/grafana-oss:13.0.2`, `mem_limit` 256 MiB, container `oj-grafana`) is at `http://127.0.0.1:3000`
 (plain HTTP, loopback only, like the other operator UIs). Log in as `admin` with `GRAFANA_ADMIN_PASSWORD` from `.env`.
 Everything is provisioned read-only from `grafana/`, so a dashboard is changed in the repo, not in the UI.
 

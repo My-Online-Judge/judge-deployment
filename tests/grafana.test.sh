@@ -60,7 +60,7 @@ pw=$(openssl rand -hex 12)
 docker run -d --name "$tag-graf" --network "$net" --memory 256m -e "GF_SECURITY_ADMIN_PASSWORD=$pw" \
   -e GF_USERS_ALLOW_SIGN_UP=false -e GF_ANALYTICS_REPORTING_ENABLED=false -e GF_ANALYTICS_CHECK_FOR_UPDATES=false -e GF_PLUGINS_PREINSTALL_DISABLED=true \
   -v "$PWD/grafana/provisioning:/etc/grafana/provisioning:ro" -v "$PWD/grafana/dashboards:/var/lib/grafana/dashboards:ro" \
-  grafana/grafana-oss:12.0.2 >/dev/null
+  grafana/grafana-oss:13.0.2 >/dev/null
 graf_ip=$(ip_of "$tag-graf")
 gcurl() { curl -fsS -K <(printf 'user = "admin:%s"\n' "$pw") "$@"; }
 uids=
