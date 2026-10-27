@@ -534,7 +534,7 @@ services:
   # pg-hba admits it like every client: scram with PG_MONITOR_PASSWORD plus a CA-signed client certificate, verify-full.
   identity-db-exporter:
     logging: *logging
-    image: prometheuscommunity/postgres-exporter:v0.17.1
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: oj-identity-db-exporter
     restart: unless-stopped
     command: ["--web.config.file=/etc/oj/exporter-web.yml"]
@@ -562,7 +562,7 @@ services:
 
   problem-db-exporter:
     logging: *logging
-    image: prometheuscommunity/postgres-exporter:v0.17.1
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: oj-problem-db-exporter
     restart: unless-stopped
     command: ["--web.config.file=/etc/oj/exporter-web.yml"]
@@ -590,7 +590,7 @@ services:
 
   submission-db-exporter:
     logging: *logging
-    image: prometheuscommunity/postgres-exporter:v0.17.1
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: oj-submission-db-exporter
     restart: unless-stopped
     command: ["--web.config.file=/etc/oj/exporter-web.yml"]
