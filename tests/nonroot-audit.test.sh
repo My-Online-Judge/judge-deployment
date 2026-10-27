@@ -13,7 +13,7 @@ trap cleanup EXIT
 run() { # run <service> [docker run args...]
   local svc=$1; shift
   docker --context default run -d --name "$project-$svc" --label "com.docker.compose.project=$project" \
-    --label "com.docker.compose.service=$svc" "$@" alpine:3.22 sleep 300 >/dev/null
+    --label "com.docker.compose.service=$svc" "$@" alpine:3.24 sleep 300 >/dev/null
 }
 run asroot
 run asuser --user 10001

@@ -66,10 +66,10 @@ t=$(openssl x509 -in "$PKI_OUT/edge/tls.crt" -noout -text); has "DNS:oj.example.
 tlsdir=$work/tls; mkdir -p "$tlsdir"
 install_run() {
   docker --context default run --rm -v "$PKI_OUT:/pki:ro" -v "$PWD/pki/install.sh:/install.sh:ro" \
-    -v "$PWD/pki/identities.txt:/identities.txt:ro" -v "$tlsdir:/tls" --entrypoint /bin/sh alpine:3.22 /install.sh
+    -v "$PWD/pki/identities.txt:/identities.txt:ro" -v "$tlsdir:/tls" --entrypoint /bin/sh alpine:3.24 /install.sh
 }
 install_run >/dev/null 2>&1 && ok "install.sh succeeds (rogue absent is fine)" || bad "install.sh succeeds (rogue absent is fine)"
-st() { docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 stat -c "$1" "/tls/$2"; }
+st() { docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.24 stat -c "$1" "/tls/$2"; }
 [[ $(st '%u:%g %a' redis/tls.key) == "999:999 600" ]] && ok "redis key 999:999 600" || bad "redis key 999:999 600"
 [[ $(st '%u:%g %a' jaeger/tls.key) == "10001:10001 600" ]] && ok "jaeger key 10001:10001 600" || bad "jaeger key 10001:10001 600"
 [[ $(st '%u:%g %a' api-gateway) == "10001:10001 700" ]] && ok "api-gateway dir 10001:10001 700" || bad "api-gateway dir 10001:10001 700"
@@ -82,7 +82,7 @@ st() { docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 stat -
 # the judger that a submission then cannot read the key).
 for js in judge-server judge-server-2; do
   owner=$(awk -v id="$js" '$1 == id {print $2}' pki/identities.txt)
-  modes=$(docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 sh -c "cd /tls/$js && stat -c '%n %u:%g %a' . *" 2>/dev/null)
+  modes=$(docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.24 sh -c "cd /tls/$js && stat -c '%n %u:%g %a' . *" 2>/dev/null)
   if [[ $owner == 0:0 ]] && grep -qx '\. 0:0 700' <<< "$modes" && grep -qx 'tls\.key 0:0 600' <<< "$modes" \
     && awk '$1 != "." { if ($1 ~ /\.crt$/) { if ($2 != "0:0" || $3 != "644") wrong = 1 } else if ($2 != "0:0" || $3 != "600") wrong = 1 } END { exit wrong }' <<< "$modes"; then
     ok "$js: listed 0:0; dir 0:0 700, key and every other non-.crt file 0:0 600"
@@ -91,15 +91,15 @@ done
 
 # rotation: re-issue (same CA), reinstall, no stale file
 "$pki" issue redis >/dev/null 2>&1
-docker --context default run --rm -v "$tlsdir:/tls" alpine:3.22 touch /tls/redis/stale >/dev/null 2>&1
+docker --context default run --rm -v "$tlsdir:/tls" alpine:3.24 touch /tls/redis/stale >/dev/null 2>&1
 install_run >/dev/null 2>&1
 new=$(openssl x509 -in "$PKI_OUT/redis/tls.crt" -noout -serial)
-inst=$(docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 cat /tls/redis/tls.crt | openssl x509 -noout -serial)
+inst=$(docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.24 cat /tls/redis/tls.crt | openssl x509 -noout -serial)
 [[ $new == "$inst" ]] && ok "re-issued leaf is what is installed" || bad "re-issued leaf is what is installed"
-[[ -z $(docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.22 ls /tls/redis | grep stale) ]] && ok "no stale file after re-install" || bad "no stale file after re-install"
+[[ -z $(docker --context default run --rm -v "$tlsdir:/tls:ro" alpine:3.24 ls /tls/redis | grep stale) ]] && ok "no stale file after re-install" || bad "no stale file after re-install"
 # a container already running with the identity directory mounted (as volume.subpath does) must see a re-install
-holder=$(docker --context default run -d --rm -v "$tlsdir/redis:/t:ro" alpine:3.22 sleep 120 2>/dev/null)
-docker --context default run --rm -v "$tlsdir:/tls" alpine:3.22 touch /tls/redis/gone >/dev/null 2>&1
+holder=$(docker --context default run -d --rm -v "$tlsdir/redis:/t:ro" alpine:3.24 sleep 120 2>/dev/null)
+docker --context default run --rm -v "$tlsdir:/tls" alpine:3.24 touch /tls/redis/gone >/dev/null 2>&1
 "$pki" issue redis >/dev/null 2>&1
 install_run >/dev/null 2>&1
 new=$(openssl x509 -in "$PKI_OUT/redis/tls.crt" -noout -serial)
@@ -111,8 +111,8 @@ docker --context default rm -f "$holder" >/dev/null 2>&1
 rm -rf "$PKI_OUT/problem-db"
 install_run >/dev/null 2>&1; [[ $? != 0 ]] && ok "install.sh fails when a listed id has no source" || bad "install.sh fails when a listed id has no source"
 printf 'ca 0:0\n' > "$work/badids"
-docker --context default run --rm -v "$PKI_OUT:/pki:ro" -v "$PWD/pki/install.sh:/install.sh:ro" -v "$work/badids:/identities.txt:ro" -v "$tlsdir:/tls" --entrypoint /bin/sh alpine:3.22 /install.sh >/dev/null 2>&1; [[ $? != 0 ]] && ok "install.sh refuses id 'ca'" || bad "install.sh refuses id 'ca'"
-docker --context default run --rm -v "$work:/w" alpine:3.22 rm -rf /w/tls >/dev/null 2>&1
+docker --context default run --rm -v "$PKI_OUT:/pki:ro" -v "$PWD/pki/install.sh:/install.sh:ro" -v "$work/badids:/identities.txt:ro" -v "$tlsdir:/tls" --entrypoint /bin/sh alpine:3.24 /install.sh >/dev/null 2>&1; [[ $? != 0 ]] && ok "install.sh refuses id 'ca'" || bad "install.sh refuses id 'ca'"
+docker --context default run --rm -v "$work:/w" alpine:3.24 rm -rf /w/tls >/dev/null 2>&1
 
 # fixtures
 "$pki" fixtures "$work/fx" >/dev/null 2>&1

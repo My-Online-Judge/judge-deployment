@@ -4,7 +4,7 @@
 # Prints key names only, never the (fake) token's value.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-img=prom/alertmanager:v0.28.1
+img=prom/alertmanager:v0.34.1
 fail=0
 ok() { echo "ok   $1"; }
 bad() { echo "FAIL $1"; fail=1; }
@@ -62,7 +62,7 @@ raw=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.y
 py() { python3 -c "import json,sys; c=json.load(sys.stdin); s=c['services']; a=s.get('alertmanager', {}); sys.exit(0 if ($2) else 1)" <<< "$1"; }
 chk() { if py "$config" "$2"; then ok "$1"; else bad "$1"; fi; }
 chk "alertmanager: pinned image, container oj-alertmanager, 127.0.0.1:9093 only, oj-net only" \
-  "a.get('image') == 'prom/alertmanager:v0.28.1' and a.get('container_name') == 'oj-alertmanager' and [(p.get('host_ip'), p.get('published'), p.get('target')) for p in a.get('ports', [])] == [('127.0.0.1', '9093', 9093)] and list(a.get('networks', {})) == ['oj-net']"
+  "a.get('image') == 'prom/alertmanager:v0.34.1' and a.get('container_name') == 'oj-alertmanager' and [(p.get('host_ip'), p.get('published'), p.get('target')) for p in a.get('ports', [])] == [('127.0.0.1', '9093', 9093)] and list(a.get('networks', {})) == ['oj-net']"
 chk "alertmanager: mem_limit 64 MiB, restarts unless stopped, rotated logs" \
   "a.get('mem_limit') in (67108864, '67108864') and a.get('restart') == 'unless-stopped' and a.get('logging') == s['prometheus'].get('logging')"
 chk "alertmanager: render.sh entrypoint; config dir read-only; data on alertmanagerdata" \

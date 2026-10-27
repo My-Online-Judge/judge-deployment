@@ -412,9 +412,9 @@ it watches, each in its own job named after the service (`prometheus.yml`):
 |---|---|---|---|
 | `node-exporter` | `prom/node-exporter:v1.12.1` | 9100 | The host: CPU, memory, filesystems (host pid namespace, read-only `/proc`, `/sys`, `/`) |
 | `cadvisor` | `ghcr.io/google/cadvisor:v0.60.6` | 8080 | CPU and memory of every container, labelled with its name |
-| `identity-db-exporter`, `problem-db-exporter`, `submission-db-exporter` | `prometheuscommunity/postgres-exporter:v0.17.1` | 9187 | Each database, as the read-only role `oj_monitor` |
-| `redis-exporter` | `oliver006/redis_exporter:v1.94.0` | 9121 | Redis |
-| `kafka-exporter` | `danielqsj/kafka-exporter:v1.9.0` | 9308 | Topic offsets and consumer-group lag |
+| `identity-db-exporter`, `problem-db-exporter`, `submission-db-exporter` | `prometheuscommunity/postgres-exporter:v0.20.1` | 9187 | Each database, as the read-only role `oj_monitor` |
+| `redis-exporter` | `oliver006/redis_exporter:v1.96.0` | 9121 | Redis |
+| `kafka-exporter` | `danielqsj/kafka-exporter:v1.11.0` | 9308 | Topic offsets and consumer-group lag |
 
 - **Mutual TLS, like every hop (sub-project 10).** Six exporters serve `/metrics` with the leaf of their own tls subpath
   and require a client certificate signed by the CA; Prometheus presents its own. node-exporter and the
@@ -450,7 +450,7 @@ Deploying them, once, from `judge-deployment/`:
 ## Alerting (sub-project 12)
 
 Prometheus evaluates `alerts.yml` and sends every firing alert to `alertmanager` (`prometheus.yml`, `alerting:`).
-Alertmanager (`prom/alertmanager:v0.28.1`, `mem_limit` 64 MiB) groups them by `alertname`, waits 30 s, and repeats a
+Alertmanager (`prom/alertmanager:v0.34.1`, `mem_limit` 64 MiB) groups them by `alertname`, waits 30 s, and repeats a
 still-firing alert every 4 h.
 
 - **UI and silences:** `http://127.0.0.1:9093` (plain HTTP, loopback only, like the other operator UIs). Silence an alert

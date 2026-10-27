@@ -155,7 +155,7 @@ services:
   # certificate mounts tls with volume.subpath: <its id> at /etc/oj/tls and waits for this to complete.
   tls-init:
     logging: *logging
-    image: alpine:3.22
+    image: alpine:3.24
     restart: "no"
     entrypoint: ["/bin/sh", "/install.sh"]
     volumes:
@@ -534,7 +534,7 @@ services:
   # pg-hba admits it like every client: scram with PG_MONITOR_PASSWORD plus a CA-signed client certificate, verify-full.
   identity-db-exporter:
     logging: *logging
-    image: prometheuscommunity/postgres-exporter:v0.17.1
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: oj-identity-db-exporter
     restart: unless-stopped
     command: ["--web.config.file=/etc/oj/exporter-web.yml"]
@@ -562,7 +562,7 @@ services:
 
   problem-db-exporter:
     logging: *logging
-    image: prometheuscommunity/postgres-exporter:v0.17.1
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: oj-problem-db-exporter
     restart: unless-stopped
     command: ["--web.config.file=/etc/oj/exporter-web.yml"]
@@ -590,7 +590,7 @@ services:
 
   submission-db-exporter:
     logging: *logging
-    image: prometheuscommunity/postgres-exporter:v0.17.1
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: oj-submission-db-exporter
     restart: unless-stopped
     command: ["--web.config.file=/etc/oj/exporter-web.yml"]
@@ -619,7 +619,7 @@ services:
   redis-exporter:
     logging: *logging
     # Redis over TLS with its own client certificate (Redis requires one); /metrics over mutual TLS (-tls-server-*).
-    image: oliver006/redis_exporter:v1.94.0
+    image: oliver006/redis_exporter:v1.96.0
     container_name: oj-redis-exporter
     restart: unless-stopped
     command: ["-redis.addr=rediss://redis:6379", "-tls-ca-cert-file=/etc/oj/tls/ca.crt", "-tls-client-cert-file=/etc/oj/tls/tls.crt", "-tls-client-key-file=/etc/oj/tls/tls.key", "-tls-server-cert-file=/etc/oj/tls/tls.crt", "-tls-server-key-file=/etc/oj/tls/tls.key", "-tls-server-ca-cert-file=/etc/oj/tls/ca.crt"]
@@ -641,7 +641,7 @@ services:
     # Topic offsets and consumer-group lag (ConsumerLagHigh) through kafka:29092 over TLS as CN kafka-exporter, which
     # kafka/acls.sh lets describe every topic and group and the cluster; /metrics over mutual TLS (--server.tls.*). It
     # exits when Kafka cannot be reached, so it starts after kafka-init and restarts until Kafka is back.
-    image: danielqsj/kafka-exporter:v1.9.0
+    image: danielqsj/kafka-exporter:v1.11.0
     container_name: oj-kafka-exporter
     restart: unless-stopped
     command: ["--kafka.server=kafka:29092", "--tls.enabled", "--tls.server-name=kafka", "--tls.ca-file=/etc/oj/tls/ca.crt", "--tls.cert-file=/etc/oj/tls/tls.crt", "--tls.key-file=/etc/oj/tls/tls.key", "--server.tls.enabled", "--server.tls.mutual-auth-enabled", "--server.tls.ca-file=/etc/oj/tls/ca.crt", "--server.tls.cert-file=/etc/oj/tls/tls.crt", "--server.tls.key-file=/etc/oj/tls/tls.key"]
@@ -666,7 +666,7 @@ services:
   # ALERT_TELEGRAM_* variables; the rendered config and the token file live in the container's /tmp, never on the host.
   alertmanager:
     logging: *logging
-    image: prom/alertmanager:v0.28.1
+    image: prom/alertmanager:v0.34.1
     container_name: oj-alertmanager
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/etc/alertmanager/render.sh"]
@@ -965,7 +965,7 @@ services:
   # keep group 12003 (judge-worker below).
   volume-init:
     logging: *logging
-    image: alpine:3.22
+    image: alpine:3.24
     restart: "no"
     network_mode: none
     volumes:

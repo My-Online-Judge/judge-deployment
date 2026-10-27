@@ -76,7 +76,7 @@ check "judge-server keeps /log on the named volume js1log, not a bind mount" \
 # TLS (sub-project 10): tls-init distributes the certificates; every mount of the tls volume is read-only at /etc/oj/tls,
 # takes the subpath named after the service (kafka-init and minio-init borrow kafka-admin and minio), and waits for tls-init.
 check "tls-init copies pki/out into the tls volume and exits, with no network (pki/out holds the CA key)" \
-  "s['tls-init']['image'] == 'alpine:3.22' and s['tls-init'].get('restart') == 'no' and s['tls-init'].get('network_mode') == 'none' and not s['tls-init'].get('networks') and s['tls-init'].get('entrypoint') == ['/bin/sh', '/install.sh'] and 'tls' in v and {(m['source'].rsplit('/', 1)[-1], m['target'], m.get('read_only') is True) for m in s['tls-init']['volumes'] if m['source'] != 'tls'} == {('out', '/pki', True), ('install.sh', '/install.sh', True), ('identities.txt', '/identities.txt', True)} and any(m.get('source') == 'tls' and m.get('target') == '/tls' and not m.get('read_only') for m in s['tls-init']['volumes'])"
+  "s['tls-init']['image'] == 'alpine:3.24' and s['tls-init'].get('restart') == 'no' and s['tls-init'].get('network_mode') == 'none' and not s['tls-init'].get('networks') and s['tls-init'].get('entrypoint') == ['/bin/sh', '/install.sh'] and 'tls' in v and {(m['source'].rsplit('/', 1)[-1], m['target'], m.get('read_only') is True) for m in s['tls-init']['volumes'] if m['source'] != 'tls'} == {('out', '/pki', True), ('install.sh', '/install.sh', True), ('identities.txt', '/identities.txt', True)} and any(m.get('source') == 'tls' and m.get('target') == '/tls' and not m.get('read_only') for m in s['tls-init']['volumes'])"
 check "every service mounting tls uses its own subpath read-only at /etc/oj/tls and waits for tls-init" \
   "all(len(ms) == 1 and ms[0].get('target') == '/etc/oj/tls' and ms[0].get('read_only') is True and ms[0].get('volume', {}).get('subpath') == {'kafka-init': 'kafka-admin', 'minio-init': 'minio'}.get(n, n) and s[n]['depends_on']['tls-init']['condition'] == 'service_completed_successfully' for n, ms in ((n, [m for m in x.get('volumes', []) if m.get('source') == 'tls']) for n, x in s.items() if n != 'tls-init') if ms)"
 
@@ -214,9 +214,9 @@ check "both sandboxes run qduoj pinned by digest" \
 # user (the owner pki/identities.txt gives that subpath); cAdvisor has no TLS and stays plain HTTP on oj-net. None
 # publishes a port. mem_limit is controller ruling Q4; the resolved config prints bytes.
 exporter_images="{'node-exporter': 'prom/node-exporter:v1.12.1', 'cadvisor': 'ghcr.io/google/cadvisor:v0.60.6',
-  'identity-db-exporter': 'prometheuscommunity/postgres-exporter:v0.17.1', 'problem-db-exporter': 'prometheuscommunity/postgres-exporter:v0.17.1',
-  'submission-db-exporter': 'prometheuscommunity/postgres-exporter:v0.17.1', 'redis-exporter': 'oliver006/redis_exporter:v1.94.0',
-  'kafka-exporter': 'danielqsj/kafka-exporter:v1.9.0'}"
+  'identity-db-exporter': 'prometheuscommunity/postgres-exporter:v0.20.1', 'problem-db-exporter': 'prometheuscommunity/postgres-exporter:v0.20.1',
+  'submission-db-exporter': 'prometheuscommunity/postgres-exporter:v0.20.1', 'redis-exporter': 'oliver006/redis_exporter:v1.96.0',
+  'kafka-exporter': 'danielqsj/kafka-exporter:v1.11.0'}"
 tls_exporters="{'node-exporter': '65534:65534', 'identity-db-exporter': '65534:65534', 'problem-db-exporter': '65534:65534',
   'submission-db-exporter': '65534:65534', 'redis-exporter': '59000:59000', 'kafka-exporter': '65534:65534'}"
 db_exporters="{'identity-db-exporter': 'identity-db', 'problem-db-exporter': 'problem-db', 'submission-db-exporter': 'submission-db'}"
@@ -249,7 +249,7 @@ check "kafka-exporter reads kafka:29092 over TLS (name kafka) with its client ce
 # 10001) writes it; the one-shot has no network. The check allows only `logging` (and compose's null `command`) beyond the definition, in one place.
 # It changes the owner only (sp13): compose runs it again on every `up` of the worker, and a checker bundle keeps group 12003.
 check "volume-init: alpine one-shot that gives the test_case_cache volume to owner 10001 and keeps each group, no network" \
-  "(lambda x: {k: val for k, val in x.items() if k not in ('logging', 'command')} == {'image': 'alpine:3.22', 'restart': 'no', 'network_mode': 'none', 'volumes': [{'type': 'volume', 'source': 'test_case_cache', 'target': '/test_case', 'volume': {}}], 'entrypoint': ['/bin/sh', '-c', 'chown -R 10001 /test_case']})(s.get('volume-init', {}))"
+  "(lambda x: {k: val for k, val in x.items() if k not in ('logging', 'command')} == {'image': 'alpine:3.24', 'restart': 'no', 'network_mode': 'none', 'volumes': [{'type': 'volume', 'source': 'test_case_cache', 'target': '/test_case', 'volume': {}}], 'entrypoint': ['/bin/sh', '-c', 'chown -R 10001 /test_case']})(s.get('volume-init', {}))"
 check "judge-worker waits for volume-init to complete" \
   "s['judge-worker']['depends_on'].get('volume-init', {}).get('condition') == 'service_completed_successfully'"
 # A checker bundle's directory and inputs go to group 12003, qduoj's spj, which runs the checker; a submission (code,
