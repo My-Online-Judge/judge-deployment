@@ -619,7 +619,7 @@ services:
   redis-exporter:
     logging: *logging
     # Redis over TLS with its own client certificate (Redis requires one); /metrics over mutual TLS (-tls-server-*).
-    image: oliver006/redis_exporter:v1.94.0
+    image: oliver006/redis_exporter:v1.96.0
     container_name: oj-redis-exporter
     restart: unless-stopped
     command: ["-redis.addr=rediss://redis:6379", "-tls-ca-cert-file=/etc/oj/tls/ca.crt", "-tls-client-cert-file=/etc/oj/tls/tls.crt", "-tls-client-key-file=/etc/oj/tls/tls.key", "-tls-server-cert-file=/etc/oj/tls/tls.crt", "-tls-server-key-file=/etc/oj/tls/tls.key", "-tls-server-ca-cert-file=/etc/oj/tls/ca.crt"]
