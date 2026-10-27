@@ -666,7 +666,7 @@ services:
   # ALERT_TELEGRAM_* variables; the rendered config and the token file live in the container's /tmp, never on the host.
   alertmanager:
     logging: *logging
-    image: prom/alertmanager:v0.28.1
+    image: prom/alertmanager:v0.34.1
     container_name: oj-alertmanager
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/etc/alertmanager/render.sh"]
