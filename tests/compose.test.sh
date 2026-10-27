@@ -258,8 +258,8 @@ check "judge-worker joins group 12003 (qduoj's spj) and nothing else, as uid 100
   "s['judge-worker'].get('group_add') == ['12003'] and 'user' not in s['judge-worker']"
 
 # Grafana (sp12 task 18).
-check "grafana: grafana-oss 12.0.2 on loopback 127.0.0.1:3000 only, oj-net only, restarts unless stopped, mem_limit 256 MiB" \
-  "(lambda g: g.get('image') == 'grafana/grafana-oss:12.0.2' and g.get('container_name') == 'oj-grafana' and [(p.get('host_ip'), p.get('published'), p.get('target')) for p in g.get('ports', [])] == [('127.0.0.1', '3000', 3000)] and list(g.get('networks', {})) == ['oj-net'] and g.get('restart') == 'unless-stopped' and g.get('mem_limit') in (268435456, '268435456'))(s.get('grafana', {}))"
+check "grafana: grafana-oss 13.0.2 on loopback 127.0.0.1:3000 only, oj-net only, restarts unless stopped, mem_limit 256 MiB" \
+  "(lambda g: g.get('image') == 'grafana/grafana-oss:13.0.2' and g.get('container_name') == 'oj-grafana' and [(p.get('host_ip'), p.get('published'), p.get('target')) for p in g.get('ports', [])] == [('127.0.0.1', '3000', 3000)] and list(g.get('networks', {})) == ['oj-net'] and g.get('restart') == 'unless-stopped' and g.get('mem_limit') in (268435456, '268435456'))(s.get('grafana', {}))"
 check_raw "grafana: the admin password is \${GRAFANA_ADMIN_PASSWORD:?run migrations/sp12-env.sh}; sign-up and analytics are off" \
   "(lambda e: e.get('GF_SECURITY_ADMIN_PASSWORD') == '\${GRAFANA_ADMIN_PASSWORD:?run migrations/sp12-env.sh}' and e.get('GF_USERS_ALLOW_SIGN_UP') == 'false' and e.get('GF_ANALYTICS_REPORTING_ENABLED') == 'false' and e.get('GF_ANALYTICS_CHECK_FOR_UPDATES') == 'false')(s.get('grafana', {}).get('environment', {}))"
 check "grafana: provisioning and dashboards are mounted read-only, its data is the named volume grafanadata, and it logs like the others" \
