@@ -155,6 +155,64 @@ Service names are compose's, so every static scrape job is unchanged.
 - Trying `JudgePodOOMKilled` without the sandbox: a throwaway pod in `oj` with a container named `sandbox` and a memory limit it exceeds
   (`python -c "b=bytearray(200*1024*1024)"` under `limits.memory: 48Mi`) restarts as OOMKilled and the alert fires within two minutes.
 
+## Backup and restore (`base/backup`, `k3s/backup/`)
+
+A CronJob `backup` runs at 03:00 (Asia/Ho_Chi_Minh, as `backup/systemd/oj-backup.timer`): `dump` writes the three Postgres dumps and the
+row counts before and after each (`pg_dump -Fc` over TLS with the identity `backup`, as each database's owner), `mirror` copies the
+test-case bucket and counts its objects, `restic` snapshots the staging directory (`/staging`) and applies compose's retention (7 daily, 4
+weekly, 6 monthly). One of them failing stops the night: a snapshot is only taken of a complete staging directory, and the next night is the
+retry. The scripts are `k3s/backup/*.sh` (shellchecked), carried into the ConfigMap by `k3s/scripts/gen_backup.py`.
+
+- **The repository is off the cluster's disk by design.** The base names none: `RESTIC_REPOSITORY`, `RESTIC_PASSWORD` and, for S3 or B2,
+  their keys come from `.env` through `env-to-secrets.sh` into the Secret `restic` (see `.env.example`). Without a repository and a password
+  the job stops with a message instead of skipping the night. Keep a copy of the password elsewhere: without it the snapshots are unreadable.
+  On k3d, `scripts/local-stack.sh init` sets `RESTIC_REPOSITORY=/repo` and the local overlay mounts the claim `restic-repo` there.
+- **What the snapshot holds:** the data (three dumps, the bucket). Not the Secrets: `.env*` and `pki/out` (the CA key) live on the host, and
+  compose's `backup/backup.sh` snapshot of them stops when compose does, so after the cutover put them in the same repository by hand
+  (`restic backup --host oj .env* pki/out` with the repository's variables) and again after each change.
+- **The restore drill:** `k3s/scripts/restore-drill.sh` runs the suspended CronJob `restore-drill`: the latest snapshot into a throwaway
+  Postgres inside one pod (no network, no certificate, no service credential), and the row counts compared with those taken at backup time
+  by `backup/lib.sh`'s `compare_counts`, the function compose's drill uses. Exit 0 and only PASS (or INFO) lines means the backup restores;
+  a snapshot older than 36 hours, a wrong password or a missing repository fails it. Run it after the first backup and now and then.
+- The first connection of a freshly started pod can be refused until the node has programmed the network policy that admits it, so `dump.sh`
+  and `mirror.sh` wait up to a minute for their targets instead of failing the night.
+
+## Cutover from compose (task 10, on the server)
+
+The order keeps compose whole until the last step, so every step before the DNS change can be undone by doing nothing:
+
+1. **Install K3s** with `--kubelet-arg=pod-max-pids=2048`, then `kubectl apply -k k3s/platform`, wait for the CRDs (see the top of this
+   file), and make the secrets: copy the `.env*` files and `pki/out` to the machine that runs kubectl, `k3s/scripts/ca-from-pki.sh` (the
+   Secret `oj-ca`, so the leaves keep the CA the clients already trust), `k3s/scripts/env-to-secrets.sh`.
+2. **Apply `overlays/vps` up to the data layer and the services** (no judge pods and no KEDA yet: the judge Deployments are applied last
+   in step 5). Set `RESTIC_REPOSITORY` and `RESTIC_PASSWORD` (off-host) first, and `k3s/scripts/pg-monitor.sh` once the databases are up.
+3. **Copy the data, with the services stopped on K3s** (`kubectl -n oj scale deploy/identity-service deploy/problem-service
+   deploy/submission-service deploy/api-gateway --replicas=0`). Each database streams from compose into its pod, rehearsed from the compose
+   stack into k3d (the dump carries Flyway's history, so the services start without migrating):
+
+       docker --context default exec oj-identity-db sh -c 'pg_dump -Fc --no-owner -U "$POSTGRES_USER" "$POSTGRES_DB"' \
+         | kubectl -n oj exec -i identity-db-0 -- sh -c 'pg_restore --clean --if-exists --no-owner --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
+   and the same for `problem` and `submission`. The test-case bucket: `mc mirror` inside `oj-minio` into a directory, `docker cp` it out,
+   `kubectl -n oj port-forward svc/minio 19000:9000`, then the MinIO image's `mc` from a container
+   (`docker run --rm --entrypoint mc -v <dir>:/in:ro -e MC_HOST_k3s=https://<root>:<password>@<host>:19000 <minio image> --insecure
+   mirror --overwrite --remove /in k3s/test-cases`; `--remove` makes it an exact copy; the root account is in the Secret `minio-root`).
+   Scale the services back up and let them become ready.
+4. **Read-only smoke test with a temporary DNS** (`/etc/hosts` on your machine pointing the public name at the server): log in, list problems,
+   open a problem page, read a submission. Run `k3s/scripts/restore-drill.sh` after the first `kubectl create job --from=cronjob/backup`.
+5. **Stop compose accepting submissions** (`docker compose stop api-gateway`), wait until `oj_queue_depth` and the consumer lag are 0, dump
+   `submission-db` again and copy it as in step 3, then apply the judge Deployments and KEDA (`kubectl apply -k k3s/overlays/vps` in full)
+   and change the DNS to the server. Compose's Caddy and K3s's Traefik both want 80/443: stop compose's `edge` first, or run K3s on the
+   other IP until this step.
+6. **Write smoke test:** submit, watch the SSE stream deliver the verdict, `scripts/stats-check.sh` (it reads compose's containers: against
+   K3s use its two queries through `kubectl exec`) must PASS, a Jaeger trace must span the pods, `judged_by` names a judge pod.
+7. **Observe for 24 hours** (Prometheus targets all up, no alert but `DefaultAdminPassword` if the seed password is still in use), then
+   `docker compose down` keeping the volumes for seven days, and write the date here. **Rollback until then:** point the DNS back and
+   `docker compose up -d`: compose's data was never touched, only copied (rows written on K3s since the cutover are lost).
+
+Task 10 has not been done: everything above the DNS change is rehearsed here only as far as it can be (the Postgres stream and the MinIO
+copy from the compose stack into k3d, the backup and the drill), and Let's Encrypt for `edge-tls` is not in `overlays/vps` yet.
+
 ## What cannot be done on a laptop
 
 The real qduoj sandbox is amd64 and needs the Linux host's kernel, so locally the Judge Pod runs the mock. Left for the

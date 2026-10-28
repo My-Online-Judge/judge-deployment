@@ -1,0 +1,38 @@
+# The backup's and the drill's restic containers mount the claim restic-repo (restic-repo.yaml) at /repo.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: restic
+              volumeMounts:
+                - name: repo
+                  mountPath: /repo
+          volumes:
+            - name: repo
+              persistentVolumeClaim:
+                claimName: restic-repo
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: restore-drill
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          initContainers:
+            - name: restic-restore
+              volumeMounts:
+                - name: repo
+                  mountPath: /repo
+          volumes:
+            - name: repo
+              persistentVolumeClaim:
+                claimName: restic-repo

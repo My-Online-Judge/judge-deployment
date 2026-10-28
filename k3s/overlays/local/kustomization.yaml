@@ -7,6 +7,8 @@ resources:
   - ../../base
   - selfsigned-ca.yaml
   - edge-certificate.yaml
+  - restic-repo.yaml
 patches:
   - path: redirect-port.yaml
   - path: mock-sandbox.yaml
+  - path: restic-repo-patch.yaml

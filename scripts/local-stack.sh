@@ -50,7 +50,7 @@ import base64, os, re, secrets, subprocess, sys, tempfile
 os.chdir(sys.argv[1])
 rand = lambda: secrets.token_hex(24)
 
-def make(name, replacements):
+def make(name, replacements, extra=""):
     if os.path.exists(name):
         print(f"kept    {name}")
         return
@@ -61,13 +61,15 @@ def make(name, replacements):
             sys.exit(f"{name}: no line matches {pattern}")
     fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)   # never readable by others, not even briefly
     with os.fdopen(fd, "w") as f:
-        f.write(text)
+        f.write(text + extra)
     print(f"created {name}")
 
 db = {n: rand() for n in ("identity", "problem", "submission")}
 make(".env", [(r"^(JUDGE_SERVER_TOKEN=).*$", rand()), (r"^(MINIO_ROOT_PASSWORD=).*$", rand()),
               (r"^(MINIO_PROBLEM_SECRET_KEY=).*$", rand()), (r"^(MINIO_WORKER_SECRET_KEY=).*$", rand()),
-              (r"^(PG_MONITOR_PASSWORD=).*$", rand()), (r"^(GRAFANA_ADMIN_PASSWORD=).*$", rand())])
+              (r"^(PG_MONITOR_PASSWORD=).*$", rand()), (r"^(GRAFANA_ADMIN_PASSWORD=).*$", rand())],
+     # k3d and CI have no off-host repository: the backup's restic repository is the claim restic-repo (k3s/overlays/local)
+     f"\n# k3d (scripts/local-stack.sh): the restic repository is the claim restic-repo\nRESTIC_REPOSITORY=/repo\nRESTIC_PASSWORD={rand()}\n")
 make(".env.identity-db", [(r"^(POSTGRES_PASSWORD=).*$", db["identity"])])
 if os.path.exists(".env.identity"):
     keys = None

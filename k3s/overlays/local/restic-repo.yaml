@@ -1,0 +1,11 @@
+# The backup's restic repository on a claim, for k3d and CI, which have no off-host repository (the base names none: on the server it
+# is whatever RESTIC_REPOSITORY in .env says, an S3/B2 bucket or an sftp host). Set RESTIC_REPOSITORY=/repo in .env for it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: restic-repo
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi

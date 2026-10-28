@@ -561,6 +561,37 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
+  name: backup
+spec:
+  secretName: tls-backup
+  commonName: backup
+  dnsNames:
+    - backup
+    - backup.oj.svc
+    - backup.oj.svc.cluster.local
+    - localhost
+  ipAddresses:
+    - 127.0.0.1
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth
+  duration: 8760h
+  renewBefore: 720h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+    rotationPolicy: Always
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: oj-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
   name: prometheus
 spec:
   secretName: tls-prometheus

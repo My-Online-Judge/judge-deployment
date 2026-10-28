@@ -24,6 +24,9 @@ placeholders=$(for f in "${envfiles[@]}"; do grep -lE '=(change-me[a-z-]*|minioa
 if [[ -z $placeholders ]]; then ok "no placeholder password or token is left"; else bad "placeholders left in: $placeholders"; fi
 
 value() { grep "^$2=" "$tmp/$1" | cut -d= -f2-; }
+pw=$(value .env RESTIC_PASSWORD)
+if [[ $(value .env RESTIC_REPOSITORY) == /repo && ${#pw} -ge 32 ]]; then ok "the k3d backup repository is the claim /repo, with a generated password"
+else bad "RESTIC_REPOSITORY / RESTIC_PASSWORD of .env: $(value .env RESTIC_REPOSITORY) (${#pw} chars)"; fi
 if [[ $(value .env.identity POSTGRES_PASSWORD) == "$(value .env.identity DATABASE_PASSWORD)" \
   && $(value .env.identity POSTGRES_PASSWORD) == "$(value .env.identity-db POSTGRES_PASSWORD)" ]]; then
   ok "identity-db and identity-service share one password"

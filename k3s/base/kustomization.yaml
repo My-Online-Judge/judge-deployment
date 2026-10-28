@@ -25,6 +25,8 @@ resources:
   - observability/monitoring.yaml
   - observability/exporters.yaml
   - observability/policies.yaml
+  - backup/backup.yaml
+  - backup/policies.yaml
 labels:
   - pairs:
       app.kubernetes.io/part-of: my-online-judge

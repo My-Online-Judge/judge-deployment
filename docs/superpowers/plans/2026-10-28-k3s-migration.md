@@ -251,3 +251,17 @@
   ClusterRole); the `no pod mounts a token` check in `tests/k3s-judge.test.sh` names them.
 - **Grafana has no NetworkPolicy allow rule (T8).** Its UI is for `kubectl port-forward`, which no policy filters; `tests/k3s-services.test.sh`
   names it as the one Service port exempt from "every port has an allow rule".
+- **The backup is three init containers, not one script on a host (T9).** `dump` (the Postgres image), `mirror` (the MinIO image, which has
+  `mc` but no `find`, so it counts with `mc ls`) and `restic` (the version `backup/backup.sh` pins) each run the one tool they need, in order; the
+  scripts are files shellchecked in CI and `backup/lib.sh` is shared with compose (the same `compare_counts`). The pod runs as uid 999 because
+  restic keeps the files' modes (0600) and the drill must read what the backup wrote.
+- **The restore drill is a suspended CronJob (T9)**, run with `kubectl create job --from`, so the local overlay patches both CronJobs the same
+  way and the server gets it without a second manifest. The plan's "k3d from a snapshot" became "a throwaway Postgres in one pod": the same
+  check as `backup/restore-drill.sh`, and the job also runs on the server.
+- **The restic repository is not in the base (T9).** The plan said "off the host": the base has no volume for it and takes `RESTIC_REPOSITORY`
+  from the Secret `restic`; only the local overlay mounts a claim (`restic-repo`), so a mistake cannot put the repository on the cluster's disk
+  on the server. The Secrets and the CA key are not in the snapshot (listed in the README with the command to add them).
+- **The CI job is manual (T9).** `k3s-live` runs on `workflow_dispatch` only: it pulls the service images from GHCR and needs about 6 GB, so it
+  is not run on every push (the offline k3s tests are). It has not been run on GitHub from here, and the plan's `judge-bench.sh` and the
+  delete-a-pod-mid-judgement acceptance are not in it: `judge-bench.sh` does not exist, and the real sandbox decides that test (T6).
+

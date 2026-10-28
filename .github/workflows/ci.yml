@@ -3,6 +3,7 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch:   # the k3s-live job below
 
 permissions:
   contents: read
@@ -32,3 +33,58 @@ jobs:
             bash "$t" || fail=1
           done
           exit $fail
+
+  # The stack on a real K3s (k3d) with the mock sandbox: every pod ready, Prometheus scraping every target, a backup that restores.
+  # By hand (Actions > ci > Run workflow): it pulls the service images from GHCR and needs about 6 GB. The offline k3s tests above
+  # already run on every push.
+  k3s-live:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: k3d
+        run: curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/v5.9.0/install.sh | TAG=v5.9.0 bash
+
+      - name: Env files, with the backup repository on the claim restic-repo
+        run: bash scripts/local-stack.sh env
+
+      - name: Cluster
+        run: K3D_MEMORY=6g scripts/k3d-up.sh up
+
+      - name: Images (the mock sandbox is built here, the rest comes from GHCR)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build -t mock-judge-server:latest mock-judge-server
+          kubectl kustomize k3s/overlays/local | sed -n 's/^ *image: //p' | sort -u | grep -v '^mock-judge-server' | xargs -n1 docker pull -q
+          kubectl kustomize k3s/overlays/local | sed -n 's/^ *image: //p' | sort -u | xargs k3d image import -c oj
+
+      - name: Platform, stack and secrets
+        run: |
+          kubectl apply -k k3s/platform
+          kubectl wait --for condition=established crd/certificates.cert-manager.io crd/issuers.cert-manager.io crd/scaledobjects.keda.sh --timeout=300s
+          kubectl apply -k k3s/overlays/local
+          k3s/scripts/env-to-secrets.sh
+          kubectl -n oj rollout status deploy --timeout=600s
+          kubectl -n oj rollout status sts --timeout=600s
+          k3s/scripts/pg-monitor.sh
+
+      - name: Backup, then the restore drill
+        run: |
+          kubectl -n oj create job backup-ci --from=cronjob/backup
+          kubectl -n oj wait --for=condition=complete job/backup-ci --timeout=600s
+          k3s/scripts/restore-drill.sh
+
+      - name: Prometheus targets
+        run: |
+          kubectl -n oj port-forward svc/prometheus 9090:9090 &
+          sleep 90
+          curl -fsS localhost:9090/api/v1/targets | python3 -c "import json,sys; t=json.load(sys.stdin)['data']['activeTargets']; bad=[x['labels']['job'] for x in t if x['health']!='up']; print(len(t),'targets; down:',bad); sys.exit(1 if bad or len(t) < 13 else 0)"
+
+      - name: Logs on failure
+        if: failure()
+        run: kubectl -n oj get pods -o wide; kubectl -n oj get events --sort-by=.lastTimestamp | tail -40

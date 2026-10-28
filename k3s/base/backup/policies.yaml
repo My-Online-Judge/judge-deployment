@@ -1,0 +1,70 @@
+# The backup pod (CronJob backup) reads the three databases and MinIO: it is admitted to those and nothing else. The restore drill
+# (CronJob restore-drill) is admitted nowhere: it holds no certificate and reaches nothing but its repository.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backup-to-identity-db
+spec:
+  podSelector:
+    matchLabels:
+      app: identity-db
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backup
+      ports:
+        - port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backup-to-problem-db
+spec:
+  podSelector:
+    matchLabels:
+      app: problem-db
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backup
+      ports:
+        - port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backup-to-submission-db
+spec:
+  podSelector:
+    matchLabels:
+      app: submission-db
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backup
+      ports:
+        - port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backup-to-minio
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backup
+      ports:
+        - port: 9000

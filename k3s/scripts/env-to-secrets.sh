@@ -7,7 +7,8 @@
 # reads and writes with and minio-worker the read-only key the judge worker fetches test cases with (as MINIO_ACCESS_KEY /
 # MINIO_SECRET_KEY, the names their code reads), judge-token the sandbox token, pg-monitor the oj_monitor password the
 # postgres-exporters log in with, grafana-admin Grafana's admin password and alertmanager-telegram the Telegram bot token and
-# chat id (empty when .env has neither: Alertmanager then only shows alerts in its UI).
+# chat id (empty when .env has neither: Alertmanager then only shows alerts in its UI), and restic the nightly backup's repository,
+# its password and, for an S3 or B2 repository, the access keys (empty when .env has none: the backup job then stops with a message).
 # OJ_DEPLOY_DIR: the directory of the .env files (default judge-deployment; tests use a copy).
 set -euo pipefail
 dir=${OJ_DEPLOY_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
@@ -35,8 +36,12 @@ SECRETS = [  # name, file, {key in the Secret: key in the file} (None: every key
     ("grafana-admin", ".env", same(["GRAFANA_ADMIN_PASSWORD"])),
     # optional: .env.example keeps these two commented out; without them render.sh leaves Alertmanager UI-only
     ("alertmanager-telegram", ".env", same(["ALERT_TELEGRAM_BOT_TOKEN", "ALERT_TELEGRAM_CHAT_ID"])),
+    # optional: where the nightly backup's restic repository is and its password (restic.sh stops with a message when either is
+    # empty), and the access keys of an S3 or B2 repository (only the ones .env sets)
+    ("restic", ".env", same(["RESTIC_REPOSITORY", "RESTIC_PASSWORD"])),
 ]
-OPTIONAL = {"alertmanager-telegram"}   # a missing key is an empty value, not an error
+OPTIONAL = {"alertmanager-telegram", "restic"}   # a missing key is an empty value, not an error
+EXTRA = {"restic": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "B2_ACCOUNT_ID", "B2_ACCOUNT_KEY"]}   # taken from the file when it has them
 
 def parse(path):
     values = {}
@@ -64,7 +69,7 @@ for name, file, keys in SECRETS:
             missing = []
         if missing:
             sys.exit(f"env-to-secrets.sh: {file} has no {', '.join(missing)}")
-        values = {out: values[src] for out, src in keys.items()}
+        values = {out: values[src] for out, src in keys.items()} | {k: values[k] for k in EXTRA.get(name, []) if values.get(k)}
     if dry:
         print(name, ",".join(sorted(values)))
         continue
