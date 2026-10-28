@@ -831,3 +831,49 @@ tests:
       - eval_time: 12m
         alertname: ConsumerLagHigh
         exp_alerts: []
+
+  # JudgePodOOMKilled (K3s, kube-state-metrics): a sandbox or worker container restarted in the last 10 minutes and its last
+  # termination was OOMKilled fires, one per pod and container; the same OOMKilled reason with no new restart (it stays on the
+  # series for the pod's life), and a restart for another reason, are silent. In compose these series do not exist.
+  - interval: 1m
+    input_series:
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="oj", pod="judge-7d9", container="sandbox"}'
+        values: '0 0 0 0 1 1 1 1 1 1'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="oj", pod="judge-7d9", container="sandbox", reason="OOMKilled"}'
+        values: '0 0 0 0 1 1 1 1 1 1'
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="oj", pod="judge-7d9", container="worker"}'
+        values: '0 0 0 0 1 1 1 1 1 1'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="oj", pod="judge-7d9", container="worker", reason="Error"}'
+        values: '0 0 0 0 1 1 1 1 1 1'
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="oj", pod="run-judge-5c1", container="sandbox"}'
+        values: '3x9'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="oj", pod="run-judge-5c1", container="sandbox", reason="OOMKilled"}'
+        values: '1x9'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: JudgePodOOMKilled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: kube-state-metrics
+              namespace: oj
+              pod: judge-7d9
+              container: sandbox
+            exp_annotations:
+              summary: "Container sandbox of pod judge-7d9 was OOM-killed"
+              description: "A sandbox that is killed for memory fails the submission it was judging with a wrong verdict, and a worker that is killed loses its in-flight record. Raise the container's memory limit (k3s/base/judge/judge.yaml) or find the submission that needs that much."
+      - eval_time: 9m
+        alertname: JudgePodOOMKilled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: kube-state-metrics
+              namespace: oj
+              pod: judge-7d9
+              container: sandbox
+            exp_annotations:
+              summary: "Container sandbox of pod judge-7d9 was OOM-killed"
+              description: "A sandbox that is killed for memory fails the submission it was judging with a wrong verdict, and a worker that is killed loses its in-flight record. Raise the container's memory limit (k3s/base/judge/judge.yaml) or find the submission that needs that much."
+      - eval_time: 15m
+        alertname: JudgePodOOMKilled
+        exp_alerts: []

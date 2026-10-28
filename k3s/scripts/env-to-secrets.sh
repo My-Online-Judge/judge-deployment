@@ -5,7 +5,9 @@
 # env-identity-db, env-identity, env-problem and env-submission are the files of those names, whole; the others take only
 # what their reader needs from .env: minio-root and minio-init the MinIO root account, minio-problem the key problem-service
 # reads and writes with and minio-worker the read-only key the judge worker fetches test cases with (as MINIO_ACCESS_KEY /
-# MINIO_SECRET_KEY, the names their code reads), judge-token the sandbox token.
+# MINIO_SECRET_KEY, the names their code reads), judge-token the sandbox token, pg-monitor the oj_monitor password the
+# postgres-exporters log in with, grafana-admin Grafana's admin password and alertmanager-telegram the Telegram bot token and
+# chat id (empty when .env has neither: Alertmanager then only shows alerts in its UI).
 # OJ_DEPLOY_DIR: the directory of the .env files (default judge-deployment; tests use a copy).
 set -euo pipefail
 dir=${OJ_DEPLOY_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
@@ -29,7 +31,12 @@ SECRETS = [  # name, file, {key in the Secret: key in the file} (None: every key
     ("minio-problem", ".env", {"MINIO_ACCESS_KEY": "MINIO_PROBLEM_ACCESS_KEY", "MINIO_SECRET_KEY": "MINIO_PROBLEM_SECRET_KEY"}),
     ("minio-worker", ".env", {"MINIO_ACCESS_KEY": "MINIO_WORKER_ACCESS_KEY", "MINIO_SECRET_KEY": "MINIO_WORKER_SECRET_KEY"}),
     ("judge-token", ".env", same(["JUDGE_SERVER_TOKEN"])),
+    ("pg-monitor", ".env", same(["PG_MONITOR_PASSWORD"])),
+    ("grafana-admin", ".env", same(["GRAFANA_ADMIN_PASSWORD"])),
+    # optional: .env.example keeps these two commented out; without them render.sh leaves Alertmanager UI-only
+    ("alertmanager-telegram", ".env", same(["ALERT_TELEGRAM_BOT_TOKEN", "ALERT_TELEGRAM_CHAT_ID"])),
 ]
+OPTIONAL = {"alertmanager-telegram"}   # a missing key is an empty value, not an error
 
 def parse(path):
     values = {}
@@ -52,6 +59,9 @@ for name, file, keys in SECRETS:
     values = parse(path)
     if keys is not None:
         missing = [src for src in keys.values() if src not in values]
+        if name in OPTIONAL:
+            values = {**{src: "" for src in missing}, **values}
+            missing = []
         if missing:
             sys.exit(f"env-to-secrets.sh: {file} has no {', '.join(missing)}")
         values = {out: values[src] for out, src in keys.items()}

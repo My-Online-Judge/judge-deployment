@@ -223,6 +223,20 @@ groups:
           summary: "No run-worker is running"
           description: "No run-worker has answered a scrape for 15 seconds, so Run answers 504 while Submit keeps working. Check the run-worker containers."
 
+      - alert: JudgePodOOMKilled
+        # K3s only (kube-state-metrics; the series do not exist in compose). A container of a judge pod restarted within the
+        # last 10 minutes and its last termination was OOMKilled. last_terminated_reason stays on the series for the pod's
+        # life, so the restart counter is what says the kill is recent.
+        expr: |
+          increase(kube_pod_container_status_restarts_total{namespace="oj", container=~"sandbox|worker"}[10m]) > 0
+          and on (namespace, pod, container)
+          kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container {{ $labels.container }} of pod {{ $labels.pod }} was OOM-killed"
+          description: "A sandbox that is killed for memory fails the submission it was judging with a wrong verdict, and a worker that is killed loses its in-flight record. Raise the container's memory limit (k3s/base/judge/judge.yaml) or find the submission that needs that much."
+
       - alert: SandboxDown
         # The worker pings every sandbox every 10 s, and a failed dispatch marks one down at once (oj_sandbox_up).
         # When the worker itself is down this series disappears with it, and JudgeWorkerDown fires instead.

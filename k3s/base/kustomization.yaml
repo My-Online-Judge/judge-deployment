@@ -21,6 +21,10 @@ resources:
   - keda/scaledobjects.yaml
   - edge/traefik.yaml
   - network/policies.yaml
+  - observability/config.yaml
+  - observability/monitoring.yaml
+  - observability/exporters.yaml
+  - observability/policies.yaml
 labels:
   - pairs:
       app.kubernetes.io/part-of: my-online-judge

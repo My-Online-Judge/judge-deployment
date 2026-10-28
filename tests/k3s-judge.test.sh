@@ -117,9 +117,11 @@ for app in ("judge", "run-judge"):
     want = {"kafka", "jaeger"} | ({"minio", "submission-service"} if app == "judge" else set())
     check(dest == want, f"{app}: it may reach {sorted(want)}", str(sorted(dest)))
 
-# every workload: no ServiceAccount token
-tok = [o["metadata"]["name"] for o in base if o.get("kind") in ("Deployment", "StatefulSet", "Job") and pod(o).get("automountServiceAccountToken") is not False]
-check(not tok, "no pod of the stack mounts a ServiceAccount token", ", ".join(tok))
+# every workload: no ServiceAccount token, but the two that read the Kubernetes API (tests/k3s-observability.test.sh checks their roles)
+API_READERS = {"prometheus", "kube-state-metrics"}
+tok = [o["metadata"]["name"] for o in base if o.get("kind") in ("Deployment", "StatefulSet", "Job") and o["metadata"]["name"] not in API_READERS
+       and pod(o).get("automountServiceAccountToken") is not False]
+check(not tok, "no pod of the stack mounts a ServiceAccount token (but Prometheus's and kube-state-metrics')", ", ".join(tok))
 sys.exit(1 if failed else 0)
 PY
 

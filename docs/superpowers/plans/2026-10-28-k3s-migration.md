@@ -237,3 +237,17 @@
 - **The Deployments set no replicas (T7)** so KEDA's HPA owns the count and an apply cannot reset it.
 - **Memory is the ceiling (T7).** Scheduling is by requests: with the sandbox at 1536Mi a judge pod reserves 1664Mi; the README gives the
   rule for `maxReplicaCount`. Observed on the 10Gi k3d node: 3 of 4 judge pods fit, the fourth stayed Pending.
+- **The four `*ServiceDown` rules keep `for: 15s` (T8).** The plan raised them to `1m`; with `maxUnavailable: 0` a rolling update has no
+  downtime, and the one Recreate service (submission-service) really does refuse submissions while it restarts, so the alert is
+  truthful. `alerts.yml` is shared with compose and a longer `for:` would break `alerts_fast_test.yml`, whose point is that a rule
+  fires on the second scrape. `JudgeWorkerDown` needed no change either: `absent(up{job="judge-worker"} == 1)` already means "no pod is up".
+- **T8 scope: node-exporter and cAdvisor are left out (T8).** They need `hostPath` / `hostPID`, which `baseline` forbids in `oj`; the two
+  alerts and the dashboard panels that depend on them have no data on K3s until they run in a privileged namespace (README lists it).
+  Jaeger came with T4.
+- **`JudgePodOOMKilled` uses the restart counter (T8).** `kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}` stays 1
+  for the pod's life, so on its own the alert would never resolve; `increase(restarts_total[10m]) > 0` joined to it fires for ten
+  minutes after a kill. It covers the worker as well as the sandbox. Proven live with a throwaway pod.
+- **Prometheus and kube-state-metrics are the only pods with a ServiceAccount token (T8)** (namespaced read-only Roles, no
+  ClusterRole); the `no pod mounts a token` check in `tests/k3s-judge.test.sh` names them.
+- **Grafana has no NetworkPolicy allow rule (T8).** Its UI is for `kubectl port-forward`, which no policy filters; `tests/k3s-services.test.sh`
+  names it as the one Service port exempt from "every port has an allow rule".

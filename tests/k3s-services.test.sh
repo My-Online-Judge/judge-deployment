@@ -131,16 +131,24 @@ check({t.get("serverName") for t in transports.values()} == {"api-gateway", "jud
 # ---- network policies: every port is reachable only through an allow rule --------------------------------------------
 pols = [o for o in objs if o.get("kind") == "NetworkPolicy"]
 check(any(p["spec"]["podSelector"] == {} and p["spec"].get("policyTypes") == ["Ingress"] and not p["spec"].get("ingress") for p in pols), "a default-deny ingress policy covers the namespace")
-EXEMPT = {8081}   # the actuators: Prometheus's allow rule comes with the observability task
+def picks(selector, labels):
+    """Does a policy's podSelector pick a pod with these labels (matchLabels, and In expressions)?"""
+    ml, ex = selector.get("matchLabels", {}), selector.get("matchExpressions", [])
+    if not ml and not ex: return False   # {} is the default-deny, not an allow
+    return all(labels.get(k) == v for k, v in ml.items()) and all(e["operator"] == "In" and labels.get(e["key"]) in e["values"] for e in ex)
+# Grafana's UI is for the operator: `kubectl port-forward` connects through the kubelet, which no NetworkPolicy filters, so nothing
+# in the cluster needs to be admitted to it (and nothing is)
+OPERATOR_UIS = {("grafana", 3000)}
 uncovered = []
 for s in (o for o in objs if o.get("kind") == "Service"):
     sel = s["spec"]["selector"]
-    for port in {p["port"] for p in s["spec"]["ports"]} - EXEMPT:
-        allowed = any(all(sel.get(k) == v for k, v in p["spec"]["podSelector"].get("matchLabels", {}).items()) and p["spec"]["podSelector"].get("matchLabels")
+    for port in {p["port"] for p in s["spec"]["ports"]}:
+        if (s["metadata"]["name"], port) in OPERATOR_UIS: continue
+        allowed = any(picks(p["spec"]["podSelector"], sel)
                       and any(port == pp.get("port") for rule in p["spec"].get("ingress", []) for pp in rule.get("ports", []))
                       for p in pols)
         if not allowed: uncovered.append(f'{s["metadata"]["name"]}:{port}')
-check(not uncovered, "every Service port (but the actuators') has a NetworkPolicy allowing it", ", ".join(uncovered))
+check(not uncovered, "every Service port has a NetworkPolicy allowing it", ", ".join(uncovered))
 sys.exit(1 if failed else 0)
 PY
 exit $fail

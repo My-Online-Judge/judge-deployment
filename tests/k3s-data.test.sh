@@ -140,8 +140,8 @@ PY
 # ---- the Secrets script -----------------------------------------------------------------------------------------------
 if [[ -x k3s/scripts/env-to-secrets.sh ]]; then
   got=$(OJ_DEPLOY_DIR=$tmp bash k3s/scripts/env-to-secrets.sh --dry-run | sort)
-  want=$(printf '%s\n' env-identity env-identity-db env-problem env-submission judge-token minio-init minio-problem minio-root minio-worker | sort)
-  if [[ $(cut -d' ' -f1 <<< "$got") == "$want" ]]; then ok "env-to-secrets.sh makes env-identity, env-identity-db, env-problem, env-submission, judge-token, minio-init, minio-problem, minio-root, minio-worker"
+  want=$(printf '%s\n' alertmanager-telegram env-identity env-identity-db env-problem env-submission grafana-admin judge-token minio-init minio-problem minio-root minio-worker pg-monitor | sort)
+  if [[ $(cut -d' ' -f1 <<< "$got") == "$want" ]]; then ok "env-to-secrets.sh makes alertmanager-telegram, env-identity, env-identity-db, env-problem, env-submission, grafana-admin, judge-token, minio-init, minio-problem, minio-root, minio-worker, pg-monitor"
   else bad "env-to-secrets.sh makes: $(cut -d' ' -f1 <<< "$got" | tr '\n' ' ')"; fi
   if ! grep -qE '[0-9a-f]{40}' <<< "$got"; then ok "--dry-run prints names and keys, never a value"; else bad "--dry-run printed something that looks like a secret"; fi
 else bad "k3s/scripts/env-to-secrets.sh exists"; fi
