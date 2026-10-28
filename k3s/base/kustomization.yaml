@@ -1,0 +1,11 @@
+# The stack on K3s (sub-project 15): what runs, the same in every overlay. Each task of the migration plan adds its files to
+# `resources`; overlays/local (k3d, mock sandbox) and overlays/vps (the server) patch only what differs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: oj
+resources:
+  - namespace.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: my-online-judge
+    includeSelectors: false

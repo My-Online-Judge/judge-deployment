@@ -1,0 +1,6 @@
+# k3d on a laptop: the mock sandbox, the images built by scripts/local-stack.sh and imported into the cluster, a private CA
+# made for the occasion. See k3s/README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base

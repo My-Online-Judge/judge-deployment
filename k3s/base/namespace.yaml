@@ -1,0 +1,10 @@
+# One namespace for the whole stack. Pod Security: the pods drop every capability they do not need and the sandbox adds back
+# only CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID and KILL, all inside the `baseline` profile (no privileged, no hostPath,
+# no host namespaces). `restricted` is only warned about: the sandbox and the databases run as root inside their container.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: oj
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
