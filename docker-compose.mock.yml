@@ -7,16 +7,17 @@
 # JUDGE_SERVER_URL go back to http:// (the base file serves the real sandboxes over mutual TLS). TOKEN,
 # the hardening (x-sandbox: no caps beyond the judger's, read-only root) and sandbox-net are inherited
 # from the base services; the inherited GUNICORN_CMD_ARGS and certificate mount mean nothing to the mock.
-# The mock has no /ping, so judge-worker's status relay logs a warning per sandbox and the registry
-# shows them offline.
+# The mock answers /ping with a server_info dict, so judge-worker's status relay reports both sandboxes online. It
+# answers a submission with as many results as the bundle has cases (it reads <id>/info from the shared test_case cache,
+# as the real server does), which judge-worker checks against test_case_number.
 #
 # BOTH sandboxes are overridden: the worker round-robins across judge-server AND judge-server-2.
 # Mocking only the first left every other submission going to a real sandbox — which is exactly what
 # this file exists to avoid.
 
-# The base healthcheck calls /ping, which the mock does not implement (it speaks only /judge).
-# A POST /judge would run a fake submission every 15s, so check the cheapest honest thing
-# instead: the listener is accepting connections.
+# The base healthcheck calls /ping over mutual TLS (the real server's); the mock speaks plain HTTP and the
+# cheapest honest check is that the listener is accepting connections (a POST /judge would run a fake submission
+# every 15s).
 x-mock-health: &mock-health
   test:
     - CMD

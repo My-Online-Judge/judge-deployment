@@ -16,6 +16,8 @@ TOKEN = os.environ.get("TOKEN", "123456")
 EXPECTED_TOKEN = hashlib.sha256(TOKEN.encode()).hexdigest()
 SERVICE_URL = os.environ.get("SERVICE_URL", "http://judge-server:8080")
 BACKEND_URL = os.environ.get("BACKEND_URL", "")
+# The worker's synced bundles (the real sandbox reads the same directory): <id>/info holds test_case_number.
+TEST_CASE_DIR = os.environ.get("TEST_CASE_DIR", "/test_case")
 
 
 def make_case(result, error=0, tc="1"):
@@ -26,18 +28,57 @@ def make_case(result, error=0, tc="1"):
     }
 
 
-def judge_payload(src, test_case=None):
+# marker in the source -> the result code of the case it replaces (the second case, or the only one)
+TRIGGERS = (("TRIGGER_SE", 5), ("TRIGGER_WA", -1), ("TRIGGER_TLE", 1), ("TRIGGER_MLE", 3), ("TRIGGER_RE", 4))
+
+
+def bundle_cases(test_case_id):
+    """The case names of the synced bundle, in qduoj's order, or None when it cannot be read (no cache mounted, no such
+    bundle, a corrupt info). The real server judges every case of the bundle and answers one result per case, so the
+    worker checks the count against test_case_number: the mock has to answer with as many."""
+    if not test_case_id:
+        return None
+    root = os.path.realpath(TEST_CASE_DIR)
+    info_path = os.path.realpath(os.path.join(root, test_case_id, "info"))
+    if os.path.commonpath([root, info_path]) != root:        # a bundle id is a name, never a path out of the cache
+        return None
+    try:
+        with open(info_path, encoding="utf-8") as f:
+            names = list(json.load(f)["test_cases"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return [str(n) for n in names] or None
+
+
+def triggered_results(src, names):
+    """One accepted result per case; a TRIGGER_* marker replaces the second case's (the first when there is only one),
+    so the verdict aggregation (first failing case wins) is exercised with the bundle's real number of cases."""
+    results = [make_case(0, tc=n) for n in names]
+    for marker, code in TRIGGERS:
+        if marker in src:
+            i = 1 if len(names) > 1 else 0
+            results[i] = make_case(code, error=-10 if code == 5 else 0, tc=names[i])
+            break
+    return results
+
+
+def judge_payload(src, test_case=None, test_case_id=None):
     # err-envelope branches
     if "TRIGGER_CE" in src:
         return {"err": "CompileError", "data": "mock: error: expected ';' before '}'"}
-    # A run (inline test_case, Run code design §13): one accepted result per case, echoing the case's input as the
-    # program's output, so the portal's panel shows something per case. The TRIGGER_* markers below still apply.
-    if isinstance(test_case, list) and not any(m in src for m in ("TRIGGER_SE", "TRIGGER_WA", "TRIGGER_TLE",
-                                                                  "TRIGGER_MLE", "TRIGGER_RE")):
-        return {"err": None, "data": [
-            {**make_case(0, tc=str(i + 1)), "output": (c.get("input", "") if isinstance(c, dict) else "")}
-            for i, c in enumerate(test_case)]}
-    # per-testcase array branches: first AC, then the triggered verdict (tests ACM aggregation)
+    # A run (inline test_case, Run code design §13): one result per case, echoing the case's input as the program's
+    # output (unless a TRIGGER_* marker shapes the verdict), so the portal's panel shows something per case.
+    if isinstance(test_case, list):
+        names = [str(i + 1) for i in range(len(test_case))]
+        if not any(m in src for m, _ in TRIGGERS):
+            return {"err": None, "data": [
+                {**make_case(0, tc=n), "output": (c.get("input", "") if isinstance(c, dict) else "")}
+                for n, c in zip(names, test_case)]}
+        return {"err": None, "data": triggered_results(src, names)}
+    # A submission: as many results as the bundle has cases. A bundle the mock cannot read keeps the old fixed answer.
+    names = bundle_cases(test_case_id)
+    if names is not None:
+        return {"err": None, "data": triggered_results(src, names)}
     if "TRIGGER_SE" in src:
         return {"err": None, "data": [make_case(0), make_case(5, error=-10, tc="2")]}
     if "TRIGGER_WA" in src:
@@ -48,7 +89,6 @@ def judge_payload(src, test_case=None):
         return {"err": None, "data": [make_case(0), make_case(3, tc="2")]}
     if "TRIGGER_RE" in src:
         return {"err": None, "data": [make_case(0), make_case(4, tc="2")]}
-    # default: all accepted
     return {"err": None, "data": [make_case(0, tc="1"), make_case(0, tc="2"), make_case(0, tc="3")]}
 
 
@@ -92,7 +132,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.rstrip("/").endswith("/judge") or self.path == "/judge":
             src = data.get("src", "")
             print(f"[judge] keys={list(data.keys())} src={src[:80]!r}", flush=True)
-            return self._send(200, judge_payload(src, data.get("test_case")))
+            return self._send(200, judge_payload(src, data.get("test_case"), data.get("test_case_id")))
+        if self.path.rstrip("/").endswith("/ping"):
+            # What the real server's /ping answers (its server_info); judge-worker relays it as the sandbox's heartbeat.
+            return self._send(200, {"err": None, "data": {
+                "hostname": os.environ.get("HOSTNAME", "mock-judge-server"), "judger_version": "2.1.1-mock",
+                "cpu_core": 4, "memory": 12.5, "cpu": 3.0}})
         return self._send(200, {"err": None, "data": "ok"})
 
     def do_GET(self):
