@@ -1,0 +1,8 @@
+# Override for running the stack on one machine (scripts/local-stack.sh adds it after docker-compose.mock.yml).
+#
+# MinIO's console (127.0.0.1:9001) is an operator UI nothing here needs, and 9001 is a port other dev tools commonly
+# hold; only the S3 API stays published.
+services:
+  minio:
+    ports: !override
+      - "127.0.0.1:9000:9000"

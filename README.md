@@ -99,6 +99,42 @@ docker compose down -v
 Clients trust the private CA: `curl --cacert pki/out/ca/ca.crt https://localhost/api/v1/languages`. Browsers need
 `pki/out/ca/ca.crt` imported once (or accept the warning for local use).
 
+## Run it on one machine (a laptop)
+
+`scripts/local-stack.sh` starts the stack with the mock sandboxes on a laptop with Docker Desktop. Needs the sibling repos
+beside this one (see `scripts/preflight.sh`), `python3`, `openssl`, `curl`, and on macOS Homebrew's bash (`brew install bash`;
+the script runs itself under it).
+
+```bash
+scripts/local-stack.sh doctor   # what is missing; changes nothing
+scripts/local-stack.sh init     # .env* files with random secrets, the private CA and every certificate (keeps what exists)
+scripts/local-stack.sh build    # the images, one at a time (the first build downloads the Maven dependencies)
+scripts/local-stack.sh up       # start and wait until healthy
+scripts/local-stack.sh smoke    # log in, create a problem, submit, run: the stack answers end to end
+scripts/local-stack.sh status   # containers and their memory (Kafka is capped at 1g, heap 512M)
+scripts/local-stack.sh down [--volumes]   # stop; --volumes also deletes the databases and every upload
+```
+
+Then `https://localhost` is the portal and the API. Trust `pki/out/ca/ca.crt` in the browser (or accept the warning); the root
+admin is `admin` with the password the identity V2 migration seeds, `Admin@12345` (change it, then put it in `.env` as
+`OJ_ADMIN_PASSWORD` for `smoke`).
+
+What is different from the server stack:
+
+- **Mock sandboxes** (`docker-compose.mock.yml`): the real qduoj image is amd64 and needs the host's kernel for its judger.
+  The mock answers like the real server where the worker can tell (one result per case of the bundle, `/ping`), and a
+  `TRIGGER_WA`, `TRIGGER_TLE`, `TRIGGER_MLE`, `TRIGGER_RE`, `TRIGGER_SE` or `TRIGGER_CE` comment in the source picks the verdict.
+- **No observability**: Prometheus, Grafana, Alertmanager, cAdvisor and the exporters read the Linux host (`/proc`, `/sys`,
+  `docker.sock`) and are left out.
+- **MinIO's console** (`127.0.0.1:9001`) is not published (`docker-compose.local.yml`); `doctor` and `up` stop when a port
+  the stack needs is held by another container or process, and name it.
+- **On an Apple-silicon Mac** the Java images' runtime stage, `eclipse-temurin:17-jre-alpine`, has no arm64 variant, so `build`
+  swaps it for an alpine JRE 17 that has one (`LOCAL_JRE_IMAGE`, default `bellsoft/liberica-openjre-alpine:17`) with
+  `docker buildx --build-context`. The Dockerfiles are untouched; the result is good for trying the stack, not a release image.
+- `build` refuses when a service's pom pins an `oj-common` version other than the sibling checkout's: each Dockerfile compiles
+  the checkout, so the image could not be built.
+- `smoke` leaves its problem (`smoke-a-plus-b`) and submissions in the local database.
+
 ## TLS everywhere (sub-project 10)
 
 Every hop is mutual TLS with certificates from the private CA in `pki/` (`pki/README.md`); the services admit callers by
