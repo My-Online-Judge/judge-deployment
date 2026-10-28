@@ -1,0 +1,24 @@
+# KEDA, installed by K3s's Helm controller: it turns the lag of a Kafka consumer group into the replica count of a Deployment
+# (k3s/base/keda). Its pods are small and capped.
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: keda
+  namespace: kube-system
+spec:
+  repo: https://kedacore.github.io/charts
+  chart: keda
+  version: 2.21.0
+  targetNamespace: keda
+  createNamespace: true
+  valuesContent: |-
+    resources:
+      operator:
+        requests: {cpu: 50m, memory: 128Mi}
+        limits: {memory: 512Mi}
+      metricServer:
+        requests: {cpu: 50m, memory: 128Mi}
+        limits: {memory: 256Mi}
+      webhooks:
+        requests: {cpu: 20m, memory: 64Mi}
+        limits: {memory: 128Mi}

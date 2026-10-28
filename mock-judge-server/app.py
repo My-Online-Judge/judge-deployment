@@ -18,6 +18,8 @@ SERVICE_URL = os.environ.get("SERVICE_URL", "http://judge-server:8080")
 BACKEND_URL = os.environ.get("BACKEND_URL", "")
 # The worker's synced bundles (the real sandbox reads the same directory): <id>/info holds test_case_number.
 TEST_CASE_DIR = os.environ.get("TEST_CASE_DIR", "/test_case")
+# A source with TRIGGER_SLOW takes this long to judge, so a backlog can build behind it (the autoscaler is tried with it).
+SLOW_SECONDS = float(os.environ.get("MOCK_SLOW_SECONDS", "3"))
 
 
 def make_case(result, error=0, tc="1"):
@@ -92,6 +94,12 @@ def judge_payload(src, test_case=None, test_case_id=None):
     return {"err": None, "data": [make_case(0, tc="1"), make_case(0, tc="2"), make_case(0, tc="3")]}
 
 
+def pause_for(src):
+    """The judgement's duration: instant, or SLOW_SECONDS for a TRIGGER_SLOW source."""
+    if "TRIGGER_SLOW" in src:
+        time.sleep(SLOW_SECONDS)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         body = json.dumps(obj).encode()
@@ -132,6 +140,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.rstrip("/").endswith("/judge") or self.path == "/judge":
             src = data.get("src", "")
             print(f"[judge] keys={list(data.keys())} src={src[:80]!r}", flush=True)
+            pause_for(src)
             return self._send(200, judge_payload(src, data.get("test_case"), data.get("test_case_id")))
         if self.path.rstrip("/").endswith("/ping"):
             # What the real server's /ping answers (its server_info); judge-worker relays it as the sandbox's heartbeat.

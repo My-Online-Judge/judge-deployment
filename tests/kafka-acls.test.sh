@@ -10,7 +10,8 @@ bad() { echo "FAIL $1"; fail=1; }
 
 # Spec §4.5, one rule per line: principal resource-type name operation. kafka, kafka-admin and ANONYMOUS are super users.
 # GroupPrefix (sp15): each submission-service instance reads run.judged in its own group run-results-<instance>.
-# The last three (sp12 task 15): kafka-exporter describes every topic and group and the cluster, nothing more.
+# The last three before keda (sp12 task 15): kafka-exporter describes every topic and group and the cluster, nothing more.
+# keda (sp15): KEDA reads the lag of the two worker groups on their request topics, nothing more.
 expected='User:submission-service Topic submission.requested Write
 User:submission-service Topic submission.requested Describe
 User:submission-service Topic submission.requested Create
@@ -81,7 +82,11 @@ User:run-worker Topic run.judged Create
 User:run-worker Group run-workers Read
 User:kafka-exporter Topic * Describe
 User:kafka-exporter Group * Describe
-User:kafka-exporter Cluster kafka-cluster Describe'
+User:kafka-exporter Cluster kafka-cluster Describe
+User:keda Topic submission.requested Describe
+User:keda Topic run.requested Describe
+User:keda Group judge-workers Describe
+User:keda Group run-workers Describe'
 
 # The table is the here-doc between <<'RULES' and RULES in acls.sh; comment and blank lines are not rules.
 actual=$(awk "/<<'RULES'/ { in_table = 1; next } /^RULES\$/ { in_table = 0 } in_table" kafka/acls.sh 2>/dev/null | sed 's/#.*//;s/[[:space:]]\{1,\}/ /g;s/^ //;s/ $//' | grep -v '^$' || true)

@@ -87,6 +87,22 @@ class JudgePayloadTest(unittest.TestCase):
         self.assertEqual(len(self.results("print(1)", rel)), 3)
 
 
+class SlowTest(unittest.TestCase):
+    def test_a_slow_marker_makes_the_judgement_take_time_so_a_backlog_can_build(self):
+        import time
+        old = app.SLOW_SECONDS
+        app.SLOW_SECONDS = 0.3
+        try:
+            started = time.monotonic()
+            app.pause_for(["x # TRIGGER_SLOW"][0])
+            self.assertGreaterEqual(time.monotonic() - started, 0.3)
+            started = time.monotonic()
+            app.pause_for("print(1)")
+            self.assertLess(time.monotonic() - started, 0.1)
+        finally:
+            app.SLOW_SECONDS = old
+
+
 class HttpTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

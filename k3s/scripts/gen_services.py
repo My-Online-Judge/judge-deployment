@@ -255,7 +255,7 @@ metadata:
   labels:
     app: {name}
 spec:
-  replicas: 1
+  # no replicas: KEDA's HorizontalPodAutoscaler owns the count (k3s/base/keda), and an apply must not reset it
   strategy:
     type: RollingUpdate
     rollingUpdate:

@@ -192,6 +192,10 @@ spec:
         - podSelector:
             matchLabels:
               app: run-judge
+        # KEDA (its own namespace) reads the consumer groups' lag to scale the judge pods
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: keda
       ports:
         - port: 29092
     - from:

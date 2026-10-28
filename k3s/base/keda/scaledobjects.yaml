@@ -1,0 +1,82 @@
+# The judge pods scale with the lag of their Kafka consumer group: one more pod per `lagThreshold` records waiting, up to a ceiling
+# that keeps the node out of memory trouble. The run pod's group is the interactive Run lane (fewer, shorter jobs).
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: keda-kafka
+spec:
+  # KEDA reads Kafka as the identity `keda` (kafka/acls.sh lets it describe the two groups and their topics, nothing else)
+  secretTargetRef:
+    - parameter: ca
+      name: tls-keda
+      key: ca.crt
+    - parameter: cert
+      name: tls-keda
+      key: tls.crt
+    - parameter: key
+      name: tls-keda
+      key: tls.key
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: judge
+spec:
+  scaleTargetRef:
+    name: judge
+  # never to zero: the heartbeat relay and a warm sandbox need a pod
+  minReplicaCount: 1
+  maxReplicaCount: 4
+  pollingInterval: 15
+  # KEDA's cooldownPeriod only applies to the step down to zero; between pods the HorizontalPodAutoscaler's stabilization window
+  # keeps a pod five minutes after the load is gone, so the count does not flap
+  cooldownPeriod: 300
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+  triggers:
+    - type: kafka
+      metadata:
+        # KEDA runs in its own namespace: the in-cluster name, which the broker's certificate names
+        bootstrapServers: kafka.oj.svc.cluster.local:29092
+        consumerGroup: judge-workers
+        topic: submission.requested
+        lagThreshold: "5"
+        offsetResetPolicy: earliest
+        tls: enable
+      authenticationRef:
+        name: keda-kafka
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: run-judge
+spec:
+  scaleTargetRef:
+    name: run-judge
+  # never to zero: the heartbeat relay and a warm sandbox need a pod
+  minReplicaCount: 1
+  maxReplicaCount: 2
+  pollingInterval: 15
+  # KEDA's cooldownPeriod only applies to the step down to zero; between pods the HorizontalPodAutoscaler's stabilization window
+  # keeps a pod five minutes after the load is gone, so the count does not flap
+  cooldownPeriod: 300
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+  triggers:
+    - type: kafka
+      metadata:
+        # KEDA runs in its own namespace: the in-cluster name, which the broker's certificate names
+        bootstrapServers: kafka.oj.svc.cluster.local:29092
+        consumerGroup: run-workers
+        topic: run.requested
+        lagThreshold: "3"
+        offsetResetPolicy: earliest
+        tls: enable
+      authenticationRef:
+        name: keda-kafka

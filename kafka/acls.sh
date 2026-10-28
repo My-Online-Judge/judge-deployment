@@ -13,6 +13,7 @@ acls=(/opt/kafka/bin/kafka-acls.sh --bootstrap-server kafka:29092 --command-conf
 # run-worker (its own certificate) reads run.requested as run-workers and publishes run.judged — nothing of the submit lane.
 # kafka-cluster is Kafka's fixed name for the cluster resource. * is Kafka's wildcard resource name (every topic or group): it
 # is passed quoted below, never expanded by the shell. kafka-exporter (sp12 task 15) only describes: metadata, offsets, lag.
+# keda (sp15, K3s) reads the lag of the two worker groups on their request topics, to scale the judge pods: Describe, nothing else.
 rules=$(cat <<'RULES'
 User:submission-service Topic submission.requested Write
 User:submission-service Topic submission.requested Describe
@@ -85,6 +86,10 @@ User:run-worker Group run-workers Read
 User:kafka-exporter Topic * Describe
 User:kafka-exporter Group * Describe
 User:kafka-exporter Cluster kafka-cluster Describe
+User:keda Topic submission.requested Describe
+User:keda Topic run.requested Describe
+User:keda Group judge-workers Describe
+User:keda Group run-workers Describe
 RULES
 )
 

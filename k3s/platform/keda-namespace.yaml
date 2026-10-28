@@ -1,0 +1,17 @@
+# KEDA reads Kafka from its own namespace. The broker advertises itself as `kafka:29092` (as in compose), a name that resolves
+# only inside the namespace oj; this alias, in KEDA's namespace, points the same name at the broker's Service, so the address
+# the broker hands back in its metadata works from here too. (The namespace is declared so this can be applied before the
+# chart creates it.)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keda
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: keda
+spec:
+  type: ExternalName
+  externalName: kafka.oj.svc.cluster.local

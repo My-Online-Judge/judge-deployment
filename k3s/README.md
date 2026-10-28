@@ -9,8 +9,8 @@ Kustomize: `base/` is what runs, `overlays/local` is k3d on a laptop (mock sandb
 scripts/k3d-up.sh up            # a K3s cluster `oj` in Docker; https://localhost:18443 and http://localhost:18080 are Traefik
 scripts/local-stack.sh build    # the images (arm64 Macs: see the README's "Run it on one machine")
 scripts/k3d-up.sh import        # load them into the cluster
-kubectl apply -k k3s/platform   # once per cluster: cert-manager, installed by K3s's Helm controller
-kubectl wait --for condition=established crd/certificates.cert-manager.io crd/issuers.cert-manager.io
+kubectl apply -k k3s/platform   # once per cluster: cert-manager and KEDA, installed by K3s's Helm controller
+kubectl wait --for condition=established crd/certificates.cert-manager.io crd/issuers.cert-manager.io crd/scaledobjects.keda.sh
 kubectl apply -k k3s/overlays/local
 k3s/scripts/env-to-secrets.sh   # the compose .env files as Secrets (pods wait for them; run it again after a change)
 bash tests/k3s-render.test.sh   # every overlay renders and validates (OJ_DOCKER_CONTEXT=desktop-linux on a Mac)
@@ -106,6 +106,24 @@ compose's.
 - Locally the sandbox is the mock (`overlays/local/mock-sandbox.yaml`). A pod-wide process limit is the kubelet's:
   `scripts/k3d-up.sh` sets `pod-max-pids=2048` (compose gave the sandbox 1024); install K3s on the server with
   `--kubelet-arg=pod-max-pids=2048`. A cluster created before that flag needs `scripts/k3d-up.sh down` and `up`.
+
+## Autoscaling (`base/keda`, `platform/keda.yaml`)
+
+KEDA scales `judge` (1 to 4 pods) and `run-judge` (1 to 2) with the Kafka lag of their consumer groups: one more pod per 5 records
+waiting on `submission.requested` (per 3 on `run.requested`). Never to zero (the heartbeat relay and a warm sandbox need a pod). KEDA's
+`cooldownPeriod` only covers the step down to zero, so the five minutes a pod stays after the load is gone are the HPA's
+`scaleDown.stabilizationWindowSeconds: 300`. The Deployments set no `replicas`, so a later `kubectl apply` does not reset the count.
+
+- KEDA reads Kafka as its own identity (`keda`, certificate `tls-keda`), which `kafka/acls.sh` lets describe those two groups and topics
+  and nothing else. It runs in its own namespace, and the broker advertises itself as `kafka:29092` (as in compose), so
+  `platform/keda-namespace.yaml` makes `kafka` resolve there too (an ExternalName alias) and Kafka's NetworkPolicy admits that namespace.
+- **The node's memory is the real ceiling.** The scheduler places a pod by its `requests`: a judge pod asks for 1664Mi (sandbox 1536Mi +
+  worker 128Mi), the rest of the stack for about 3.6Gi. So `maxReplicaCount` of both Deployments together must not exceed
+  `(allocatable memory - 3.6Gi) / 1.66Gi`; past that the HPA asks for more pods than fit and the extra ones stay Pending (on the 10Gi
+  k3d node three judge pods and one run pod fit, the fourth judge pod waits), never an out-of-memory kill.
+- Trying it: `TRIGGER_SLOW` in a source makes the mock take three seconds (`MOCK_SLOW_SECONDS`), so records published to
+  `submission.requested` build a lag. `kafka-console-producer.sh` in `kafka-0` (the plaintext loopback listener) can publish copies of an
+  outbox record (`SELECT convert_from(payload, 'UTF8') FROM t_outbox WHERE topic = 'submission.requested'`) with fresh `submissionId`s.
 
 ## What cannot be done on a laptop
 

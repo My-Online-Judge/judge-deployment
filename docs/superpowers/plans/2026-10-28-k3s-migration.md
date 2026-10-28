@@ -228,3 +228,12 @@
   the server decides whether a CPU limit causes false time-limit verdicts.
 - **The mock needs `DAC_OVERRIDE` (T5).** The worker's bundles are mode 0700; the mock reads them as root like the real sandbox, so the
   local overlay patch keeps the base's capabilities (without them it silently falls back to its old fixed answer).
+- **KEDA's scale-down is the HPA's window (T7).** `cooldownPeriod: 300` is kept as the plan says, but it only applies to the step down to
+  zero; `advanced.horizontalPodAutoscalerConfig.behavior.scaleDown.stabilizationWindowSeconds: 300` is what keeps a pod five minutes
+  between pods. The test checks both.
+- **An alias for `kafka` in KEDA's namespace (T7).** Found live: KEDA connected to the bootstrap name but the metadata handed back the
+  broker's advertised `kafka:29092`, which does not resolve outside `oj`. An ExternalName Service `kafka` in `keda` (platform) fixes it without
+  changing the advertised listener, which the data-layer test pins to compose's.
+- **The Deployments set no replicas (T7)** so KEDA's HPA owns the count and an apply cannot reset it.
+- **Memory is the ceiling (T7).** Scheduling is by requests: with the sandbox at 1536Mi a judge pod reserves 1664Mi; the README gives the
+  rule for `maxReplicaCount`. Observed on the 10Gi k3d node: 3 of 4 judge pods fit, the fourth stayed Pending.

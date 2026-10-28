@@ -18,6 +18,7 @@ resources:
   - services/portal.yaml
   - services/jaeger.yaml
   - judge/judge.yaml
+  - keda/scaledobjects.yaml
   - edge/traefik.yaml
   - network/policies.yaml
 labels:
