@@ -1,0 +1,29 @@
+# A throwaway CA for a laptop: cert-manager makes a self-signed root, stores it as the Secret oj-ca, and the base's Issuer
+# oj-ca signs every identity with it. (On the server the Secret comes from k3s/scripts/ca-from-pki.sh instead.)
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: oj-ca
+spec:
+  isCA: true
+  secretName: oj-ca
+  commonName: My-OJ Local Root CA
+  duration: 87600h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+  usages:
+    - cert sign
+    - crl sign
+  issuerRef:
+    name: selfsigned
+    kind: Issuer
+    group: cert-manager.io

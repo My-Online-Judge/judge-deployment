@@ -2,5 +2,7 @@
 # made for the occasion. See k3s/README.md.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: oj
 resources:
   - ../../base
+  - selfsigned-ca.yaml

@@ -1,0 +1,5 @@
+# Cluster add-ons the stack needs and does not own: installed once per cluster, before `kubectl apply -k k3s/overlays/...`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - cert-manager.yaml

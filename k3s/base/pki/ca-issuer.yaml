@@ -1,0 +1,11 @@
+# The stack's private CA, as cert-manager signs with it: every Certificate of certificates.yaml names this Issuer. The CA key
+# and certificate are the Secret `oj-ca` of this namespace: on the server k3s/scripts/ca-from-pki.sh loads the compose
+# stack's CA (pki/out/ca), so nothing that trusts it changes at the cutover; overlays/local makes a throwaway one.
+# A namespaced Issuer, not a ClusterIssuer: the CA key lives with the stack it signs for.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: oj-ca
+spec:
+  ca:
+    secretName: oj-ca

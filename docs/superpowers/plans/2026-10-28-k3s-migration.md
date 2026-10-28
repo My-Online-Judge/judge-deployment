@@ -183,3 +183,20 @@
 - Tên nhất quán: Secret `tls-<id>`, label `app: judge|run-judge`, group `judge-workers|run-workers`, Service DNS trùng compose. ✔
 - Review Focus 1,2,5 → T6; 3 → T2; 4 → T7. ✔
 - Mở: T6 có thể cho thấy `cpu: 2` vẫn gây false TLE khi qduoj chạy case song song — khi đó cân nhắc `cpu: 4` + `maxReplicaCount: 2` (giữ tổng CPU không đổi), quyết định ghi vào `k3s/README.md`.
+
+---
+
+## Rulings made while executing (the git log has the detail)
+
+- **Platform split (T2, T7).** cert-manager and KEDA are cluster add-ons, not part of the stack's namespace: they live in
+  `k3s/platform` (HelmChart objects in `kube-system`, applied once, before the overlays), not in `base/pki` / `base/keda`.
+  A `kubectl wait` for their CRDs sits between the two applies. `tests/k3s-render.test.sh` renders `platform` too.
+- **Namespaced Issuer, not ClusterIssuer (T2).** `Issuer oj-ca` signs with the Secret `oj-ca` of namespace `oj`; nothing
+  cluster-scoped belongs to the stack. `overlays/local` bootstraps that Secret with a SelfSigned root; the server loads the
+  compose stack's CA with `k3s/scripts/ca-from-pki.sh`.
+- **Traefik's client certificate is the identity `edge` (T4).** The gateway and the portal admit CN=edge and the gateway trusts
+  `X-Forwarded-For` only from it. Traefik presents `tls-edge`, so there is no `traefik` identity and **no change to
+  oj-api-gateway** (the plan's `oj.gateway.edge.cn` property is dropped).
+- **k3d host ports 18443/18080 (T1).** 8080 and 8443 are held by other containers on the development machine; the script
+  checks and the ports are configurable.
+- **No separate CI job for the render test (T1).** The workflow's "Offline tests" loop runs every `tests/*.test.sh`.

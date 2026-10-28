@@ -16,6 +16,7 @@ kafka-admin 1000:1000
 redis 999:999
 minio 0:0
 jaeger 10001:10001
+keda 0:0
 prometheus 65534:65534
 node-exporter 65534:65534
 identity-db-exporter 65534:65534

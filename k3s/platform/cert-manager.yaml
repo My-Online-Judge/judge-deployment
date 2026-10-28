@@ -1,0 +1,28 @@
+# cert-manager, installed by K3s's own Helm controller (it watches HelmChart objects in any namespace and runs the install as
+# a Job). Apply k3s/platform first and wait for the CRDs (see k3s/README.md); the stack's Issuer and Certificates need them.
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: cert-manager
+  namespace: kube-system
+spec:
+  repo: https://charts.jetstack.io
+  chart: cert-manager
+  version: v1.21.3
+  targetNamespace: cert-manager
+  createNamespace: true
+  valuesContent: |-
+    crds:
+      enabled: true
+      keep: true
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {memory: 192Mi}
+    webhook:
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {memory: 128Mi}
+    cainjector:
+      resources:
+        requests: {cpu: 10m, memory: 64Mi}
+        limits: {memory: 192Mi}

@@ -5,6 +5,8 @@ kind: Kustomization
 namespace: oj
 resources:
   - namespace.yaml
+  - pki/ca-issuer.yaml
+  - pki/certificates.yaml
 labels:
   - pairs:
       app.kubernetes.io/part-of: my-online-judge
