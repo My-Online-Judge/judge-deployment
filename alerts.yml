@@ -119,6 +119,19 @@ groups:
           summary: "submission-service's outbox is not reaching Kafka"
           description: "The oldest unsent outbox row has waited over a minute — check Kafka and the OutboxRelay lines in the submission-service log."
 
+      - alert: OutboxDeadRow
+        # The relay gave up on an outbox row: the broker refused it for good (too large, not authorised) five times, so
+        # it is never sent again. A judge request that is lost this way leaves its submission PENDING until reconcile
+        # fails it; a lost event is a missing count or announcement. The gauge counts dead rows still in the table, so
+        # the alert holds until someone deals with them (delete the row, or fix the cause and clear dead_at/attempts).
+        expr: oj_outbox_dead > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "submission-service's outbox gave up on a record"
+          description: "The broker refused an outbox row for good (too large, or not authorised) five times and the relay stopped trying. Its submission stays PENDING until reconcile fails it; find the row with `SELECT id, topic, message_key, attempts, dead_at FROM t_outbox WHERE dead_at IS NOT NULL` in submission-db and the OutboxRelay ERROR lines in the log."
+
       - alert: ProblemStatsDeadLettered
         # problem-service's statistics consumer gave up on a record of oj.submission.events: unreadable at
         # once, anything else after ~5.5 minutes of retries. Its count is missing until the dead letters are

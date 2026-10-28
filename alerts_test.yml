@@ -212,6 +212,34 @@ tests:
         alertname: OutboxBacklogStale
         exp_alerts: []
 
+  # OutboxDeadRow: a row the broker refused for good and the relay gave up on must fire (the judge request or the event
+  # it carries will never go out until a person looks)...
+  - interval: 1m
+    input_series:
+      - series: 'oj_outbox_dead{job="submission-service", instance="submission-service:8081"}'
+        values: '0 0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: OutboxDeadRow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: submission-service
+              instance: submission-service:8081
+            exp_annotations:
+              summary: "submission-service's outbox gave up on a record"
+              description: "The broker refused an outbox row for good (too large, or not authorised) five times and the relay stopped trying. Its submission stays PENDING until reconcile fails it; find the row with `SELECT id, topic, message_key, attempts, dead_at FROM t_outbox WHERE dead_at IS NOT NULL` in submission-db and the OutboxRelay ERROR lines in the log."
+
+  # ...and a healthy outbox (no dead rows) stays silent.
+  - interval: 1m
+    input_series:
+      - series: 'oj_outbox_dead{job="submission-service", instance="submission-service:8081"}'
+        values: '0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: OutboxDeadRow
+        exp_alerts: []
+
   # ProblemServiceDown: a problem-service that cannot be scraped for 15 seconds must fire...
   - interval: 1m
     input_series:

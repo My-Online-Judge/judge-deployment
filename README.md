@@ -463,6 +463,13 @@ still-firing alert every 4 h.
   message is `[FIRING] <alertname> (<severity>): <summary>` (`alertmanager/telegram.tmpl`); resolved alerts are sent too.
 - **Run lane:** `RunWorkerDown` (warning) fires when no `run-worker` replica answers its scrape for 15 s — Run answers
   504 meanwhile, Submit is unaffected (see "Run lane (custom test cases)").
+- **Outbox:** `OutboxBacklogStale` (critical) means rows are not reaching Kafka; `OutboxDeadRow` (warning) means the relay gave
+  up on a row the broker refused for good (too large, not authorised) five times, so it is never sent again. The relay sends
+  outside a database transaction and a lease (`claimed_until`, 60 s) keeps two instances from sending one row. Look at the dead
+  rows in submission-db: `SELECT id, topic, message_key, attempts, dead_at FROM t_outbox WHERE dead_at IS NOT NULL`. After
+  fixing the cause (an ACL in `kafka/acls.sh`, a topic's `max.message.bytes`), put a row back with
+  `UPDATE t_outbox SET attempts = 0, dead_at = NULL, claimed_until = NULL WHERE id = '<id>'`, or delete it when its work is
+  moot (a submission whose request is lost is failed by reconcile as `Judging request lost` and can be rejudged).
 - **Bench:** `alertmanager` is in profile `off` there; the bench Prometheus logs one failed notification per alert.
 - Check: `bash tests/alertmanager.test.sh` (amtool in the pinned image, with and without the variables).
 
