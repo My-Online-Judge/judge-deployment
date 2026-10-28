@@ -7,11 +7,27 @@
 {$OJ_PUBLIC_HOST:localhost}, edge {
 	tls /etc/oj/tls/tls.crt /etc/oj/tls/tls.key
 	encode gzip
+	# Browser-facing security headers on every response (sub-project 15). The CSP lets the portal run only its own files:
+	# no inline script (the first-paint theme script is /theme-init.js), styles may be inline (Vue :style and KaTeX position
+	# glyphs with style attributes), images from any https host (statements, Google avatars) or data:, KaTeX fonts, Monaco's
+	# workers (blob: for the ones it spawns itself), and fetch/SSE to this origin only. Nothing may frame the page (the admin
+	# console would be clickjackable), and a form posts only back here.
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+	}
 	# No HSTS for localhost: browsers pin it per host, not per port, and would force https on every other local port
 	# (a dev server on http://localhost:5173) for a year.
 	@hsts not host localhost 127.0.0.1
 	header @hsts Strict-Transport-Security "max-age=31536000"
 	handle /api/* {
+		# A source is at most 10 KiB (submission-service) and a test-case or statement upload far less than this: a larger
+		# body is refused here, before the gateway reads it.
+		request_body {
+			max_size 1MB
+		}
 		reverse_proxy https://api-gateway:8000 {
 			flush_interval -1
 			transport http {
