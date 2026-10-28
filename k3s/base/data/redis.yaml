@@ -1,0 +1,88 @@
+# Redis with TLS only (port 0 turns the plaintext listener off) and client certificates, AOF every second, as in compose.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: [redis-server, --port, "0", --tls-port, "6379", --tls-cert-file, /etc/oj/tls/tls.crt, --tls-key-file, /etc/oj/tls/tls.key, --tls-ca-cert-file, /etc/oj/tls/ca.crt, --tls-auth-clients, "yes", --appendonly, "yes", --appendfsync, everysec]
+          env:
+            - name: TZ
+              value: Asia/Ho_Chi_Minh
+          ports:
+            - name: redis
+              containerPort: 6379
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          readinessProbe: &ping
+            exec:
+              command: [redis-cli, --tls, --cacert, /etc/oj/tls/ca.crt, --cert, /etc/oj/tls/tls.crt, --key, /etc/oj/tls/tls.key, ping]
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            <<: *ping
+            periodSeconds: 15
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tls
+              mountPath: /etc/oj/tls
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: tls-redis
+            defaultMode: 0440
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi

@@ -12,6 +12,7 @@ scripts/k3d-up.sh import        # load them into the cluster
 kubectl apply -k k3s/platform   # once per cluster: cert-manager, installed by K3s's Helm controller
 kubectl wait --for condition=established crd/certificates.cert-manager.io crd/issuers.cert-manager.io
 kubectl apply -k k3s/overlays/local
+k3s/scripts/env-to-secrets.sh   # the compose .env files as Secrets (pods wait for them; run it again after a change)
 bash tests/k3s-render.test.sh   # every overlay renders and validates (OJ_DOCKER_CONTEXT=desktop-linux on a Mac)
 bash tests/k3s-pki.test.sh      # certificates.yaml is what k3s/scripts/gen-certificates.sh makes from pki/identities.txt
 scripts/k3d-up.sh down
@@ -34,6 +35,26 @@ Secret is issued again within seconds. The signing CA is the Secret `oj-ca`:
 
 Traefik presents the identity `edge` (CN=edge) to the gateway and the portal, as Caddy does, so their allow-lists and the
 gateway's client-address rule stay as they are.
+
+## The data layer (`base/data`)
+
+Three Postgres (identity-db, problem-db, submission-db), Kafka, Redis and MinIO are StatefulSets with a PVC each on the
+`local-path` class, the same TLS-with-client-certificates as compose. `tests/k3s-data.test.sh` compares Kafka's environment
+and the Postgres, Redis and MinIO command lines with `docker-compose.yml` value for value, so the two cannot drift before the
+cutover. `postgres.yaml` and `init-scripts.yaml` are generated (`python3 k3s/scripts/gen_data.py postgres|init-scripts`) from
+what compose runs and from `kafka/` and `minio/`; the test fails when a committed file differs.
+
+- **Kafka is capped**: heap `-Xmx512M -Xms512M`, 512Mi requested, 1Gi limit.
+- **Secrets**: `k3s/scripts/env-to-secrets.sh` turns the `.env*` files into the Secrets the pods read (`--dry-run` lists names and
+  keys). MinIO's root account goes only to MinIO and `minio-init`.
+- **Init Jobs** `kafka-init` (ACLs, `kafka/acls.sh`) and `minio-init` (bucket, policies, users) retry until their service
+  answers and are removed ten minutes after they finish, so the next `kubectl apply` runs them again. To run one sooner, or
+  after changing its script, delete it first (`kubectl -n oj delete job kafka-init minio-init`): a Job's spec cannot change.
+- **Every pod is non-root** with the `RuntimeDefault` seccomp profile and no capabilities, so the namespace's `restricted` Pod
+  Security warning stays quiet. A volume first written as root (an earlier version of the pod) must be deleted, not reused.
+- `enableServiceLinks: false` everywhere: a Service named `kafka` would put `KAFKA_PORT` into Kafka's environment, and the broker
+  reads every `KAFKA_*` variable as configuration. Service `kafka` also publishes not-ready addresses: the broker's controller
+  quorum voter is `kafka:9093` and it is not Ready until it has joined.
 
 ## What cannot be done on a laptop
 

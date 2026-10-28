@@ -1,0 +1,140 @@
+# The one-shots compose runs on every `up`: Kafka's ACLs (kafka/acls.sh) and MinIO's bucket, policies and users
+# (minio/minio-init.sh). Both are idempotent and retry until their service answers. A finished Job is removed after ten
+# minutes, so the next `kubectl apply` makes it again; to run one sooner, delete it first (a Job's spec cannot change).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-init
+spec:
+  ttlSecondsAfterFinished: 600
+  activeDeadlineSeconds: 900
+  backoffLimit: 10
+  template:
+    spec:
+      enableServiceLinks: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: tls-pem
+          image: alpine:3.24
+          command: [sh, -c, 'umask 077 && cat /in/tls.key /in/tls.crt > /out/keystore.pem && cp /in/ca.crt /out/ca.crt']
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
+          volumeMounts:
+            - name: tls-in
+              mountPath: /in
+              readOnly: true
+            - name: tls
+              mountPath: /out
+      containers:
+        - name: acls
+          image: apache/kafka:3.8.1
+          command: [/bin/bash, /opt/oj/kafka/acls.sh]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: scripts
+              mountPath: /opt/oj/kafka
+              readOnly: true
+            - name: tls
+              mountPath: /etc/oj/tls
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: kafka-init-scripts
+            defaultMode: 0555
+        - name: tls-in
+          secret:
+            secretName: tls-kafka-admin
+        - name: tls
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init
+spec:
+  ttlSecondsAfterFinished: 600
+  activeDeadlineSeconds: 900
+  backoffLimit: 10
+  template:
+    spec:
+      enableServiceLinks: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: init
+          image: ghcr.io/my-online-judge/minio:RELEASE.2025-09-07T16-13-09Z
+          command: [/bin/bash, /opt/oj/minio/minio-init.sh]
+          envFrom:
+            - secretRef:
+                name: minio-init
+          env:
+            - name: HOME
+              value: /tmp
+            - name: SSL_CERT_FILE
+              value: /etc/oj/tls/ca.crt
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: scripts
+              mountPath: /opt/oj/minio
+              readOnly: true
+            - name: tls
+              mountPath: /etc/oj/tls
+              readOnly: true
+      volumes:
+        # minio-init.sh reads policies/<file> beside itself
+        - name: scripts
+          configMap:
+            name: minio-init-scripts
+            defaultMode: 0555
+            items:
+              - {key: minio-init.sh, path: minio-init.sh}
+              - {key: problem-rw.json, path: policies/problem-rw.json}
+              - {key: worker-ro.json, path: policies/worker-ro.json}
+        - name: tls
+          secret:
+            secretName: tls-minio
+            defaultMode: 0440
+            items:
+              - {key: ca.crt, path: ca.crt}

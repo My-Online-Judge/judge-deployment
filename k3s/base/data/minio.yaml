@@ -1,0 +1,111 @@
+# MinIO serving TLS only, the test-case bucket's store. Its certificate directory is the layout MinIO wants (public.crt,
+# private.key, CAs/ca.crt), put together from the cert-manager Secret; the root account comes from the Secret minio-root.
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  labels:
+    app: minio
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+    - name: console
+      port: 9001
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  labels:
+    app: minio
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: minio
+          image: ghcr.io/my-online-judge/minio:RELEASE.2025-09-07T16-13-09Z
+          args: [server, /data, --console-address, ":9001", --certs-dir, /etc/oj/tls]
+          envFrom:
+            - secretRef:
+                name: minio-root
+          env:
+            - name: TZ
+              value: Asia/Ho_Chi_Minh
+            # a non-root user has no home directory in the image; MinIO and mc keep their small state there
+            - name: HOME
+              value: /tmp
+            - name: SSL_CERT_FILE
+              value: /etc/oj/tls/ca.crt
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          startupProbe: &ready
+            exec:
+              command: [sh, -c, 'MC_HOST_local=https://x:x@localhost:9000 mc ready local']
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            <<: *ready
+            failureThreshold: 3
+          livenessProbe:
+            <<: *ready
+            periodSeconds: 20
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tls
+              mountPath: /etc/oj/tls
+              readOnly: true
+      volumes:
+        - name: tls
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: tls-minio
+                  items:
+                    - {key: tls.crt, path: public.crt}
+                    - {key: tls.key, path: private.key}
+                    - {key: ca.crt, path: CAs/ca.crt}
+                    - {key: ca.crt, path: ca.crt}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi
