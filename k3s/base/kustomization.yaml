@@ -13,6 +13,12 @@ resources:
   - data/minio.yaml
   - data/init-scripts.yaml
   - data/init-jobs.yaml
+  - services/configs.yaml
+  - services/java.yaml
+  - services/portal.yaml
+  - services/jaeger.yaml
+  - edge/traefik.yaml
+  - network/policies.yaml
 labels:
   - pairs:
       app.kubernetes.io/part-of: my-online-judge

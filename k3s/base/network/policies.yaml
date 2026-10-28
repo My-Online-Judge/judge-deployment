@@ -1,0 +1,252 @@
+# Ingress is denied unless a policy below allows it: each data store is reached by its own service, the services by the gateway,
+# and the gateway and the portal by Traefik alone. K3s enforces these (its embedded network policy controller). Later tasks add
+# the rules for the judge pods and for Prometheus's scrapes of the actuators (8081).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-api-gateway
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-judge-portal
+spec:
+  podSelector:
+    matchLabels:
+      app: judge-portal
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-identity-service
+spec:
+  podSelector:
+    matchLabels:
+      app: identity-service
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: problem-service
+        - podSelector:
+            matchLabels:
+              app: submission-service
+      ports:
+        - port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-problem-service
+spec:
+  podSelector:
+    matchLabels:
+      app: problem-service
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - port: 8000
+    - from:
+        - podSelector:
+            matchLabels:
+              app: submission-service
+      ports:
+        - port: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-submission-service
+spec:
+  podSelector:
+    matchLabels:
+      app: submission-service
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-identity-db
+spec:
+  podSelector:
+    matchLabels:
+      app: identity-db
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: identity-service
+      ports:
+        - port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-problem-db
+spec:
+  podSelector:
+    matchLabels:
+      app: problem-db
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: problem-service
+      ports:
+        - port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-submission-db
+spec:
+  podSelector:
+    matchLabels:
+      app: submission-db
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: submission-service
+      ports:
+        - port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-kafka
+spec:
+  podSelector:
+    matchLabels:
+      app: kafka
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: problem-service
+        - podSelector:
+            matchLabels:
+              app: submission-service
+        - podSelector:
+            matchLabels:
+              app: kafka-init
+      ports:
+        - port: 29092
+    - from:
+        - podSelector:
+            matchLabels:
+              app: kafka
+      ports:
+        - port: 9093
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-redis
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: identity-service
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: submission-service
+      ports:
+        - port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-minio
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: problem-service
+        - podSelector:
+            matchLabels:
+              app: minio-init
+      ports:
+        - port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-jaeger
+spec:
+  podSelector:
+    matchLabels:
+      app: jaeger
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 4317
+        - port: 4318

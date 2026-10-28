@@ -80,7 +80,7 @@ if m and container(m)["args"] == compose["minio"]["command"][0:] or (m and args(
 else: bad("minio: server command differs from compose's")
 
 # Services other pods reach by name, with the ports compose's services use
-want = {"identity-db": {5432}, "problem-db": {5432}, "submission-db": {5432}, "kafka": {29092, 9093}, "redis": {6379}, "minio": {9000, 9001}}
+want = {"identity-db": {5432}, "problem-db": {5432}, "submission-db": {5432}, "kafka": {29092, 9093}, "redis": {6379}, "minio": {9000}}
 for name, ports in want.items():
     s = find("Service", name)
     got = {p["port"] for p in s["spec"]["ports"]} if s else set()
@@ -139,8 +139,8 @@ PY
 # ---- the Secrets script -----------------------------------------------------------------------------------------------
 if [[ -x k3s/scripts/env-to-secrets.sh ]]; then
   got=$(OJ_DEPLOY_DIR=$tmp bash k3s/scripts/env-to-secrets.sh --dry-run | sort)
-  want=$(printf '%s\n' env-identity env-identity-db env-problem env-submission minio-init minio-root | sort)
-  if [[ $(cut -d' ' -f1 <<< "$got") == "$want" ]]; then ok "env-to-secrets.sh makes env-identity, env-identity-db, env-problem, env-submission, minio-init, minio-root"
+  want=$(printf '%s\n' env-identity env-identity-db env-problem env-submission judge-token minio-init minio-problem minio-root | sort)
+  if [[ $(cut -d' ' -f1 <<< "$got") == "$want" ]]; then ok "env-to-secrets.sh makes env-identity, env-identity-db, env-problem, env-submission, judge-token, minio-init, minio-problem, minio-root"
   else bad "env-to-secrets.sh makes: $(cut -d' ' -f1 <<< "$got" | tr '\n' ' ')"; fi
   if ! grep -qE '[0-9a-f]{40}' <<< "$got"; then ok "--dry-run prints names and keys, never a value"; else bad "--dry-run printed something that looks like a secret"; fi
 else bad "k3s/scripts/env-to-secrets.sh exists"; fi

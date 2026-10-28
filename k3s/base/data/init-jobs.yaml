@@ -10,6 +10,9 @@ spec:
   activeDeadlineSeconds: 900
   backoffLimit: 10
   template:
+    metadata:
+      labels:
+        app: kafka-init
     spec:
       enableServiceLinks: false
       restartPolicy: OnFailure
@@ -83,6 +86,9 @@ spec:
   activeDeadlineSeconds: 900
   backoffLimit: 10
   template:
+    metadata:
+      labels:
+        app: minio-init
     spec:
       enableServiceLinks: false
       restartPolicy: OnFailure

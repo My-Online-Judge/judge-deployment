@@ -1,0 +1,102 @@
+# The Vue portal behind nginx, as compose runs it: HTTPS on 443 with a client certificate required, and only the edge's
+# identity (CN=edge) admitted (portal/nginx-tls.conf). nginx runs as uid 101 and binds 443: a container's default
+# net.ipv4.ip_unprivileged_port_start is 1024 on Kubernetes (Docker lowers it to 0), so the pod sets it back, a safe sysctl.
+apiVersion: v1
+kind: Service
+metadata:
+  name: judge-portal
+  labels:
+    app: judge-portal
+spec:
+  selector:
+    app: judge-portal
+  ports:
+    - name: https
+      port: 443
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: judge-portal
+  labels:
+    app: judge-portal
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: judge-portal
+  template:
+    metadata:
+      labels:
+        app: judge-portal
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsUser: 101
+        runAsGroup: 101
+        runAsNonRoot: true
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+        sysctls:
+          - name: net.ipv4.ip_unprivileged_port_start
+            value: "0"
+      containers:
+        - name: nginx
+          image: ghcr.io/my-online-judge/judge-portal:main
+          env:
+            - name: TZ
+              value: Asia/Ho_Chi_Minh
+          ports:
+            - name: https
+              containerPort: 443
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          # nginx wants a client certificate, so only the listener can be asked
+          startupProbe: &listening
+            tcpSocket:
+              port: 443
+            periodSeconds: 3
+            failureThreshold: 20
+          readinessProbe:
+            <<: *listening
+            periodSeconds: 10
+          livenessProbe:
+            <<: *listening
+            periodSeconds: 20
+            failureThreshold: 6
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: tls
+              mountPath: /etc/oj/tls
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: portal-nginx
+        - name: tls
+          secret:
+            secretName: tls-judge-portal
+            defaultMode: 0440
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

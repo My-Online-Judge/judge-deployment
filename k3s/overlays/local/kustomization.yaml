@@ -6,3 +6,6 @@ namespace: oj
 resources:
   - ../../base
   - selfsigned-ca.yaml
+  - edge-certificate.yaml
+patches:
+  - path: redirect-port.yaml

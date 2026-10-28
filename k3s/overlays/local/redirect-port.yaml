@@ -1,0 +1,10 @@
+# Traefik answers on the host's 18443 here (scripts/k3d-up.sh), not 443: the redirect from http must name it.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-https
+spec:
+  redirectScheme:
+    scheme: https
+    port: "18443"
+    permanent: true

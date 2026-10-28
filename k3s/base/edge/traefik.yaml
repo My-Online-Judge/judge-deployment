@@ -1,0 +1,118 @@
+# The edge on K3s's own Traefik, doing what edge/Caddyfile does: HTTPS for the browser, /api to the gateway and the rest to the
+# portal, both over mutual TLS with the identity `edge` (CN=edge: the gateway and the portal admit that CN, and the gateway
+# trusts X-Forwarded-For only from it), the security headers and the body limits. tests/k3s-services.test.sh compares the
+# headers and limits with the Caddyfile's. The browser-facing certificate is the Secret `edge-tls`, which each overlay makes.
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: to-api-gateway
+spec:
+  serverName: api-gateway
+  rootCAsSecrets: [tls-edge]
+  certificatesSecrets: [tls-edge]
+---
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: to-judge-portal
+spec:
+  serverName: judge-portal
+  rootCAsSecrets: [tls-edge]
+  certificatesSecrets: [tls-edge]
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+spec:
+  headers:
+    contentSecurityPolicy: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    referrerPolicy: strict-origin-when-cross-origin
+    frameDeny: true
+    customResponseHeaders:
+      X-Content-Type-Options: nosniff
+---
+# A source is at most 10 KiB and every other API body is small: 1 MB. problem-service's multipart uploads (a test-case pair, a
+# checker, a problem package) may reach its own 50 MB per file, 55 MB per request: they get 56 MiB, a little above it.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: body-limit-api
+spec:
+  buffering:
+    maxRequestBodyBytes: 1000000
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: body-limit-problems
+spec:
+  buffering:
+    maxRequestBodyBytes: 58720256
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-https
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: oj
+spec:
+  entryPoints: [websecure]
+  tls:
+    secretName: edge-tls
+  routes:
+    - match: PathPrefix(`/api/v1/problems`)
+      kind: Rule
+      priority: 30
+      middlewares:
+        - name: security-headers
+        - name: body-limit-problems
+      services:
+        - name: api-gateway
+          port: 8000
+          scheme: https
+          serversTransport: to-api-gateway
+    - match: PathPrefix(`/api`)
+      kind: Rule
+      priority: 20
+      middlewares:
+        - name: security-headers
+        - name: body-limit-api
+      services:
+        - name: api-gateway
+          port: 8000
+          scheme: https
+          serversTransport: to-api-gateway
+    - match: PathPrefix(`/`)
+      kind: Rule
+      priority: 10
+      middlewares:
+        - name: security-headers
+      services:
+        - name: judge-portal
+          port: 443
+          scheme: https
+          serversTransport: to-judge-portal
+---
+# Port 80 only redirects to https, as Caddy does.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: oj-http
+spec:
+  entryPoints: [web]
+  routes:
+    - match: PathPrefix(`/`)
+      kind: Rule
+      middlewares:
+        - name: redirect-https
+      services:
+        - name: noop@internal
+          kind: TraefikService

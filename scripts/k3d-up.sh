@@ -43,7 +43,8 @@ case ${1:-} in
     kubectl get nodes
     ;;
   import)
-    mapfile -t images < <(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^(ghcr.io/my-online-judge/|mock-judge-server:)' | sort -u)
+    images=()
+    while IFS= read -r image; do images+=("$image"); done < <(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^(ghcr.io/my-online-judge/|mock-judge-server:)' | sort -u)
     ((${#images[@]} > 0)) || die "no image to import: run scripts/local-stack.sh build first"
     k3d image import --cluster "$cluster" "${images[@]}"
     ;;

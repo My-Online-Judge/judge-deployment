@@ -1,0 +1,28 @@
+# The certificate the browser sees on https://localhost:18443, signed by the throwaway CA of this overlay (trust it, or accept
+# the warning). Traefik's IngressRoute reads it as the Secret edge-tls.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: edge-tls
+spec:
+  secretName: edge-tls
+  commonName: localhost
+  dnsNames:
+    - localhost
+  ipAddresses:
+    - 127.0.0.1
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  duration: 8760h
+  renewBefore: 720h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+    rotationPolicy: Always
+  issuerRef:
+    name: oj-ca
+    kind: Issuer
+    group: cert-manager.io
