@@ -257,6 +257,9 @@ services:
     image: apache/kafka:3.8.1
     container_name: oj-kafka
     restart: unless-stopped
+    # 512M heap + metaspace + page cache for a broker this size; the cap stops a page-cache or direct-buffer surge from
+    # starving the sandboxes. The K3s manifest uses the same limit.
+    mem_limit: 1g
     # No host port. Services and the worker use INTERNAL (kafka:29092); INTERNAL and CONTROLLER speak TLS and require a
     # client certificate signed by the private CA, with host names verified (sub-project 10). LOCAL is PLAINTEXT and
     # bound to the container's loopback: only tools run inside it (the healthcheck, bench drain) can reach it.
@@ -297,6 +300,8 @@ services:
       # Topics, messages and committed offsets live on the named volume and survive a recreated container.
       # The cluster id is fixed because the formatted volume records it: a different id refuses to start.
       KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # Fixed heap (min = max): on a one-VPS host an uncapped JVM takes a quarter of the RAM the sandboxes need.
+      KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
       CLUSTER_ID: LL99FafWSZyhNAgsibWLog
     depends_on:
       tls-init:

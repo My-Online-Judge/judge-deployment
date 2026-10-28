@@ -37,7 +37,7 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 
 | Service        | Image / Build            | Host port | Purpose                          |
 |----------------|--------------------------|-----------|----------------------------------|
-| `kafka`        | `apache/kafka:3.8.1`     | — (internal) | Submission event bus (KRaft): `kafka:29092` TLS + client certificate; `127.0.0.1:9092` PLAINTEXT only inside the container |
+| `kafka`        | `apache/kafka:3.8.1`     | — (internal) | Submission event bus (KRaft), heap `-Xmx512M -Xms512M`, `mem_limit` 1g: `kafka:29092` TLS + client certificate; `127.0.0.1:9092` PLAINTEXT only inside the container |
 | `edge`         | `caddy:2.11.7-alpine`    | 80, 443   | The one public listener: HTTPS with the private-CA certificate, `/api/*` to the gateway, the rest to the portal, both over mutual TLS (`edge/Caddyfile`) |
 | `api-gateway`  | build `../oj-api-gateway`| — (internal) | API entry behind the edge (CORS, client IP from the edge's `X-Forwarded-For`); answers only CN=`edge`; calls the services over mutual TLS; actuator `:8081` TLS + client certificate |
 | `submission-service` | build `../oj-submission-service` | — (internal) | Submissions, judging, languages, judge servers; API `:8000` and actuator `:8081` TLS + client certificate (API callers allow-listed by CN) |

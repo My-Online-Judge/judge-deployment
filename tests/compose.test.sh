@@ -49,6 +49,11 @@ check_raw "run-worker calls both sandboxes over https" \
 
 check "kafka keeps its logs on the named volume kafkadata" \
   "s['kafka']['environment'].get('KAFKA_LOG_DIRS') == '/var/lib/kafka/data' and any(m.get('source') == 'kafkadata' and m.get('target') == '/var/lib/kafka/data' for m in s['kafka'].get('volumes', [])) and 'kafkadata' in v"
+# Kafka on one VPS (sub-project 15): a JVM left alone grows to a quarter of the host's RAM. Heap fixed at 512M (min = max, so
+# it never resizes) and the container capped at 1g, which leaves ~500M for page cache and metaspace; same numbers as the
+# K3s manifest's limits.
+check "kafka's heap is fixed at 512M and the container is capped at 1g" \
+  "s['kafka']['environment'].get('KAFKA_HEAP_OPTS') == '-Xmx512M -Xms512M' and s['kafka'].get('mem_limit') in ('1073741824', 1073741824)"
 check "kafka has a fixed cluster id" "s['kafka']['environment'].get('CLUSTER_ID') == 'LL99FafWSZyhNAgsibWLog'"
 
 check "api-gateway waits only for the back-ends to start, and for redis to be healthy" \
