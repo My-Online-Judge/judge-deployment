@@ -812,6 +812,18 @@ some local quirks worth recording:
   (`SANDBOX_HEARTBEAT_URL`); rows are keyed by the fixed hostnames `judge-server` / `judge-server-2`. The
   registry stores the worker's IP for them, not the sandbox's. Rows from before the fixed hostnames
   (one per old container id) stay "Offline" until deleted.
+- **Java and Go run without a qduoj seccomp filter (open item, sub-project 15).** `t_languages.seccomp_rule` is NULL for Java
+  and `''` for Go (`V2__seed_languages.sql`); C, C++ and Python 3 have `c_cpp`/`general`. As far as I recall qduoj's own
+  configuration also gives Java no rule, because the JVM needs threads and many syscalls (not verified here). What still
+  bounds such a submission: the judger's rlimits (CPU, real time, memory, output), the unprivileged run user (uid 12002), the
+  container's `cap_drop`/`no-new-privileges`/read-only root/`pids_limit`, and `sandbox-net` (no route out). It does *not* bound
+  one submission against another on the same sandbox (shared uid and PID namespace) or a fork bomb against the container's
+  `pids_limit`. Not changed blind, because a rule the JVM or the Go runtime cannot live under turns every submission in that
+  language into a runtime error. To decide on the host that runs the stack: judge a+b in each language, then a program that
+  forks or opens a socket, with the candidate rule set by hand in `t_languages` (Go: `golang`; Java: only a rule that still
+  passes a+b). If a rule passes, add it as the next Flyway migration in oj-submission-service
+  (`UPDATE t_languages SET seccomp_rule = '<rule>' WHERE identifier = '<language>'`) and list the date and result here; if
+  none does, either accept the isolation above or disable the language (`is_disabled = true`).
 - **Legacy stacks may still be running** on the snap daemon (`judge-server` and `my-oj`
   compose projects — the scattered files this directory replaces). They coexist with this
   stack but are redundant; stop them when convenient (their privileged containers may need
