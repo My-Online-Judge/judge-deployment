@@ -17,6 +17,7 @@ resources:
   - services/java.yaml
   - services/portal.yaml
   - services/jaeger.yaml
+  - judge/judge.yaml
   - edge/traefik.yaml
   - network/policies.yaml
 labels:

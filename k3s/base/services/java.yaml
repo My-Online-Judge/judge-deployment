@@ -37,6 +37,7 @@ spec:
         app: identity-service
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       securityContext:
         runAsUser: 10001
         runAsGroup: 10001
@@ -172,6 +173,7 @@ spec:
         app: problem-service
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       securityContext:
         runAsUser: 10001
         runAsGroup: 10001
@@ -320,6 +322,7 @@ spec:
         app: submission-service
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       securityContext:
         runAsUser: 10001
         runAsGroup: 10001
@@ -466,6 +469,7 @@ spec:
         app: api-gateway
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       securityContext:
         runAsUser: 10001
         runAsGroup: 10001

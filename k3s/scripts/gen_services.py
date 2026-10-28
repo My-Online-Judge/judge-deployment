@@ -5,6 +5,8 @@
                             and api-gateway (the environment, ports, probes and limits of docker-compose.yml)
   gen_services.py configs   the ConfigMaps of the services and the portal: the JVM's DNS caching, portal/nginx-tls.conf and
                             jaeger/config.yaml, byte for byte
+  gen_services.py judge     the Judge Pod and the Run Pod (a sandbox and a worker, one to one) and the Judge Pod's
+                            PodDisruptionBudget
 
   python3 k3s/scripts/gen_services.py java > k3s/base/services/java.yaml
 
@@ -105,6 +107,7 @@ spec:
         app: {name}
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       securityContext:
         runAsUser: 10001
         runAsGroup: 10001
@@ -197,8 +200,232 @@ def configs():
             + "---\n" + configmap("jaeger-config", "config.yaml", read("jaeger/config.yaml")))
 
 
+SANDBOX_IMAGE = "docker.io/qduoj/judge-server@sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e"
+# docker-compose.yml's x-sandbox-env and x-sandbox-health: gunicorn serves mutual TLS; the healthcheck POSTs /ping with the token
+GUNICORN_ARGS = "--certfile=/etc/oj/tls/tls.crt --keyfile=/etc/oj/tls/tls.key --ca-certs=/etc/oj/tls/ca.crt --cert-reqs=2"
+SANDBOX_PING = ('import hashlib,os,ssl,urllib.request as u; c=ssl.create_default_context(cafile="/etc/oj/tls/ca.crt"); '
+                'c.load_cert_chain("/etc/oj/tls/tls.crt","/etc/oj/tls/tls.key"); t=hashlib.sha256(os.environ["TOKEN"].encode()).hexdigest(); '
+                'u.urlopen(u.Request("https://localhost:8080/ping",data=b"{}",headers={"X-Judge-Server-Token":t,"Content-Type":"application/json"}),timeout=3,context=c)')
+WORKER_OTEL = [
+    ("OJ_TLS_DIR", "/etc/oj/tls"),
+    ("OTEL_EXPORTER_OTLP_CERTIFICATE", "/etc/oj/tls/ca.crt"),
+    ("OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE", "/etc/oj/tls/tls.crt"),
+    ("OTEL_EXPORTER_OTLP_CLIENT_KEY", "/etc/oj/tls/tls.key"),
+    ("OTEL_EXPORTER_OTLP_ENDPOINT", "https://jaeger:4318"),
+    ("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf"),
+    ("OTEL_LOGS_EXPORTER", "none"),
+    ("OTEL_METRICS_EXPORTER", "none"),
+    ("TZ", "Asia/Ho_Chi_Minh"),
+]
+# name -> its worker's compose service, TLS identity and settings
+JUDGE_PODS = [
+    dict(name="judge", worker_tls="tls-judge-worker", otel="judge-worker", cache=True, groups=[12003],
+         env=[("CONSUMER_GROUP", "judge-workers"), ("JUDGE_SERVER_URL", "https://localhost:8080"), ("KAFKA_BROKERS", "kafka:29092"),
+              ("MAX_POLL_INTERVAL_MS", "600000"), ("MINIO_BUCKET", "test-cases"), ("MINIO_ENDPOINT", "https://minio:9000"),
+              ("SANDBOX_HEARTBEAT_URL", "https://submission-service:8000/api/judge_server_heartbeat/")],
+         secret_env=[("JUDGE_SERVER_TOKEN", "judge-token", "JUDGE_SERVER_TOKEN"), ("MINIO_ACCESS_KEY", "minio-worker", "MINIO_ACCESS_KEY"),
+                     ("MINIO_SECRET_KEY", "minio-worker", "MINIO_SECRET_KEY")]),
+    dict(name="run-judge", worker_tls="tls-run-worker", otel="run-worker", cache=False, groups=[],
+         # the run lane: its own topics and consumer group, inline cases (no bundle, no MinIO, no heartbeat relay)
+         env=[("CONSUMER_GROUP", "run-workers"), ("JUDGED_TOPIC", "run.judged"), ("JUDGE_INFRA_RETRY_SECONDS", "30"),
+              ("JUDGE_SERVER_URL", "https://localhost:8080"), ("KAFKA_BROKERS", "kafka:29092"), ("REQUESTED_TOPIC", "run.requested")],
+         secret_env=[("JUDGE_SERVER_TOKEN", "judge-token", "JUDGE_SERVER_TOKEN")]),
+]
+
+
+def judge():
+    out = [HEADER.format(target="judge")]
+    for j in JUDGE_PODS:
+        name = j["name"]
+        env = [("OTEL_SERVICE_NAME", j["otel"])] + WORKER_OTEL + j["env"]
+        env_lines = "".join(f"            - name: {k}\n              value: {q(v)}\n" for k, v in env)
+        env_lines += ("            - name: POD_NAME\n              valueFrom:\n                fieldRef:\n                  fieldPath: metadata.name\n")
+        env_lines += "".join(
+            f"            - name: {k}\n              valueFrom:\n                secretKeyRef:\n                  name: {secret}\n                  key: {key}\n"
+            for k, secret, key in j["secret_env"])
+        groups = ("        supplementalGroups: [" + ", ".join(str(g) for g in j["groups"]) + "]\n") if j["groups"] else ""
+        cache_sandbox = ("            - name: cases\n              mountPath: /test_case\n              readOnly: true\n") if j["cache"] else ""
+        cache_worker = ("            - name: cases\n              mountPath: /test_case\n") if j["cache"] else ""
+        cache_volume = ("        - name: cases\n          emptyDir:\n            sizeLimit: 2Gi\n") if j["cache"] else ""
+        out.append(f"""---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {name}
+  labels:
+    app: {name}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: {name}
+  template:
+    metadata:
+      labels:
+        app: {name}
+    spec:
+      enableServiceLinks: false
+      # Contestants' code shares this pod's network with the worker: it gets no ServiceAccount token, the sandbox container is
+      # not given the worker's certificate, and the pod may reach only what the worker needs (network/policies.yaml).
+      automountServiceAccountToken: false
+      shareProcessNamespace: false
+      # time to finish the judgement in hand: the worker stops taking records on SIGTERM and exits after publishing and committing
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        fsGroup: 10001
+{groups}        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # A native sidecar: it starts before the worker (the worker waits for its startup probe, as compose's depends_on
+        # service_healthy) and stops after it, so a judgement in flight still has its sandbox.
+        - name: sandbox
+          image: {SANDBOX_IMAGE}
+          restartPolicy: Always
+          env:
+            - name: TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: judge-token
+                  key: JUDGE_SERVER_TOKEN
+            - name: GUNICORN_CMD_ARGS
+              value: {q(GUNICORN_ARGS)}
+            - name: SERVICE_URL
+              value: https://localhost:8080
+          ports:
+            - name: judge
+              containerPort: 8080
+          # compose's x-sandbox: no privileged, six capabilities (CHOWN/FOWNER/DAC_OVERRIDE to prepare each run directory,
+          # SETUID/SETGID to drop to the run users, KILL to stop a run over its time limit), no new privileges, read-only root
+          # with /judger (exec) and /tmp as memory-backed volumes. gunicorn runs as root, as in the image; the run users
+          # (12001-12003) cannot enter the 0440 TLS directory.
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID, KILL]
+          # a starting point, measured on the server in task 6: the compile of <bits/stdc++.h> alone needs about 1 GiB
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1536Mi
+            limits:
+              cpu: "2"
+              memory: 2560Mi
+          startupProbe:
+            exec:
+              command: [python3, -c, {q(SANDBOX_PING)}]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: [python3, -c, {q(SANDBOX_PING)}]
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: [python3, -c, {q(SANDBOX_PING)}]
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: judger
+              mountPath: /judger
+            - name: sandbox-tmp
+              mountPath: /tmp
+            - name: sandbox-log
+              mountPath: /log
+{cache_sandbox}            - name: sandbox-tls
+              mountPath: /etc/oj/tls
+              readOnly: true
+      containers:
+        - name: worker
+          image: ghcr.io/my-online-judge/judge-worker:main
+          env:
+{env_lines}          ports:
+            - name: metrics
+              containerPort: 9100
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          # /metrics answers only with a client certificate, so the listener is what is probed
+          startupProbe: &listening
+            tcpSocket:
+              port: 9100
+            periodSeconds: 3
+            failureThreshold: 40
+          readinessProbe:
+            <<: *listening
+            periodSeconds: 10
+          livenessProbe:
+            <<: *listening
+            periodSeconds: 20
+            failureThreshold: 6
+          volumeMounts:
+{cache_worker}            - name: worker-tls
+              mountPath: /etc/oj/tls
+              readOnly: true
+            - name: worker-tmp
+              mountPath: /tmp
+      volumes:
+{cache_volume}        - name: judger
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
+        - name: sandbox-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+        - name: sandbox-log
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: worker-tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: sandbox-tls
+          secret:
+            secretName: tls-judge-server
+            defaultMode: 0440
+        - name: worker-tls
+          secret:
+            secretName: {j["worker_tls"]}
+            defaultMode: 0440
+""")
+    out.append("""---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: judge
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: judge
+""")
+    return "".join(out)
+
+
 if __name__ == "__main__":
-    targets = {"java": java, "configs": configs}
+    targets = {"java": java, "configs": configs, "judge": judge}
     if len(sys.argv) != 2 or sys.argv[1] not in targets:
-        sys.exit("usage: gen_services.py java|configs")
+        sys.exit("usage: gen_services.py java|configs|judge")
     sys.stdout.write(targets[sys.argv[1]]())

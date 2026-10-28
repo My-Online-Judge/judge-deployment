@@ -1,0 +1,56 @@
+# The real sandbox is amd64 and needs the Linux host's kernel: locally each Judge Pod runs the mock (mock-judge-server, loaded
+# by scripts/k3d-up.sh import) on plain http. It keeps the base's capabilities: it reads the worker's bundles (mode 0700, the
+# worker's uid) as root, which takes DAC_OVERRIDE, as the real sandbox does.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: judge
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: sandbox
+          image: mock-judge-server:latest
+          imagePullPolicy: Never
+          env:
+            - name: SERVICE_URL
+              value: http://localhost:8080
+          startupProbe: &mock-listening
+            exec:
+              command: [python3, -c, 'import socket; socket.create_connection(("localhost", 8080), 3).close()']
+          readinessProbe:
+            <<: *mock-listening
+          livenessProbe:
+            <<: *mock-listening
+      containers:
+        - name: worker
+          env:
+            - name: JUDGE_SERVER_URL
+              value: http://localhost:8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: run-judge
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: sandbox
+          image: mock-judge-server:latest
+          imagePullPolicy: Never
+          env:
+            - name: SERVICE_URL
+              value: http://localhost:8080
+          startupProbe: &mock-listening
+            exec:
+              command: [python3, -c, 'import socket; socket.create_connection(("localhost", 8080), 3).close()']
+          readinessProbe:
+            <<: *mock-listening
+          livenessProbe:
+            <<: *mock-listening
+      containers:
+        - name: worker
+          env:
+            - name: JUDGE_SERVER_URL
+              value: http://localhost:8080

@@ -15,6 +15,7 @@ spec:
         app: kafka-init
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       restartPolicy: OnFailure
       securityContext:
         runAsUser: 1000
@@ -91,6 +92,7 @@ spec:
         app: minio-init
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       restartPolicy: OnFailure
       securityContext:
         runAsUser: 1000

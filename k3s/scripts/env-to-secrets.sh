@@ -4,7 +4,8 @@
 #   k3s/scripts/env-to-secrets.sh --dry-run  print each Secret's name and keys, never a value, and change nothing
 # env-identity-db, env-identity, env-problem and env-submission are the files of those names, whole; the others take only
 # what their reader needs from .env: minio-root and minio-init the MinIO root account, minio-problem the key problem-service
-# reads and writes with (as MINIO_ACCESS_KEY / MINIO_SECRET_KEY, the names its code reads), judge-token the sandbox token.
+# reads and writes with and minio-worker the read-only key the judge worker fetches test cases with (as MINIO_ACCESS_KEY /
+# MINIO_SECRET_KEY, the names their code reads), judge-token the sandbox token.
 # OJ_DEPLOY_DIR: the directory of the .env files (default judge-deployment; tests use a copy).
 set -euo pipefail
 dir=${OJ_DEPLOY_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
@@ -26,6 +27,7 @@ SECRETS = [  # name, file, {key in the Secret: key in the file} (None: every key
     ("minio-root", ".env", same(MINIO_ROOT)),
     ("minio-init", ".env", same(MINIO_INIT)),
     ("minio-problem", ".env", {"MINIO_ACCESS_KEY": "MINIO_PROBLEM_ACCESS_KEY", "MINIO_SECRET_KEY": "MINIO_PROBLEM_SECRET_KEY"}),
+    ("minio-worker", ".env", {"MINIO_ACCESS_KEY": "MINIO_WORKER_ACCESS_KEY", "MINIO_SECRET_KEY": "MINIO_WORKER_SECRET_KEY"}),
     ("judge-token", ".env", same(["JUDGE_SERVER_TOKEN"])),
 ]
 

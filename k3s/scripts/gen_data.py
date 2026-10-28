@@ -77,6 +77,7 @@ spec:
         app: {name}
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 60
       securityContext:
         runAsUser: 999

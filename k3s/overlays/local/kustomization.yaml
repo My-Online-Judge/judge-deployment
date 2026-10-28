@@ -9,3 +9,4 @@ resources:
   - edge-certificate.yaml
 patches:
   - path: redirect-port.yaml
+  - path: mock-sandbox.yaml

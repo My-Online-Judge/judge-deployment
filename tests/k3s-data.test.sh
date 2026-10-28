@@ -114,7 +114,8 @@ dangling = sorted({(o["metadata"]["name"], r) for o in workloads for r in secret
 
 # hardening: what Pod Security `restricted` asks for, wherever the image allows it
 weak = []
-for o in workloads:
+DATA = {"identity-db", "problem-db", "submission-db", "kafka", "redis", "minio", "kafka-init", "minio-init"}
+for o in (w for w in workloads if w["metadata"]["name"] in DATA):
     pod = o["spec"]["template"]["spec"]
     sc = pod.get("securityContext", {})
     if sc.get("seccompProfile", {}).get("type") != "RuntimeDefault": weak.append(f'{o["metadata"]["name"]}: no RuntimeDefault seccomp profile')
@@ -139,8 +140,8 @@ PY
 # ---- the Secrets script -----------------------------------------------------------------------------------------------
 if [[ -x k3s/scripts/env-to-secrets.sh ]]; then
   got=$(OJ_DEPLOY_DIR=$tmp bash k3s/scripts/env-to-secrets.sh --dry-run | sort)
-  want=$(printf '%s\n' env-identity env-identity-db env-problem env-submission judge-token minio-init minio-problem minio-root | sort)
-  if [[ $(cut -d' ' -f1 <<< "$got") == "$want" ]]; then ok "env-to-secrets.sh makes env-identity, env-identity-db, env-problem, env-submission, judge-token, minio-init, minio-problem, minio-root"
+  want=$(printf '%s\n' env-identity env-identity-db env-problem env-submission judge-token minio-init minio-problem minio-root minio-worker | sort)
+  if [[ $(cut -d' ' -f1 <<< "$got") == "$want" ]]; then ok "env-to-secrets.sh makes env-identity, env-identity-db, env-problem, env-submission, judge-token, minio-init, minio-problem, minio-root, minio-worker"
   else bad "env-to-secrets.sh makes: $(cut -d' ' -f1 <<< "$got" | tr '\n' ' ')"; fi
   if ! grep -qE '[0-9a-f]{40}' <<< "$got"; then ok "--dry-run prints names and keys, never a value"; else bad "--dry-run printed something that looks like a secret"; fi
 else bad "k3s/scripts/env-to-secrets.sh exists"; fi

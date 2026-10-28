@@ -5,6 +5,8 @@
 #   scripts/k3d-up.sh down      delete the cluster
 # 18443/18080, not 443/80, so the compose stack (scripts/local-stack.sh) can run beside it, and not 8443/8080, which other
 # dev stacks commonly hold.
+# The node limits every pod to 2048 processes (compose gave the sandbox pids_limit 1024; a pod's limit is the kubelet's, so on
+# the server install K3s with --kubelet-arg=pod-max-pids=2048 too).
 # Environment: K3D_HTTPS_PORT, K3D_HTTP_PORT (the host ports), K3D_MEMORY (the node's memory limit, default 10g),
 # K3S_IMAGE (default the version below).
 set -euo pipefail
@@ -37,7 +39,8 @@ case ${1:-} in
       check_port "$https_port"
       check_port "$http_port"
       k3d cluster create "$cluster" --image "$k3s_image" --agents 0 --servers-memory "$memory" \
-        -p "$https_port:443@loadbalancer" -p "$http_port:80@loadbalancer" --wait
+        -p "$https_port:443@loadbalancer" -p "$http_port:80@loadbalancer" \
+        --k3s-arg "--kubelet-arg=pod-max-pids=2048@server:0" --wait
     fi
     kubectl config use-context "k3d-$cluster" > /dev/null
     kubectl get nodes

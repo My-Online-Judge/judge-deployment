@@ -32,6 +32,7 @@ spec:
         app: minio
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000

@@ -39,6 +39,7 @@ spec:
         app: kafka
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 60
       securityContext:
         runAsUser: 1000

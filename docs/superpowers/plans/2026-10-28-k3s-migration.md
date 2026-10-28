@@ -217,3 +217,14 @@
 - **NetworkPolicies per target app (T4).** One policy per app with a `matchLabels: {app: …}` selector plus a default deny, so the test can
   check that every Service port has an allow rule. Rules for the judge pods (T5), KEDA (T7) and Prometheus (T8) are added with them.
 - **CPU requests of the JVMs 250m (T4).** The first start of three services missed its five-minute startup probe while the node was busy.
+- **The sandbox is a native sidecar (T5).** An init container with `restartPolicy: Always` gives the order the plan wanted without a
+  `depends_on`: it starts and passes its probe before the worker, and stops after it (K8s 1.28+; K3s here is 1.35).
+- **A pod cannot isolate its sandbox's network (T5).** `sandbox-net: internal` separated the sandbox from the worker; two containers of a
+  pod share one network namespace, so the plan's "sandbox: no egress" is not expressible. Compensations, tested: no ServiceAccount
+  token on any pod, the worker's certificate is not mounted in the sandbox container, and `egress-judge` / `egress-run-judge` allow
+  only the destinations the worker needs (no ipBlock). Residual risk: a Java or Go submission (no seccomp filter) can open sockets to
+  those few destinations, none of which accepts it without a client certificate.
+- **No CPU-limit surprise (T5).** The sandbox keeps the plan's limits (cpu 2, memory 2560Mi, requests 1 / 1536Mi) as a starting point; task 6 on
+  the server decides whether a CPU limit causes false time-limit verdicts.
+- **The mock needs `DAC_OVERRIDE` (T5).** The worker's bundles are mode 0700; the mock reads them as root like the real sandbox, so the
+  local overlay patch keeps the base's capabilities (without them it silently falls back to its old fixed answer).

@@ -109,6 +109,9 @@ spec:
         - podSelector:
             matchLabels:
               app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: judge
       ports:
         - port: 8000
 ---
@@ -183,6 +186,12 @@ spec:
         - podSelector:
             matchLabels:
               app: kafka-init
+        - podSelector:
+            matchLabels:
+              app: judge
+        - podSelector:
+            matchLabels:
+              app: run-judge
       ports:
         - port: 29092
     - from:
@@ -232,6 +241,9 @@ spec:
         - podSelector:
             matchLabels:
               app: minio-init
+        - podSelector:
+            matchLabels:
+              app: judge
       ports:
         - port: 9000
 ---
@@ -250,3 +262,86 @@ spec:
       ports:
         - port: 4317
         - port: 4318
+---
+# A pod that runs contestants' code: the worker and the sandbox share its network, so what the worker needs is all the pod may
+# reach (Kafka for the records, MinIO for test cases, submission-service for the heartbeat, Jaeger for traces, DNS), and nothing
+# else: not the databases, not the other services, not the internet, not the node.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-judge
+spec:
+  podSelector:
+    matchLabels:
+      app: judge
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: kafka
+      ports:
+        - {port: 29092, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio
+      ports:
+        - {port: 9000, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: submission-service
+      ports:
+        - {port: 8000, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: jaeger
+      ports:
+        - {port: 4317, protocol: TCP}
+        - {port: 4318, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-run-judge
+spec:
+  podSelector:
+    matchLabels:
+      app: run-judge
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: kafka
+      ports:
+        - {port: 29092, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: jaeger
+      ports:
+        - {port: 4317, protocol: TCP}
+        - {port: 4318, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}

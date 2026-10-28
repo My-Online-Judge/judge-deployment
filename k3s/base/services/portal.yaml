@@ -36,6 +36,7 @@ spec:
         app: judge-portal
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       securityContext:
         runAsUser: 101
         runAsGroup: 101
