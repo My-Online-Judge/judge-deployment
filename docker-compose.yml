@@ -980,6 +980,10 @@ services:
     # and are meant to scale horizontally — `docker compose up -d --scale judge-worker=3` spreads
     # the 6 submission.requested partitions across the instances. A fixed name would block scaling.
     restart: unless-stopped
+    # SIGTERM lets the worker finish the submission in hand, publish and commit it before exiting (judge-worker/shutdown.py):
+    # a judgement takes up to JUDGE_TIMEOUT + the checker compile (50 s) plus the verdict publish, so docker's 10 s default
+    # would SIGKILL it. 2 min matches the K3s terminationGracePeriodSeconds.
+    stop_grace_period: 2m
     # Group 12003 is qduoj's spj, the user that runs a problem's checker. The worker gives a checker bundle's directory
     # and inputs to that group (0750, 0640), so the checker reads them and a submission (code, 12002) does not; the
     # expected outputs stay the worker's (0600), and a bundle without a checker stays 0700.
@@ -1045,6 +1049,7 @@ services:
     logging: *logging
     build: ../judge-worker
     restart: unless-stopped
+    stop_grace_period: 2m  # SIGTERM lets the run-worker finish its run (worker/shutdown.py); same as the judge-worker
     deploy:
       # One replica judges one run at a time (the sandbox runs a run's cases in parallel, not runs): two answer about
       # 20-40 runs inside submission-service's 45 s wait, which its in-flight cap (RUN_MAX_INFLIGHT, 20) assumes.

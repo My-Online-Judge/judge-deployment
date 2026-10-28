@@ -36,6 +36,10 @@ run_worker_allowlist="sorted(['CONSUMER_GROUP','JUDGED_TOPIC','JUDGE_INFRA_RETRY
   'OTEL_EXPORTER_OTLP_ENDPOINT','OTEL_EXPORTER_OTLP_PROTOCOL','OTEL_LOGS_EXPORTER','OTEL_METRICS_EXPORTER','OTEL_SERVICE_NAME',
   'REQUESTED_TOPIC','TZ'])"
 check "run-worker gets exactly the variables it reads (no MinIO, no heartbeat relay)" "sorted(s['run-worker']['environment']) == $run_worker_allowlist"
+# Graceful shutdown (sub-project 15): SIGTERM lets a worker finish the submission in hand; docker's default 10 s would
+# SIGKILL a judgement of up to JUDGE_TIMEOUT + SPJ compile (50 s) plus the verdict publish. 2 min = the K3s grace period.
+check "both workers get a 2 min stop grace period (a judgement in flight finishes on SIGTERM)" \
+  "s['judge-worker'].get('stop_grace_period') == '2m0s' and s['run-worker'].get('stop_grace_period') == '2m0s'"
 check "run-worker consumes run.requested as run-workers, answers on run.judged, retries infra for 30 s" \
   "{k: s['run-worker']['environment'].get(k) for k in ('REQUESTED_TOPIC', 'JUDGED_TOPIC', 'CONSUMER_GROUP', 'JUDGE_INFRA_RETRY_SECONDS')} == {'REQUESTED_TOPIC': 'run.requested', 'JUDGED_TOPIC': 'run.judged', 'CONSUMER_GROUP': 'run-workers', 'JUDGE_INFRA_RETRY_SECONDS': '30'}"
 check "run-worker is the judge-worker image on both networks with its own certificate, two replicas, no bundle cache" \
