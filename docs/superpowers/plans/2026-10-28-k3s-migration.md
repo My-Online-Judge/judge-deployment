@@ -246,7 +246,9 @@
   Jaeger came with T4.
 - **`JudgePodOOMKilled` uses the restart counter (T8).** `kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}` stays 1
   for the pod's life, so on its own the alert would never resolve; `increase(restarts_total[10m]) > 0` joined to it fires for ten
-  minutes after a kill. It covers the worker as well as the sandbox. Proven live with a throwaway pod.
+  minutes after a kill. It covers the worker and the sandbox. **Corrected after the final review:** the first version asked only `kube_pod_container_*`, but the sandbox is a native
+  sidecar (an init container), which kube-state-metrics reports as `kube_pod_init_container_*`; my live proof used a regular container named sandbox and so
+  proved the wrong thing. Both families are asked now, with a unit case and a live proof on a pod shaped like the real one.
 - **Prometheus and kube-state-metrics are the only pods with a ServiceAccount token (T8)** (namespaced read-only Roles, no
   ClusterRole); the `no pod mounts a token` check in `tests/k3s-judge.test.sh` names them.
 - **Grafana has no NetworkPolicy allow rule (T8).** Its UI is for `kubectl port-forward`, which no policy filters; `tests/k3s-services.test.sh`
@@ -264,4 +266,20 @@
 - **The CI job is manual (T9).** `k3s-live` runs on `workflow_dispatch` only: it pulls the service images from GHCR and needs about 6 GB, so it
   is not run on every push (the offline k3s tests are). It has not been run on GitHub from here, and the plan's `judge-bench.sh` and the
   delete-a-pod-mid-judgement acceptance are not in it: `judge-bench.sh` does not exist, and the real sandbox decides that test (T6).
+- **Final review fixes (after T9).** The whole-branch reviewer's Critical and Important findings, each with a test that failed first: the cutover
+  runbook now copies all three databases and the bucket twice with one script (`k3s/scripts/copy-from-compose.sh`, rehearsed live from compose into
+  k3d, failure path included); `overlays/vps-stage1` makes step 2 of the runbook executable; `overlays/vps` carries the public host (`host.env`
+  into the gateway, the certificate and the issuer) and a Let's Encrypt certificate; Traefik keeps the client address
+  (`externalTrafficPolicy: Local`); `JudgePodOOMKilled` asks the init-container series too; the backup mirror uses the read-only worker key;
+  `restic init` is explicit; `BackupFailed` / `BackupStale` / `BackupNeverCompleted` exist (kube-state-metrics now watches Jobs).
+- **Ruling: certificate renewal needs a restart (final review #6).** Not automated: a reloader would be a new platform dependency and an annotation on every
+  workload; instead the README says to run `kubectl -n oj rollout restart deploy,sts` about every eleven months, and `TlsCertificateExpiringSoon`
+  covers the Java services if it is forgotten. Cost if wrong: an expired leaf on a database, Kafka, Redis or MinIO pod after a year with no restart,
+  which breaks every mTLS hop to it at once; revisit with a reloader if the server is left unattended.
+- **Ruling: MinIO stays reachable from the judge pod (final review #7).** It serves TLS only, so a submission without a seccomp filter can reach the S3 port
+  anonymously; a certificate-verified hop in front of MinIO is out of proportion for the first server, and the README now says so instead of claiming otherwise.
+- **Ruling: the client address behind ServiceLB is configured, not verified (final review #5).** `externalTrafficPolicy: Local` is set and Traefik still
+  answers on k3d, but k3d's load balancer hides what a real host does; the runbook has a check after the DNS change.
+- **Ruling: Let's Encrypt is configured, not exercised (final review #4).** The issuer and certificate render and are tested; whether the HTTP-01 challenge
+  crosses Traefik's port-80 redirect is only known on the server.
 

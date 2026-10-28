@@ -1,0 +1,17 @@
+# Let's Encrypt (production) for the edge. HTTP-01: cert-manager serves the challenge on port 80 through Traefik, so the public name must
+# already point at the server when the certificate is first requested. The email is a placeholder that kustomization.yaml replaces
+# with host.env's.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: placeholder@invalid
+    privateKeySecretRef:
+      name: letsencrypt-account
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik

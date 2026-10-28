@@ -136,9 +136,10 @@ for name in ("prometheus", "kube-state-metrics"):
 rules = {tuple(r["resources"]) for r in (find("Role", "prometheus") or {}).get("rules", [])}
 check(rules == {("pods",)}, "prometheus reads pods and nothing else", str(rules))
 ksm = find("Deployment", "kube-state-metrics")
-check(ksm and "--namespaces=oj" in ksm["spec"]["template"]["spec"]["containers"][0].get("args", [])
-      and any(a.startswith("--resources=") and a.split("=")[1] == "pods" for a in ksm["spec"]["template"]["spec"]["containers"][0].get("args", [])),
-      "kube-state-metrics watches pods in oj only")
+ksm_args = ksm["spec"]["template"]["spec"]["containers"][0].get("args", []) if ksm else []
+check("--namespaces=oj" in ksm_args and "--resources=pods,jobs" in ksm_args, "kube-state-metrics watches the pods (OOM kills) and Jobs (failed backups) of oj only", str(ksm_args))
+ksm_rules = {(r["apiGroups"][0], tuple(r["resources"])) for r in (find("Role", "kube-state-metrics") or {}).get("rules", [])}
+check(ksm_rules == {("", ("pods",)), ("batch", ("jobs",))}, "its Role reads exactly pods and batch jobs", str(ksm_rules))
 
 # Prometheus: its certificate, its data on a volume, one pod at a time (a ReadWriteOnce volume)
 pr = find("Deployment", "prometheus")

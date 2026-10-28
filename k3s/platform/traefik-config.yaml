@@ -1,0 +1,14 @@
+# K3s ships Traefik as a Helm chart and fronts it with its own load balancer (ServiceLB), which hides the client's address behind
+# the node's unless the Service keeps traffic on the node that received it. The gateway bans and counts by the address Traefik writes
+# into X-Forwarded-For, so without this every user would look like the same one and a ban would apply to all. (Single node: the
+# node that receives the connection is the node that runs Traefik.)
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      spec:
+        externalTrafficPolicy: Local

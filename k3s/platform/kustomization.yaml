@@ -5,3 +5,4 @@ resources:
   - cert-manager.yaml
   - keda-namespace.yaml
   - keda.yaml
+  - traefik-config.yaml

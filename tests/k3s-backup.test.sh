@@ -73,7 +73,10 @@ if b:
     check(prefixes == {"IDENTITY_": "env-identity-db", "PROBLEM_": "env-problem", "SUBMISSION_": "env-submission"},
           "dump reads each database's own credentials from the Secret its service uses", str(prefixes))
     m = next(c for c in p["initContainers"] if c["name"] == "mirror")
-    check("minio-init" in [r["secretRef"]["name"] for r in m.get("envFrom", [])], "mirror reads MinIO's root account and bucket from the Secret minio-init")
+    m_refs = [r["secretRef"]["name"] for r in m.get("envFrom", [])]
+    m_env = {e["name"]: e.get("value") for e in m.get("env", [])}
+    check(m_refs == ["minio-worker"] and m_env.get("MINIO_BUCKET") == "test-cases" and "minio-root" not in m_refs and "minio-init" not in m_refs,
+          "mirror reads the bucket with the read-only worker key (policy worker-ro: get and list), never MinIO's root account", f"{m_refs} {m_env}")
     check(any(v.get("secret", {}).get("secretName") == "tls-backup" for v in p["volumes"]), "dump and mirror present and verify with the identity backup (tls-backup)")
     allc = p["initContainers"] + p["containers"]
     check(all(c["securityContext"].get("allowPrivilegeEscalation") is False and c["securityContext"]["capabilities"]["drop"] == ["ALL"] and "memory" in c["resources"]["limits"] for c in allc)
@@ -109,12 +112,18 @@ check(not any(reach(a, pt, "backup") for a, pt in (("kafka", 29092), ("redis", 6
 sh = files.get("restic.sh", "")
 want = re.search(r"restic forget (.*)", open("backup/backup.sh").read()).group(1).strip()
 check(want.replace("--host oj ", "").split("--prune")[0].strip() in sh and "--prune" in sh, "retention is backup.sh's: 7 daily, 4 weekly, 6 monthly, pruned", want)
+# a repository is only created when the operator says so: a mistyped RESTIC_REPOSITORY must fail the night, not start an empty repository
+# that the job and the drill would both accept while the history sits elsewhere
+env_of = lambda cj, ctr: {e["name"]: e.get("value") for c in pod(cj)["containers"] if c["name"] == ctr for e in c.get("env", [])} if cj else {}
+check("RESTIC_INIT_IF_MISSING" in sh and "restic init" in sh and "|| restic init" not in sh and "RESTIC_INIT_IF_MISSING" not in env_of(b, "restic"),
+      "restic.sh runs `restic init` only when RESTIC_INIT_IF_MISSING is set, and the base never sets it")
 check("RESTIC_REPOSITORY" in sh and "RESTIC_PASSWORD" in sh and "exit 2" in sh, "restic.sh stops with a message when the repository or its password is not set")
 
 # the local overlay keeps the repository on a claim (the drill and CI have no off-host repository) and only there
 lb, ld = find(local, "CronJob", "backup"), find(local, "CronJob", "restore-drill")
 claims = {o["metadata"]["name"] for o in local if o.get("kind") == "PersistentVolumeClaim"}
 check("restic-repo" in claims, "the local overlay declares the claim restic-repo")
+check(env_of(lb, "restic").get("RESTIC_INIT_IF_MISSING") == "true", "local backup: RESTIC_INIT_IF_MISSING=true (the claim restic-repo starts empty)")
 for name, cj, ctr in (("backup", lb, "restic"), ("restore-drill", ld, "restic-restore")):
     p = pod(cj) if cj else {"volumes": [], "containers": [], "initContainers": []}
     c = next((c for c in p.get("initContainers", []) + p.get("containers", []) if c["name"] == ctr), {})

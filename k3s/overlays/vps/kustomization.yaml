@@ -1,5 +1,26 @@
-# The single-node server: the real sandbox, Let's Encrypt for the edge, the limits measured on that host. See k3s/README.md.
+# The single-node server: the whole base, the public name (host.env) and a Let's Encrypt certificate for the edge. The real qduoj sandbox is
+# the base's own; its measured limits (task 6) are the base's starting values until they are measured on that host. See k3s/README.md.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: oj
 resources:
   - ../../base
+  - edge-certificate.yaml
+  - cluster-issuer.yaml
+configMapGenerator:
+  - name: public-host
+    envs: [host.env]
+    options:
+      disableNameSuffixHash: true
+replacements:
+  - source: {kind: ConfigMap, name: public-host, fieldPath: data.OJ_PUBLIC_HOST}
+    targets:
+      - select: {kind: Deployment, name: api-gateway}
+        fieldPaths:
+          - spec.template.spec.containers.[name=api-gateway].env.[name=OJ_PUBLIC_HOST].value
+      - select: {kind: Certificate, name: edge-tls}
+        fieldPaths: [spec.dnsNames.0]
+  - source: {kind: ConfigMap, name: public-host, fieldPath: data.ACME_EMAIL}
+    targets:
+      - select: {kind: ClusterIssuer, name: letsencrypt}
+        fieldPaths: [spec.acme.email]

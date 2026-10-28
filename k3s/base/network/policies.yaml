@@ -1,6 +1,6 @@
 # Ingress is denied unless a policy below allows it: each data store is reached by its own service, the services by the gateway,
-# and the gateway and the portal by Traefik alone. K3s enforces these (its embedded network policy controller). Later tasks add
-# the rules for the judge pods and for Prometheus's scrapes of the actuators (8081).
+# and the gateway and the portal by Traefik alone. K3s enforces these (its embedded network policy controller). The rules for the judge pods and for KEDA are at the
+# end of this file, those for Prometheus's scrapes in observability/policies.yaml and those for the backup in backup/policies.yaml.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

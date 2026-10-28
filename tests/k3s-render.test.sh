@@ -31,7 +31,7 @@ else bad "k3s/platform/kustomization.yaml exists"; fi
 # Kinds that live outside a namespace.
 cluster_scoped='Namespace|ClusterIssuer|ClusterRole|ClusterRoleBinding|CustomResourceDefinition|StorageClass|PriorityClass'
 
-for overlay in local vps; do
+for overlay in local vps vps-stage1; do
   dir=k3s/overlays/$overlay
   if [[ ! -f $dir/kustomization.yaml ]]; then bad "$overlay: $dir/kustomization.yaml exists"; continue; fi
   if ! rendered=$(kubectl kustomize "$dir" 2> /tmp/oj-k3s-render.$$); then

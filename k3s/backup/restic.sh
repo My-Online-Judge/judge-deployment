@@ -8,8 +8,17 @@ if [ -z "${RESTIC_REPOSITORY:-}" ] || [ -z "${RESTIC_PASSWORD:-}" ]; then
   exit 2
 fi
 export HOME=/tmp RESTIC_CACHE_DIR=/tmp/restic-cache
-# a repository that does not exist yet is made on the first night; a wrong password or an unreachable one fails the init as well
-restic cat config > /dev/null 2>&1 || restic init
+# A repository is only created when RESTIC_INIT_IF_MISSING is set (k3d and CI, whose claim starts empty). On the server it is made
+# once by hand (README), so a mistyped RESTIC_REPOSITORY fails the night instead of starting an empty repository that this job and
+# the drill would both accept while the history sits somewhere else.
+if ! restic cat config > /dev/null 2>&1; then
+  if [ -n "${RESTIC_INIT_IF_MISSING:-}" ]; then
+    restic init
+  else
+    echo "no restic repository at $RESTIC_REPOSITORY (wrong address or password, or never created): run restic init once, see k3s/README.md" >&2
+    exit 3
+  fi
+fi
 restic backup --host oj /staging
 restic forget --host oj --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
 echo "backup done"

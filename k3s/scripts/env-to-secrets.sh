@@ -3,7 +3,7 @@
 #   k3s/scripts/env-to-secrets.sh            apply them to the current cluster
 #   k3s/scripts/env-to-secrets.sh --dry-run  print each Secret's name and keys, never a value, and change nothing
 # env-identity-db, env-identity, env-problem and env-submission are the files of those names, whole; the others take only
-# what their reader needs from .env: minio-root and minio-init the MinIO root account, minio-problem the key problem-service
+# what their reader needs from .env: minio-root and minio-init the MinIO root account (read by MinIO and minio-init only), minio-problem the key problem-service
 # reads and writes with and minio-worker the read-only key the judge worker fetches test cases with (as MINIO_ACCESS_KEY /
 # MINIO_SECRET_KEY, the names their code reads), judge-token the sandbox token, pg-monitor the oj_monitor password the
 # postgres-exporters log in with, grafana-admin Grafana's admin password and alertmanager-telegram the Telegram bot token and

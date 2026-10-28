@@ -128,8 +128,9 @@ data:
     }
   mirror.sh: |
     #!/bin/bash
-    # Step 2 of the nightly backup (container mirror): the test-case bucket copied into the staging directory over TLS, as MinIO's root
-    # account (from the Secret minio-init), and its object count appended to counts.tsv (exact: nothing else writes to a bucket that
+    # Step 2 of the nightly backup (container mirror): the test-case bucket copied into the staging directory over TLS with the
+    # read-only key the judge workers use (Secret minio-worker, policy worker-ro: get and list, which is all a mirror needs; the root
+    # account stays with MinIO and minio-init), and its object count appended to counts.tsv (exact: nothing else writes to a bucket that
     # only problem-service changes, and the drill compares it with what the snapshot restores).
     set -euo pipefail
     umask 077
@@ -141,7 +142,7 @@ data:
       sleep 2
     done
     echo "mirror bucket $MINIO_BUCKET"
-    MC_HOST_local="https://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@minio:9000" mc mirror --overwrite "local/$MINIO_BUCKET" "$staging/minio"
+    MC_HOST_local="https://$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY@minio:9000" mc mirror --overwrite "local/$MINIO_BUCKET" "$staging/minio"
     # the MinIO image has no find: mc lists the local copy, one line per object
     n=$(mc ls --recursive "$staging/minio" | wc -l | tr -d ' ')
     printf 'minio_objects\t%s\t%s\n' "$n" "$n" >> "$staging/counts.tsv"
@@ -157,8 +158,17 @@ data:
       exit 2
     fi
     export HOME=/tmp RESTIC_CACHE_DIR=/tmp/restic-cache
-    # a repository that does not exist yet is made on the first night; a wrong password or an unreachable one fails the init as well
-    restic cat config > /dev/null 2>&1 || restic init
+    # A repository is only created when RESTIC_INIT_IF_MISSING is set (k3d and CI, whose claim starts empty). On the server it is made
+    # once by hand (README), so a mistyped RESTIC_REPOSITORY fails the night instead of starting an empty repository that this job and
+    # the drill would both accept while the history sits somewhere else.
+    if ! restic cat config > /dev/null 2>&1; then
+      if [ -n "${RESTIC_INIT_IF_MISSING:-}" ]; then
+        restic init
+      else
+        echo "no restic repository at $RESTIC_REPOSITORY (wrong address or password, or never created): run restic init once, see k3s/README.md" >&2
+        exit 3
+      fi
+    fi
     restic backup --host oj /staging
     restic forget --host oj --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
     echo "backup done"
@@ -239,7 +249,10 @@ spec:
               command: [/bin/bash, /opt/oj/backup/mirror.sh]
               envFrom:
                 - secretRef:
-                    name: minio-init
+                    name: minio-worker
+              env:
+                - name: MINIO_BUCKET
+                  value: test-cases
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true

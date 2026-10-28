@@ -1,0 +1,25 @@
+# The certificate the browser sees on https://<OJ_PUBLIC_HOST>: Let's Encrypt, renewed by cert-manager 30 days before it ends. Traefik's
+# IngressRoute reads it as the Secret edge-tls. The name is a placeholder that kustomization.yaml replaces with host.env's.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: edge-tls
+spec:
+  secretName: edge-tls
+  dnsNames:
+    - placeholder.invalid
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+    rotationPolicy: Always
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+    group: cert-manager.io

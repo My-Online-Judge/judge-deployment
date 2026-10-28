@@ -71,7 +71,8 @@ def backup():
                      + secret_ref("env-submission", "SUBMISSION_"),
                      mounts=SCRIPTS_MOUNT + TLS_MOUNT + STAGING_MOUNT + TMP_MOUNT)
     mirror = container("mirror", MINIO, "[/bin/bash, /opt/oj/backup/mirror.sh]", ("20m", "64Mi", "256Mi"),
-                       env_from="          envFrom:\n" + secret_ref("minio-init"),
+                       env="          env:\n            - name: MINIO_BUCKET\n              value: test-cases\n",
+                       env_from="          envFrom:\n" + secret_ref("minio-worker"),
                        mounts=SCRIPTS_MOUNT + TLS_MOUNT + STAGING_MOUNT + TMP_MOUNT)
     restic = container("restic", RESTIC, "[/bin/sh, /opt/oj/backup/restic.sh]", ("20m", "64Mi", "384Mi"),
                        env_from="          envFrom:\n" + secret_ref("restic"),

@@ -1,0 +1,43 @@
+# The first steps of the cutover: overlays/vps without the judge pods and KEDA, so the services, the data layer and the monitoring run on K3s
+# while compose still judges (two consumers of submission.requested on one broker would not be a cutover, it would be a race). The
+# last step applies overlays/vps in full. See k3s/README.md "Cutover from compose".
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../vps
+patches:
+  - target: {kind: Deployment, name: judge}
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: judge
+  - target: {kind: Deployment, name: run-judge}
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: run-judge
+  - target: {kind: ScaledObject, name: judge}
+    patch: |-
+      $patch: delete
+      apiVersion: keda.sh/v1alpha1
+      kind: ScaledObject
+      metadata:
+        name: judge
+  - target: {kind: ScaledObject, name: run-judge}
+    patch: |-
+      $patch: delete
+      apiVersion: keda.sh/v1alpha1
+      kind: ScaledObject
+      metadata:
+        name: run-judge
+  - target: {kind: PodDisruptionBudget, name: judge}
+    patch: |-
+      $patch: delete
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: judge

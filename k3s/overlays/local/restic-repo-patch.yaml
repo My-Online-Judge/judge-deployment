@@ -10,6 +10,10 @@ spec:
         spec:
           containers:
             - name: restic
+              # the claim starts empty: make the repository on the first night (the base never does)
+              env:
+                - name: RESTIC_INIT_IF_MISSING
+                  value: "true"
               volumeMounts:
                 - name: repo
                   mountPath: /repo

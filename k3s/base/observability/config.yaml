@@ -368,11 +368,21 @@ data:
           - alert: JudgePodOOMKilled
             # K3s only (kube-state-metrics; the series do not exist in compose). A container of a judge pod restarted within the
             # last 10 minutes and its last termination was OOMKilled. last_terminated_reason stays on the series for the pod's
-            # life, so the restart counter is what says the kill is recent.
+            # life, so the restart counter is what says the kill is recent. The sandbox is a native sidecar (an init container
+            # with restartPolicy: Always), which kube-state-metrics reports as kube_pod_init_container_*; the worker is a regular
+            # container (kube_pod_container_*): both are asked.
             expr: |
-              increase(kube_pod_container_status_restarts_total{namespace="oj", container=~"sandbox|worker"}[10m]) > 0
-              and on (namespace, pod, container)
-              kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+              (
+                increase(kube_pod_container_status_restarts_total{namespace="oj", container=~"sandbox|worker"}[10m]) > 0
+                and on (namespace, pod, container)
+                kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+              )
+              or
+              (
+                increase(kube_pod_init_container_status_restarts_total{namespace="oj", container=~"sandbox|worker"}[10m]) > 0
+                and on (namespace, pod, container)
+                kube_pod_init_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+              )
             labels:
               severity: critical
             annotations:
@@ -509,6 +519,36 @@ data:
             annotations:
               summary: "Consumer group {{ $labels.consumergroup }} is over 100 messages behind on {{ $labels.topic }}"
               description: "Unlike KafkaConsumerLagging (the client's own records-lag-max, silent once a consumer stops polling) this sees a group that stopped. Check the consumer service's log and its Kafka connection (KafkaUnreachable)."
+
+      - name: backup
+        rules:
+          # K3s only (kube-state-metrics watches the Jobs of oj; the series do not exist in compose, whose systemd timer has no
+          # alert). The nightly Job is named backup-<epoch> by the CronJob backup; the restore drill's Jobs (drill-<epoch>) are not asked.
+          - alert: BackupFailed
+            expr: kube_job_status_failed{namespace="oj", job_name=~"backup-[0-9]+"} > 0
+            labels:
+              severity: critical
+            annotations:
+              summary: "Backup job {{ $labels.job_name }} failed"
+              description: "The nightly backup did not finish, so there is no new snapshot. Read its log: kubectl -n oj logs job/{{ $labels.job_name }} -c dump (then -c mirror, -c restic). The next night retries; a wrong or unreachable restic repository shows in the restic container."
+
+          - alert: BackupStale
+            expr: time() - max(kube_job_status_completion_time{namespace="oj", job_name=~"backup-[0-9]+"}) > 129600
+            labels:
+              severity: warning
+            annotations:
+              summary: "No backup has completed for 36 hours"
+              description: "The nightly CronJob backup (03:00) has not produced a finished Job for a day and a half. Check kubectl -n oj get cronjob,job -l app=backup and the last Job's log; the snapshot you could restore is older than that."
+
+          - alert: BackupNeverCompleted
+            # A cluster whose backup never ran (or never succeeded) has no completion series for BackupStale to measure.
+            expr: absent(kube_job_status_completion_time{namespace="oj", job_name=~"backup-[0-9]+"})
+            for: 36h
+            labels:
+              severity: warning
+            annotations:
+              summary: "No backup Job has ever completed"
+              description: "Kube-state-metrics has seen no finished backup Job for 36 hours: the CronJob backup never succeeded, or does not exist. Check kubectl -n oj get cronjob backup and that RESTIC_REPOSITORY and RESTIC_PASSWORD are in the Secret restic."
 ---
 apiVersion: v1
 kind: ConfigMap

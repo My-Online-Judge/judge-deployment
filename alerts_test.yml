@@ -877,3 +877,84 @@ tests:
       - eval_time: 15m
         alertname: JudgePodOOMKilled
         exp_alerts: []
+
+  # JudgePodOOMKilled, the real pod: the sandbox is a native sidecar (an init container with restartPolicy: Always), which
+  # kube-state-metrics reports as kube_pod_init_container_*, not kube_pod_container_*. Observed live on k3d.
+  - interval: 1m
+    input_series:
+      - series: 'kube_pod_init_container_status_restarts_total{job="kube-state-metrics", namespace="oj", pod="judge-7d9", container="sandbox"}'
+        values: '0 0 0 0 4 4 4 4 4 4'
+      - series: 'kube_pod_init_container_status_last_terminated_reason{job="kube-state-metrics", namespace="oj", pod="judge-7d9", container="sandbox", reason="OOMKilled"}'
+        values: '0 0 0 0 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: JudgePodOOMKilled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: kube-state-metrics
+              namespace: oj
+              pod: judge-7d9
+              container: sandbox
+            exp_annotations:
+              summary: "Container sandbox of pod judge-7d9 was OOM-killed"
+              description: "A sandbox that is killed for memory fails the submission it was judging with a wrong verdict, and a worker that is killed loses its in-flight record. Raise the container's memory limit (k3s/base/judge/judge.yaml) or find the submission that needs that much."
+
+  # BackupFailed (K3s, kube-state-metrics jobs): a nightly backup Job (backup-<epoch>) with a failed pod fires; the restore drill's
+  # jobs (drill-<epoch>) and a backup that succeeded are silent.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_status_failed{job="kube-state-metrics", namespace="oj", job_name="backup-1793183600"}'
+        values: '0 0 1 1 1 1'
+      - series: 'kube_job_status_failed{job="kube-state-metrics", namespace="oj", job_name="drill-1793183601"}'
+        values: '1 1 1 1 1 1'
+      - series: 'kube_job_status_failed{job="kube-state-metrics", namespace="oj", job_name="backup-1793183700"}'
+        values: '0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: BackupFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: kube-state-metrics
+              namespace: oj
+              job_name: backup-1793183600
+            exp_annotations:
+              summary: "Backup job backup-1793183600 failed"
+              description: "The nightly backup did not finish, so there is no new snapshot. Read its log: kubectl -n oj logs job/backup-1793183600 -c dump (then -c mirror, -c restic). The next night retries; a wrong or unreachable restic repository shows in the restic container."
+
+  # BackupStale: no backup Job has completed for 36 hours fires; one that completed 10 hours ago is silent; and without any
+  # completed backup at all (a cluster that never ran one) it fires after 36 hours.
+  - interval: 1h
+    input_series:
+      - series: 'kube_job_status_completion_time{job="kube-state-metrics", namespace="oj", job_name="backup-1"}'
+        values: '0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 20h
+        alertname: BackupStale
+        exp_alerts: []
+      - eval_time: 38h
+        alertname: BackupStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "No backup has completed for 36 hours"
+              description: "The nightly CronJob backup (03:00) has not produced a finished Job for a day and a half. Check kubectl -n oj get cronjob,job -l app=backup and the last Job's log; the snapshot you could restore is older than that."
+  - interval: 1h
+    input_series:
+      - series: 'up{job="prometheus"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 30h
+        alertname: BackupNeverCompleted
+        exp_alerts: []
+      - eval_time: 38h
+        alertname: BackupNeverCompleted
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: oj
+            exp_annotations:
+              summary: "No backup Job has ever completed"
+              description: "Kube-state-metrics has seen no finished backup Job for 36 hours: the CronJob backup never succeeded, or does not exist. Check kubectl -n oj get cronjob backup and that RESTIC_REPOSITORY and RESTIC_PASSWORD are in the Secret restic."

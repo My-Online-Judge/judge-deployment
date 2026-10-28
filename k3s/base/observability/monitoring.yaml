@@ -3,7 +3,7 @@
 #
 # Prometheus and kube-state-metrics are the only pods of the stack that talk to the Kubernetes API (Prometheus to find the judge
 # pods, kube-state-metrics to report them): each has its own ServiceAccount, a namespaced Role that only reads pods, and the one
-# pod-level token the stack mounts. Changing prometheus.yml or alerts.yml changes the ConfigMap; Prometheus reads it at start:
+# pod-level token the stack mounts. kube-state-metrics watches pods (JudgePodOOMKilled) and Jobs (BackupFailed, BackupStale). Changing prometheus.yml or alerts.yml changes the ConfigMap; Prometheus reads it at start:
 # `kubectl -n oj rollout restart deploy/prometheus`.
 apiVersion: v1
 kind: ServiceAccount
@@ -43,6 +43,9 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs]
     verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -449,9 +452,9 @@ spec:
           args:
             - --port=8080
             - --telemetry-port=8081
-            # a Role in oj, not a ClusterRole: it sees the pods of this namespace and nothing else
+            # a Role in oj, not a ClusterRole: it sees the pods and Jobs of this namespace and nothing else
             - --namespaces=oj
-            - --resources=pods
+            - --resources=pods,jobs
           ports:
             - name: metrics
               containerPort: 8080
