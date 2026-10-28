@@ -579,8 +579,8 @@ Defaults are in the services; none of these needs setting. submission-service re
 | Variable | Default | Meaning |
 |---|---|---|
 | `JUDGE_JUDGING_TIMEOUT` | `3m` | A JUDGING submission older than this is marked SYSTEM_ERROR (`Judging timed out`). Replaces `JUDGE_STUCK_TIMEOUT_MIN`. |
-| `JUDGE_PENDING_TIMEOUT` | `30m` | A PENDING submission whose judge request left the outbox longer ago than this is marked SYSTEM_ERROR (`Judging request lost`) — but only when no worker has started any submission in the last `JUDGE_PENDING_PROGRESS_WINDOW`. A long queue that is being drained is waiting, not lost. |
-| `JUDGE_PENDING_PROGRESS_WINDOW` | `5m` | How far back the PENDING rule looks for a worker's start (`submission.started`) before it believes a request was lost. After the last worker dies, queued submissions fail at most this long after the timeout. |
+| `JUDGE_PENDING_TIMEOUT` | `30m` | A PENDING submission whose judge request left the outbox longer ago than this is marked SYSTEM_ERROR (`Judging request lost`) — but only when no worker has started an *older* submission in the last `JUDGE_PENDING_PROGRESS_WINDOW`. A long queue drained in order is waiting, not lost; one that newer submissions overtook (its record was skipped) or nobody works on is failed. A request whose outbox row is dead (`OutboxDeadRow`) counts as not sent. |
+| `JUDGE_PENDING_PROGRESS_WINDOW` | `5m` | How far back the PENDING rule looks for a worker's start (`submission.started`) of an older submission before it believes a request was lost. After the last worker dies, queued submissions fail at most this long after the timeout. |
 | `JUDGE_MAX_QUEUE_DEPTH` | `500` (live: `200`) | PENDING + JUDGING submissions allowed at once; beyond it a submit gets 503 `QUEUE_FULL` with `Retry-After: 30` (counted in `oj_admission_refused_total`). A problem rejudge queues only as many of its newest submissions as there are free slots, and gets 503 only when there is none. |
 | `JUDGE_INFRA_RETRY_SECONDS` | `300` | Worker: how long it retries MinIO / sandbox failures (2 s, 4 s, 8 s ... capped at 60 s) before giving up with `Judge infrastructure unavailable`. |
 

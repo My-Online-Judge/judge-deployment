@@ -23,9 +23,16 @@
 	@hsts not host localhost 127.0.0.1
 	header @hsts Strict-Transport-Security "max-age=31536000"
 	handle /api/* {
-		# A source is at most 10 KiB (submission-service) and a test-case or statement upload far less than this: a larger
-		# body is refused here, before the gateway reads it.
-		request_body {
+		# A source is at most 10 KiB and every other API body is small, so 1 MB covers them and refuses a bigger body before
+		# the gateway reads it. The one exception is problem-service's multipart uploads (a test-case pair, a checker, a
+		# problem package: spring.servlet.multipart allows 50 MB per file, 55 MB per request), all under /api/v1/problems:
+		# they get 56 MiB, a little above that limit, so problem-service still answers its own error for an oversize one.
+		@problemUploads path /api/v1/problems/*
+		@otherBodies not path /api/v1/problems/*
+		request_body @problemUploads {
+			max_size 56MiB
+		}
+		request_body @otherBodies {
 			max_size 1MB
 		}
 		reverse_proxy https://api-gateway:8000 {

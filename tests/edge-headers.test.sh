@@ -20,6 +20,12 @@ def handlers(rs):
             yield h
             if h.get('handler') == 'subroute':
                 yield from handlers(h.get('routes', []))
+def rts(rs):
+    for r in rs:
+        yield r
+        for h in r.get('handle', []):
+            if h.get('handler') == 'subroute':
+                yield from rts(h.get('routes', []))
 hs = list(handlers(routes))
 sys.exit(0 if ($2) else 1)" <<< "$json"; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi
 }
@@ -31,8 +37,11 @@ check "the CSP lets the portal load KaTeX fonts, Monaco workers, HTTPS images an
   "(lambda csp: \"font-src 'self' data:\" in csp and \"worker-src 'self' blob:\" in csp and 'img-src' in csp and 'https:' in csp and \"connect-src 'self'\" in csp)($headers.get('Content-Security-Policy', ''))"
 check "nosniff, a referrer policy and X-Frame-Options DENY on every response" \
   "($headers.get('X-Content-Type-Options') == 'nosniff' and $headers.get('Referrer-Policy') == 'strict-origin-when-cross-origin' and $headers.get('X-Frame-Options') == 'DENY')"
-check "the API route refuses a request body over 1 MB (a source is at most 10 KiB; this stops a body streamed to the gateway first)" \
-  "any(h.get('handler') == 'request_body' and h.get('max_size') == 1000000 for h in hs)"
+# problem-service takes multipart uploads of up to 50 MB (spring.servlet.multipart: test-case pairs, a checker, a problem
+# package): they all live under /api/v1/problems. Every other API call is small (a source is at most 10 KiB).
+limits='{(tuple(m.get("path", [])) if "path" in m else "other"): h["max_size"] for r in rs for m in (r.get("match") or [{}]) for h in r.get("handle", []) if h.get("handler") == "request_body"}'
+check "the problem uploads may be up to 56 MiB (a little above problem-service's multipart limit) and every other API body at most 1 MB" \
+  "(lambda rs: ($limits.get(('/api/v1/problems/*',)) == 58720256 and $limits.get('other') == 1000000))(list(rts(routes)))"
 check "the API route still proxies to the gateway and everything else to the portal over TLS" \
   "sorted({h['upstreams'][0]['dial'] for h in hs if h.get('handler') == 'reverse_proxy'}) == ['api-gateway:8000', 'judge-portal:443']"
 exit $fail
