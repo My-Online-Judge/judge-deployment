@@ -9,6 +9,7 @@ ok() { echo "ok   $1"; }
 bad() { echo "FAIL $1"; fail=1; }
 
 # Spec §4.5, one rule per line: principal resource-type name operation. kafka, kafka-admin and ANONYMOUS are super users.
+# GroupPrefix (sp15): each submission-service instance reads run.judged in its own group run-results-<instance>.
 # The last three (sp12 task 15): kafka-exporter describes every topic and group and the cluster, nothing more.
 expected='User:submission-service Topic submission.requested Write
 User:submission-service Topic submission.requested Describe
@@ -70,7 +71,7 @@ User:submission-service Topic run.judged Describe
 User:submission-service Topic run.judged Create
 User:submission-service Topic run.judged Alter
 User:submission-service Topic run.judged DescribeConfigs
-User:submission-service Group run-results Read
+User:submission-service GroupPrefix run-results- Read
 User:run-worker Topic run.requested Read
 User:run-worker Topic run.requested Describe
 User:run-worker Topic run.requested Create
@@ -83,7 +84,7 @@ User:kafka-exporter Group * Describe
 User:kafka-exporter Cluster kafka-cluster Describe'
 
 # The table is the here-doc between <<'RULES' and RULES in acls.sh; comment and blank lines are not rules.
-actual=$(sed -n "/<<'RULES'/,/^RULES\$/{/<<'RULES'/d;/^RULES\$/d;p}" kafka/acls.sh 2>/dev/null | sed 's/#.*//;s/[[:space:]]\{1,\}/ /g;s/^ //;s/ $//' | grep -v '^$' || true)
+actual=$(awk "/<<'RULES'/ { in_table = 1; next } /^RULES\$/ { in_table = 0 } in_table" kafka/acls.sh 2>/dev/null | sed 's/#.*//;s/[[:space:]]\{1,\}/ /g;s/^ //;s/ $//' | grep -v '^$' || true)
 if diff=$(diff <(echo "$expected") <(echo "$actual")); then
   ok "kafka/acls.sh applies exactly the spec §4.5 table ($(wc -l <<< "$expected") rules)"
 else
@@ -92,11 +93,11 @@ fi
 # kafka-acls.sh refuses a principal without its type ("kafka-exporter" instead of "User:kafka-exporter"): acls.sh would exit
 # 1, kafka-init fail, and the services that wait for it never start. Comparing with the copy above cannot catch that, so
 # every row of acls.sh's table must also have the form User:<cn> <Type> <name> <operation>.
-row_format='^User:[a-z0-9-]+ (Topic|Group|Cluster) [^ ]+ [A-Za-z]+$'
+row_format='^User:[a-z0-9-]+ (Topic|Group|GroupPrefix|Cluster) [^ ]+ [A-Za-z]+$'
 if [[ -z $actual ]]; then bad "kafka/acls.sh has no rules"
 elif bad_rows=$(grep -vE "$row_format" <<< "$actual"); then
   bad "kafka/acls.sh rows not of the form User:<cn> <Type> <name> <operation>:"; echo "$bad_rows" | sed 's/^/     /'
-else ok "every kafka/acls.sh row is User:<cn> <Topic|Group|Cluster> <name> <operation>"; fi
+else ok "every kafka/acls.sh row is User:<cn> <Topic|Group|GroupPrefix|Cluster> <name> <operation>"; fi
 if grep -qE "$row_format" <<< 'kafka-exporter Topic * Describe'; then bad "the row format check rejects a principal without User:"
 else ok "the row format check rejects a principal without User: (kafka-exporter Topic * Describe)"; fi
 if grep -q -- '--bootstrap-server kafka:29092 --command-config /opt/oj/kafka/admin-client.properties' kafka/acls.sh 2>/dev/null \

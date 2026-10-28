@@ -7,7 +7,9 @@ set -euo pipefail
 acls=(/opt/kafka/bin/kafka-acls.sh --bootstrap-server kafka:29092 --command-config /opt/oj/kafka/admin-client.properties)
 
 # principal resource-type name operation — one rule per line (tests/kafka-acls.test.sh compares it with spec §4.5).
-# The Run lane (Run code design §9): submission-service publishes run.requested and reads run.judged as run-results;
+# The Run lane (Run code design §9): submission-service publishes run.requested and reads run.judged as run-results-<instance>
+# (one group per instance, so each instance sees every reply and completes only its own runs; the old group run-results
+# keeps its ACL on the broker, unused);
 # run-worker (its own certificate) reads run.requested as run-workers and publishes run.judged — nothing of the submit lane.
 # kafka-cluster is Kafka's fixed name for the cluster resource. * is Kafka's wildcard resource name (every topic or group): it
 # is passed quoted below, never expanded by the shell. kafka-exporter (sp12 task 15) only describes: metadata, offsets, lag.
@@ -72,7 +74,7 @@ User:submission-service Topic run.judged Describe
 User:submission-service Topic run.judged Create
 User:submission-service Topic run.judged Alter
 User:submission-service Topic run.judged DescribeConfigs
-User:submission-service Group run-results Read
+User:submission-service GroupPrefix run-results- Read
 User:run-worker Topic run.requested Read
 User:run-worker Topic run.requested Describe
 User:run-worker Topic run.requested Create
@@ -91,6 +93,8 @@ while read -r principal type name; do
   case $type in
     Topic) resource=(--topic "$name") ;;
     Group) resource=(--group "$name") ;;
+    # A prefixed group: every submission-service instance reads run.judged in its own group run-results-<instance>.
+    GroupPrefix) resource=(--group "$name" --resource-pattern-type prefixed) ;;
     Cluster) resource=(--cluster) ;;
     *) echo "acls.sh: unknown resource type '$type'" >&2; exit 1 ;;
   esac
