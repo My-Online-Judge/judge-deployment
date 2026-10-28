@@ -540,6 +540,12 @@ through its own lane: submission-service publishes `run.requested` (the cases in
 identity `run-worker`, no MinIO, no heartbeat relay — judges in the same sandboxes. Submit never queues behind Run and
 Run never behind Submit.
 
+- **submission-service instances:** each instance reads all of `run.judged` in a consumer group of its own,
+  `run-results-<RUN_INSTANCE_ID, else HOSTNAME>` (ACL: `kafka/acls.sh`, prefix `run-results-`), and completes only the runs
+  whose reply names it: the request carries `replyTo` (the instance's id) and the worker echoes it. The pending runs live in
+  the memory of the instance that took the request, so with one shared group a reply could reach the wrong instance and end
+  in 504. A reply that names another instance is dropped silently; one without `replyTo` (an older worker, a run in flight
+  during an upgrade) is tried by every instance, as before. Admission (`RUN_MAX_INFLIGHT`) is still per instance.
 - **Replicas:** two by default (`deploy.replicas`); `docker compose up -d --scale run-worker=N` changes it. One replica
   judges one run at a time (the sandbox runs a run's cases in parallel, not runs).
 - **submission-service knobs** (`.env`, optional): `RUN_COOLDOWN_SECONDS` (3, per user), `RUN_MAX_INFLIGHT` (20: runs
