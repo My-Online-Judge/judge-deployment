@@ -46,8 +46,9 @@ case ${1:-} in
     kubectl get nodes
     ;;
   import)
+    # `docker images` prints Docker Hub names without the docker.io/ prefix; ghcr.io/my-online-judge/ is the MinIO image only
     images=()
-    while IFS= read -r image; do images+=("$image"); done < <(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^(ghcr.io/my-online-judge/|mock-judge-server:)' | sort -u)
+    while IFS= read -r image; do images+=("$image"); done < <(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^(thanhtuanle/|ghcr.io/my-online-judge/|mock-judge-server:)' | sort -u)
     ((${#images[@]} > 0)) || die "no image to import: run scripts/local-stack.sh build first"
     k3d image import --cluster "$cluster" "${images[@]}"
     ;;

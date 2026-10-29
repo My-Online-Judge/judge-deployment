@@ -49,7 +49,7 @@ spec:
             value: "0"
       containers:
         - name: nginx
-          image: ghcr.io/my-online-judge/judge-portal:main
+          image: docker.io/thanhtuanle/judge-portal:main
           env:
             - name: TZ
               value: Asia/Ho_Chi_Minh

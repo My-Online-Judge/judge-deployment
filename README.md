@@ -332,7 +332,7 @@ the shared `.env`. The gateway and the sandboxes need no change: they have calle
 built by `migrations/sp3-flyway.sh`, a one-shot Flyway container on the service's own migrations.
 
 Cutover runbook (all from `judge-deployment/`). Historical: its `docker tag judge-deployment-submission-service:latest|pre-sp3b`
-commands use the image names from before sub-project 12, which now names images `ghcr.io/my-online-judge/…` (see
+commands use the image names from before sub-project 12, which now names images `docker.io/thanhtuanle/…` (see
 [Images](#images-sub-project-12)).
 
 1. **Prepare, no traffic yet.** `migrations/sp3-env.sh create` writes `.env.submission` (generated password).
@@ -398,11 +398,17 @@ analysis that turns each run into CSV, charts and tables. The live stack is stop
 
 ## Images (sub-project 12)
 
-Every built service names its image `${OJ_REGISTRY:-ghcr.io/my-online-judge}/<name>:<tag>` in `docker-compose.yml`
+Every built service names its image `${OJ_REGISTRY:-docker.io/thanhtuanle}/<name>:<tag>` in `docker-compose.yml`
 (`oj-identity-service`, `oj-problem-service`, `oj-submission-service`, `oj-api-gateway`, `judge-worker`, `judge-portal`),
 with the tag `OJ_<NAME>_TAG`, else `OJ_TAG`, else `main` (`.env.example` lists the variables). Each service keeps its
 `build:`, so `docker compose build <service>` tags the local build with that name and `docker compose up -d --no-build`
 runs it without pulling. Build one image at a time on this host. The bench overlay runs the same names, never pulled.
+
+The registry is Docker Hub, namespace `thanhtuanle` (public repositories): each service's CI logs in with the organization secrets
+`DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` and pushes `:<commit sha>` and `:main`. The K3s manifests name the same images (`tests/k3s-*.test.sh`
+compare them with compose's). The one image still on the org's GHCR is MinIO (`ghcr.io/my-online-judge/minio:RELEASE…`, mirrored by hand): compose,
+K3s and `scripts/k3d-up.sh` keep pulling it from there until it is copied to Hub. Anonymous pulls from Hub are rate-limited: on the server run
+`docker login` (and give K3s's containerd a registry credential if pulls start failing with 429).
 
 Compose v5 pulls first for a service with both `image:` and `build:`, and builds only when the pull fails. So once CI has
 pushed a readable `:main`, a bare `docker compose up` on a host without the local tag runs CI's image instead of building

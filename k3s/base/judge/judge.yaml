@@ -103,7 +103,7 @@ spec:
               readOnly: true
       containers:
         - name: worker
-          image: ghcr.io/my-online-judge/judge-worker:main
+          image: docker.io/thanhtuanle/judge-worker:main
           env:
             - name: OTEL_SERVICE_NAME
               value: "judge-worker"
@@ -323,7 +323,7 @@ spec:
               readOnly: true
       containers:
         - name: worker
-          image: ghcr.io/my-online-judge/judge-worker:main
+          image: docker.io/thanhtuanle/judge-worker:main
           env:
             - name: OTEL_SERVICE_NAME
               value: "run-worker"

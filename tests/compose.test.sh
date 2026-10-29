@@ -210,8 +210,8 @@ check "every service (the one-shots too) rotates its json-file logs: max-size 10
 built="{'identity-service': 'oj-identity-service', 'problem-service': 'oj-problem-service', 'submission-service': 'oj-submission-service', 'api-gateway': 'oj-api-gateway', 'judge-worker': 'judge-worker', 'run-worker': 'judge-worker', 'judge-portal': 'judge-portal'}"
 default_cfg=$(env -u OJ_TAG -u OJ_REGISTRY -u OJ_IDENTITY_TAG -u OJ_PROBLEM_TAG -u OJ_SUBMISSION_TAG -u OJ_GATEWAY_TAG -u OJ_WORKER_TAG -u OJ_PORTAL_TAG \
   docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
-_check "$default_cfg" "built services reference ghcr.io/my-online-judge/<name>:main and keep their build" \
-  "all(s[n]['image'] == f'ghcr.io/my-online-judge/{img}:main' and s[n].get('build') for n, img in $built.items())"
+_check "$default_cfg" "built services reference docker.io/thanhtuanle/<name>:main (Docker Hub) and keep their build" \
+  "all(s[n]['image'] == f'docker.io/thanhtuanle/{img}:main' and s[n].get('build') for n, img in $built.items())"
 tagged_cfg=$(env -u OJ_REGISTRY -u OJ_PROBLEM_TAG -u OJ_SUBMISSION_TAG -u OJ_GATEWAY_TAG -u OJ_WORKER_TAG -u OJ_PORTAL_TAG OJ_TAG=t1 OJ_IDENTITY_TAG=t2 \
   docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
 _check "$tagged_cfg" "OJ_IDENTITY_TAG beats OJ_TAG: identity is :t2, every other built service :t1" \

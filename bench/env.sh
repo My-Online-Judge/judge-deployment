@@ -7,7 +7,7 @@
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
 
-# The image compose gives a built service: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/<name>:${OJ_<X>_TAG:-${OJ_TAG:-main}}
+# The image compose gives a built service: ${OJ_REGISTRY:-docker.io/thanhtuanle}/<name>:${OJ_<X>_TAG:-${OJ_TAG:-main}}
 # (docker-compose.yml). The overlay runs exactly that, never pulled.
 built_image() {
   local name var
@@ -19,7 +19,7 @@ built_image() {
     judge-worker) name=judge-worker var=OJ_WORKER_TAG ;;
     *) die "no image known for $1" ;;
   esac
-  echo "${OJ_REGISTRY:-ghcr.io/my-online-judge}/$name:${!var:-${OJ_TAG:-main}}"
+  echo "${OJ_REGISTRY:-docker.io/thanhtuanle}/$name:${!var:-${OJ_TAG:-main}}"
 }
 
 live_containers() { docker ps -aq --filter "label=com.docker.compose.project=$LIVE_PROJECT"; }

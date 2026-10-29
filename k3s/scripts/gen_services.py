@@ -117,7 +117,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: {name}
-          image: ghcr.io/my-online-judge/{s["repo"]}:main
+          image: docker.io/thanhtuanle/{s["repo"]}:main
 {env_from}          env:
 {env_lines}          ports:
 {ctr_ports}          securityContext:
@@ -347,7 +347,7 @@ spec:
               readOnly: true
       containers:
         - name: worker
-          image: ghcr.io/my-online-judge/judge-worker:main
+          image: docker.io/thanhtuanle/judge-worker:main
           env:
 {env_lines}          ports:
             - name: metrics

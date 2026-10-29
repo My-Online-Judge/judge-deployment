@@ -10,11 +10,11 @@ services:
       # This checkout's rules, like the generated prometheus.yml above: the base file's ./alerts.yml resolves
       # against the main checkout (--project-directory), which in a worktree is not the code being measured.
       - ${BENCH_DIR}/../alerts.yml:/etc/prometheus/alerts.yml:ro
-  submission-service: {image: "${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-submission-service:${OJ_SUBMISSION_TAG:-${OJ_TAG:-main}}", pull_policy: never}
-  identity-service: {image: "${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-identity-service:${OJ_IDENTITY_TAG:-${OJ_TAG:-main}}", pull_policy: never}
-  problem-service: {image: "${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-problem-service:${OJ_PROBLEM_TAG:-${OJ_TAG:-main}}", pull_policy: never}
-  api-gateway: {image: "${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-api-gateway:${OJ_GATEWAY_TAG:-${OJ_TAG:-main}}", pull_policy: never}
-  judge-worker: {image: "${OJ_REGISTRY:-ghcr.io/my-online-judge}/judge-worker:${OJ_WORKER_TAG:-${OJ_TAG:-main}}", pull_policy: never}
+  submission-service: {image: "${OJ_REGISTRY:-docker.io/thanhtuanle}/oj-submission-service:${OJ_SUBMISSION_TAG:-${OJ_TAG:-main}}", pull_policy: never}
+  identity-service: {image: "${OJ_REGISTRY:-docker.io/thanhtuanle}/oj-identity-service:${OJ_IDENTITY_TAG:-${OJ_TAG:-main}}", pull_policy: never}
+  problem-service: {image: "${OJ_REGISTRY:-docker.io/thanhtuanle}/oj-problem-service:${OJ_PROBLEM_TAG:-${OJ_TAG:-main}}", pull_policy: never}
+  api-gateway: {image: "${OJ_REGISTRY:-docker.io/thanhtuanle}/oj-api-gateway:${OJ_GATEWAY_TAG:-${OJ_TAG:-main}}", pull_policy: never}
+  judge-worker: {image: "${OJ_REGISTRY:-docker.io/thanhtuanle}/judge-worker:${OJ_WORKER_TAG:-${OJ_TAG:-main}}", pull_policy: never}
   judge-portal: {profiles: ["off"]}
   # The exporters (sub-project 12) are not part of what is measured either; the bench Prometheus finds their targets down.
   node-exporter: {profiles: ["off"]}

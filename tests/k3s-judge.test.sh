@@ -58,6 +58,7 @@ for name, comp_name, worker_tls in PAIRS:
     have = names(worker)
     missing, extra = sorted(set(comp_env) - have), sorted(have - set(comp_env) - EXTRA[name])
     check(not missing and not extra, f"{name}: the worker has compose's {len(comp_env)} variables (plus {sorted(EXTRA[name])})", f"missing {missing}, not allowed {extra}")
+    check(worker["image"] == compose["judge-worker" if name == "judge" else "run-worker"]["image"], f"{name}: the worker image compose runs (same registry, same tag)", worker["image"])
     lit = literal(worker)
     differ = sorted(k for k, v in lit.items() if k in comp_env and k != "JUDGE_SERVER_URL" and comp_env[k] != v)
     check(not differ, f"{name}: every literal value is compose's", ", ".join(f"{k}: {lit[k]!r} vs {comp_env[k]!r}" for k in differ))

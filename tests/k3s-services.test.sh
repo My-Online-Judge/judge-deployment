@@ -54,6 +54,7 @@ for name in SERVICES:
     from_secret_key = {e["name"] for e in c.get("env", []) if "secretKeyRef" in e.get("valueFrom", {})}
     from_env_file = set().union(*[secret_keys.get(r["secretRef"]["name"], set()) for r in c.get("envFrom", [])]) if c.get("envFrom") else set()
     comp = {k: str(v) for k, v in compose[name]["environment"].items()}
+    check(c["image"] == compose[name]["image"], f"{name}: the image compose runs (same registry, same tag)", f'{c["image"]} vs {compose[name]["image"]}')
     have = set(literal) | from_secret_key | from_env_file
     missing, extra = sorted(set(comp) - have), sorted(have - set(comp))
     check(not missing and not extra, f"{name}: the same {len(comp)} environment variables as compose", f"missing {missing}, not in compose {extra}")
@@ -79,6 +80,7 @@ dns = find("ConfigMap", "jvm-dns-security")
 check(dns and dns["data"]["jvm-dns.security"].strip() == compose_all["configs"]["jvm-dns-security"]["content"].strip(), "the JVM's DNS caching properties are compose's")
 
 # ---- portal and Jaeger -----------------------------------------------------------------------------------------------
+check(find("Deployment", "judge-portal")["spec"]["template"]["spec"]["containers"][0]["image"] == compose["judge-portal"]["image"], "judge-portal: the image compose runs (same registry, same tag)")
 for name, ports in (("judge-portal", {443}), ("jaeger", {4317, 4318})):
     d, s = find("Deployment", name), find("Service", name)
     check(d and s and {p["port"] for p in s["spec"]["ports"]} == ports, f"{name}: a Deployment and a Service on {sorted(ports)}")

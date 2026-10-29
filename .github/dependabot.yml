@@ -14,5 +14,7 @@ updates:
         update-types: ["version-update:semver-major"]
       # 3.9.0's bash is broken; the tag is pinned on purpose.
       - dependency-name: apache/kafka
-      # Our own images: tagged by each repo's CI with its commit sha.
+      # Our own images (Docker Hub, namespace thanhtuanle): tagged by each repo's CI with its commit sha.
+      - dependency-name: "thanhtuanle/*"
+      # the MinIO image mirrored in the org's GHCR
       - dependency-name: "ghcr.io/my-online-judge/*"

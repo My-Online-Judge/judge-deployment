@@ -715,7 +715,7 @@ services:
   # Submissions, judging, languages and judge servers: the remainder of the judge-api monolith, its own service
   # with its own database since sub-project 3b.
   submission-service:
-    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-submission-service:${OJ_SUBMISSION_TAG:-${OJ_TAG:-main}}
+    image: ${OJ_REGISTRY:-docker.io/thanhtuanle}/oj-submission-service:${OJ_SUBMISSION_TAG:-${OJ_TAG:-main}}
     logging: *logging
     configs: *jvm-dns-configs
     build:
@@ -774,7 +774,7 @@ services:
     networks: [oj-net]
 
   identity-service:
-    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-identity-service:${OJ_IDENTITY_TAG:-${OJ_TAG:-main}}
+    image: ${OJ_REGISTRY:-docker.io/thanhtuanle}/oj-identity-service:${OJ_IDENTITY_TAG:-${OJ_TAG:-main}}
     logging: *logging
     configs: *jvm-dns-configs
     build:
@@ -820,7 +820,7 @@ services:
     networks: [oj-net]
 
   problem-service:
-    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-problem-service:${OJ_PROBLEM_TAG:-${OJ_TAG:-main}}
+    image: ${OJ_REGISTRY:-docker.io/thanhtuanle}/oj-problem-service:${OJ_PROBLEM_TAG:-${OJ_TAG:-main}}
     logging: *logging
     configs: *jvm-dns-configs
     build:
@@ -881,7 +881,7 @@ services:
     networks: [oj-net]
 
   api-gateway:
-    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/oj-api-gateway:${OJ_GATEWAY_TAG:-${OJ_TAG:-main}}
+    image: ${OJ_REGISTRY:-docker.io/thanhtuanle}/oj-api-gateway:${OJ_GATEWAY_TAG:-${OJ_TAG:-main}}
     logging: *logging
     configs: *jvm-dns-configs
     build:
@@ -978,7 +978,7 @@ services:
     entrypoint: ["/bin/sh", "-c", "chown -R 10001 /test_case"]
 
   judge-worker:
-    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/judge-worker:${OJ_WORKER_TAG:-${OJ_TAG:-main}}
+    image: ${OJ_REGISTRY:-docker.io/thanhtuanle}/judge-worker:${OJ_WORKER_TAG:-${OJ_TAG:-main}}
     logging: *logging
     build: ../judge-worker
     # No fixed container_name: judge-workers form a Kafka consumer group (group_id=judge-workers)
@@ -1050,7 +1050,7 @@ services:
     # cases inline: no bundle cache, no MinIO credentials, no heartbeat relay (the submit workers report the sandboxes).
     # Its own certificate identity (run-worker): Kafka lets it read run.requested and write run.judged, nothing of the
     # submit lane. Like judge-worker it has no fixed container name and scales (`--scale run-worker=N`).
-    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/judge-worker:${OJ_WORKER_TAG:-${OJ_TAG:-main}}
+    image: ${OJ_REGISTRY:-docker.io/thanhtuanle}/judge-worker:${OJ_WORKER_TAG:-${OJ_TAG:-main}}
     logging: *logging
     build: ../judge-worker
     restart: unless-stopped
@@ -1135,7 +1135,7 @@ services:
           subpath: judge-server-2
 
   judge-portal:
-    image: ${OJ_REGISTRY:-ghcr.io/my-online-judge}/judge-portal:${OJ_PORTAL_TAG:-${OJ_TAG:-main}}
+    image: ${OJ_REGISTRY:-docker.io/thanhtuanle}/judge-portal:${OJ_PORTAL_TAG:-${OJ_TAG:-main}}
     logging: *logging
     build:
       context: ../judge-portal
