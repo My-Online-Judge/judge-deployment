@@ -35,7 +35,7 @@ compose=(docker compose -f docker-compose.yml -f docker-compose.mock.yml -f dock
 services=(edge judge-portal api-gateway identity-service problem-service submission-service
   judge-worker run-worker judge-server judge-server-2 jaeger)
 java_services=(identity-service problem-service submission-service api-gateway)
-ca=pki/out/ca/ca.crt
+ca=${OJ_SMOKE_CA:-pki/out/ca/ca.crt}   # OJ_SMOKE_CA: the CA that signed the edge, when smoke aims at another stack
 
 die() { echo "local-stack.sh: $*" >&2; exit 1; }
 fail=0
@@ -268,7 +268,7 @@ cmd_down() {
 # ---- smoke -----------------------------------------------------------------------------------------------------------
 
 cmd_smoke() {
-  local base=https://localhost tmp pass slug=smoke-a-plus-b id status i code
+  local base=${OJ_SMOKE_BASE:-https://localhost} tmp pass slug=smoke-a-plus-b id status i code
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
   pass=$(grep '^OJ_ADMIN_PASSWORD=' .env 2> /dev/null | cut -d= -f2- || true)

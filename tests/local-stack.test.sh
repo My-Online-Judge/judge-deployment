@@ -57,4 +57,7 @@ import json, sys
 print(sorted((p["host_ip"], int(p["published"])) for p in json.load(sys.stdin)["services"]["minio"]["ports"]))')
 if [[ $ports == "[('127.0.0.1', 9000)]" ]]; then ok "with docker-compose.local.yml MinIO publishes only 127.0.0.1:9000"
 else bad "MinIO ports with the local override: $ports"; fi
+# the smoke test can aim at the K3s stack: OJ_SMOKE_BASE (default https://localhost) and OJ_SMOKE_CA (default compose's CA)
+if grep -q 'local base=${OJ_SMOKE_BASE:-https://localhost}' scripts/local-stack.sh && grep -q 'ca=${OJ_SMOKE_CA:-pki/out/ca/ca.crt}' scripts/local-stack.sh; then ok "smoke honours OJ_SMOKE_BASE and OJ_SMOKE_CA, with compose's address and CA as the defaults"
+else bad "smoke does not take OJ_SMOKE_BASE / OJ_SMOKE_CA"; fi
 exit $fail
