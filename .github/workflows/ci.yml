@@ -66,7 +66,7 @@ jobs:
       - name: Platform, stack and secrets
         run: |
           kubectl apply -k k3s/platform
-          kubectl wait --for condition=established crd/certificates.cert-manager.io crd/issuers.cert-manager.io crd/scaledobjects.keda.sh --timeout=300s
+          k3s/scripts/wait-for-crds.sh 300
           kubectl apply -k k3s/overlays/local
           k3s/scripts/env-to-secrets.sh
           kubectl -n oj rollout status deploy --timeout=600s

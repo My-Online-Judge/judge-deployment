@@ -282,4 +282,17 @@
   answers on k3d, but k3d's load balancer hides what a real host does; the runbook has a check after the DNS change.
 - **Ruling: Let's Encrypt is configured, not exercised (final review #4).** The issuer and certificate render and are tested; whether the HTTP-01 challenge
   crosses Traefik's port-80 redirect is only known on the server.
+- **Ruling: the judge pod's rollout, PDB and caches (after the final review).** `maxSurge 0 / maxUnavailable 1` instead of a surge pod (it stalls at the memory
+  ceiling), no PodDisruptionBudget (it can only block a drain on one node), `/dev/shm` 256Mi on the sandbox (compose parity), the test-case cache 8Gi
+  with a 6 hour worker TTL (a byte cap in the worker would be sturdier but is a cross-repo change; revisit if the VPS disk is small). Cost if wrong:
+  a rollout drops the judge for the time the pod restarts (the queue waits), or an 8Gi cache on a small disk.
+- **Ruling: the Java images run on Liberica, not Temurin.** `eclipse-temurin:17-jre-alpine` has no arm64 variant; `bellsoft/liberica-openjre-alpine:17` runs on both,
+  so Docker Hub carries `linux/amd64` and `linux/arm64` and k3d on an Apple-silicon Mac can run the real images. A different OpenJDK vendor than before
+  (what `local-stack.sh` already ran locally); `scripts/local-stack.sh`'s swap is gone. CI tests and scans the amd64 image and pushes a second build of both
+  platforms. Cost if wrong: a vendor-specific JVM difference; revert is one line per Dockerfile.
+- **Ruling: the server pins images by commit.** `overlays/vps` lists the six images with `newTag`, `k3s/scripts/pin-images.sh` sets them (one tag for all, like
+  `OJ_TAG`); the default stays `main` so the file works before the first pin.
+- **The `.env` reader is shared (after the final review).** `k3s/scripts/dotenv.py` reads the files the way compose does (quotes, inline comments, `export`),
+  tested against `docker compose config`; other one-off readers (`migrations/sp12-pg-monitor.sh` and the sp*-env scripts) read single keys with `grep`
+  and are left as they are.
 

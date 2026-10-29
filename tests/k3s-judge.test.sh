@@ -43,7 +43,7 @@ def literal(c): return {e["name"]: e["value"] for e in c.get("env", []) if "valu
 def names(c): return {e["name"] for e in c.get("env", [])}
 
 PAIRS = (("judge", "judge-worker", "tls-judge-worker"), ("run-judge", "run-worker", "tls-run-worker"))
-EXTRA = {"judge": {"POD_NAME", "CONSUMER_GROUP", "MAX_POLL_INTERVAL_MS"}, "run-judge": {"POD_NAME"}}
+EXTRA = {"judge": {"POD_NAME", "CONSUMER_GROUP", "MAX_POLL_INTERVAL_MS", "TEST_CASE_CACHE_TTL_SECONDS"}, "run-judge": {"POD_NAME"}}
 for name, comp_name, worker_tls in PAIRS:
     d = find(base, "Deployment", name)
     if not d: bad(f"a Deployment {name}"); continue
@@ -91,7 +91,22 @@ for name, comp_name, worker_tls in PAIRS:
     check("/etc/oj/tls" in mounts and all(m["name"] != next(v["name"] for v in p["volumes"] if v.get("secret", {}).get("secretName") == worker_tls)
           for m in sandbox["volumeMounts"]), f"{name}: the worker's key is not mounted in the sandbox container")
 
-check(find(base, "PodDisruptionBudget", "judge") and find(base, "PodDisruptionBudget", "judge")["spec"]["minAvailable"] == 1, "a PodDisruptionBudget keeps one judge pod")
+# rollout and drain on one node: a PodDisruptionBudget of 1 on one replica would stop `kubectl drain` for good, and a surge pod needs 1.66Gi
+# free (the node's memory is the ceiling, see k3s/README.md), so a rollout replaces the pod in place; Kafka holds the records meanwhile
+check(find(base, "PodDisruptionBudget", "judge") is None, "no PodDisruptionBudget: it can only block a drain on a single node (the 120 s grace period still lets a judgement finish)")
+for name in ("judge", "run-judge"):
+    d = find(base, "Deployment", name)
+    check(d and d["spec"]["strategy"] == {"type": "RollingUpdate", "rollingUpdate": {"maxSurge": 0, "maxUnavailable": 1}}, f"{name}: a rollout replaces the pod (maxSurge 0, maxUnavailable 1) instead of stalling for memory to surge")
+    p = pod(d) if d else {"containers": [], "initContainers": [], "volumes": []}
+    sb = next((c for c in p.get("initContainers", []) if c["name"] == "sandbox"), {})
+    shm = next((v for v in p.get("volumes", []) if v["name"] == "dev-shm"), {})
+    check(any(m["name"] == "dev-shm" and m["mountPath"] == "/dev/shm" for m in sb.get("volumeMounts", [])) and shm.get("emptyDir") == {"medium": "Memory", "sizeLimit": "256Mi"},
+          f"{name}: the sandbox has a 256Mi memory-backed /dev/shm, as compose's shm_size: 256m (a pod's default is 64Mi)")
+jd = find(base, "Deployment", "judge")
+cases = next((v for v in pod(jd)["volumes"] if v["name"] == "cases"), {}) if jd else {}
+check(cases.get("emptyDir", {}).get("sizeLimit") == "8Gi", "judge: the test-case cache may grow to 8Gi before the kubelet evicts the pod (2Gi could evict it mid-judgement)")
+wk = next((c for c in pod(jd)["containers"] if c["name"] == "worker"), {}) if jd else {}
+check({e["name"]: e.get("value") for e in wk.get("env", [])}.get("TEST_CASE_CACHE_TTL_SECONDS") == "21600", "judge: cached bundles unused for 6 hours are swept (the worker's default is 24 h; the cache is capped by size, so it ages out sooner)")
 
 # the local overlay: the mock sandbox
 for name in ("judge", "run-judge"):

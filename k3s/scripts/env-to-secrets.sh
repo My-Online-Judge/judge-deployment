@@ -15,8 +15,10 @@ dir=${OJ_DEPLOY_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 dry=0
 case ${1:-} in --dry-run) dry=1 ;; '') ;; *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;; esac
 
-python3 - "$dir" "$dry" <<'PY'
+PYTHONPATH=$(dirname "${BASH_SOURCE[0]}") python3 - "$dir" "$dry" <<'PY'
 import os, subprocess, sys, tempfile
+import dotenv   # k3s/scripts/dotenv.py: .env files read the way compose reads them
+parse = dotenv.parse
 dir_, dry = sys.argv[1], sys.argv[2] == "1"
 MINIO_ROOT = ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"]
 MINIO_INIT = MINIO_ROOT + ["MINIO_PROBLEM_ACCESS_KEY", "MINIO_PROBLEM_SECRET_KEY", "MINIO_WORKER_ACCESS_KEY",
@@ -42,16 +44,6 @@ SECRETS = [  # name, file, {key in the Secret: key in the file} (None: every key
 ]
 OPTIONAL = {"alertmanager-telegram", "restic"}   # a missing key is an empty value, not an error
 EXTRA = {"restic": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "B2_ACCOUNT_ID", "B2_ACCOUNT_KEY"]}   # taken from the file when it has them
-
-def parse(path):
-    values = {}
-    for line in open(path, encoding="utf-8"):
-        line = line.rstrip("\n")
-        if not line.strip() or line.lstrip().startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        values[key.strip()] = value
-    return values
 
 if not dry:
     have = subprocess.run(["kubectl", "get", "namespace", "oj"], capture_output=True).returncode == 0

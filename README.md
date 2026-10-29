@@ -128,9 +128,9 @@ What is different from the server stack:
   `docker.sock`) and are left out.
 - **MinIO's console** (`127.0.0.1:9001`) is not published (`docker-compose.local.yml`); `doctor` and `up` stop when a port
   the stack needs is held by another container or process, and name it.
-- **On an Apple-silicon Mac** the Java images' runtime stage, `eclipse-temurin:17-jre-alpine`, has no arm64 variant, so `build`
-  swaps it for an alpine JRE 17 that has one (`LOCAL_JRE_IMAGE`, default `bellsoft/liberica-openjre-alpine:17`) with
-  `docker buildx --build-context`. The Dockerfiles are untouched; the result is good for trying the stack, not a release image.
+- **On an Apple-silicon Mac** the images build natively: the Java Dockerfiles run on `bellsoft/liberica-openjre-alpine:17`, which exists for
+  arm64 and amd64 (the Temurin alpine JRE they used before has no arm64 variant, which is why this script used to swap it), and CI pushes
+  both platforms to Docker Hub (`linux/amd64` and `linux/arm64`; the one tested and Trivy-scanned in CI is the amd64 build, and the push builds it again).
 - `build` refuses when a service's pom pins an `oj-common` version other than the sibling checkout's: each Dockerfile compiles
   the checkout, so the image could not be built.
 - `smoke` leaves its problem (`smoke-a-plus-b`) and submissions in the local database.

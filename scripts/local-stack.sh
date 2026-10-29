@@ -14,7 +14,7 @@
 # `init` keeps what exists, so it is safe to run again. Nothing here edits a tracked file.
 #
 # Environment: OJ_ROOT (the directory that holds the sibling repos, default: the parent of judge-deployment),
-# DOCKER_CONTEXT (as docker's own), LOCAL_JRE_IMAGE (arm64 only, see `build`).
+# DOCKER_CONTEXT (as docker's own).
 set -euo pipefail
 
 # pki.sh and this script need bash >= 4; macOS ships 3.2. Run again under Homebrew's bash when there is one.
@@ -187,38 +187,13 @@ cmd_doctor() {
 
 # ---- build -----------------------------------------------------------------------------------------------------------
 
-# service_build <service>: "<image> <context> <name=path>..." from the resolved compose file
-service_build() {
-  "${compose[@]}" config --format json | python3 -c '
-import json, sys
-s = json.load(sys.stdin)["services"][sys.argv[1]]
-b = s["build"]
-print(s["image"], b["context"], *[f"{k}={v}" for k, v in (b.get("additional_contexts") or {}).items()])' "$1"
-}
-
 cmd_build() {
-  local svc line image context arch pair
-  local -a args extras fields
+  local svc
   check_pins
   ((fail == 0)) || exit 1
-  arch=$(uname -m)
   for svc in "${java_services[@]}"; do
     echo "== build $svc"
-    if [[ $arch == arm64 || $arch == aarch64 ]]; then
-      # The runtime stage of these images is eclipse-temurin:17-jre-alpine, which has no arm64 variant. buildx replaces
-      # that FROM with an alpine JRE 17 that has one (the Dockerfiles are untouched; the tag is the one compose runs, so
-      # `up` finds it). A different JRE vendor than the servers': good for trying the stack, not a release build.
-      line=$(service_build "$svc")
-      read -ra fields <<< "$line"
-      image=${fields[0]}
-      context=${fields[1]}
-      extras=("${fields[@]:2}")
-      args=(--build-context "eclipse-temurin:17-jre-alpine=docker-image://${LOCAL_JRE_IMAGE:-bellsoft/liberica-openjre-alpine:17}")
-      for pair in "${extras[@]}"; do args+=(--build-context "$pair"); done
-      docker buildx build --load -t "$image" "${args[@]}" "$context"
-    else
-      "${compose[@]}" build "$svc"
-    fi
+    "${compose[@]}" build "$svc"
   done
   for svc in judge-worker judge-portal judge-server; do
     echo "== build $svc"

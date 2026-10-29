@@ -24,3 +24,18 @@ replacements:
     targets:
       - select: {kind: ClusterIssuer, name: letsencrypt}
         fieldPaths: [spec.acme.email]
+# Our images, pinned by commit on the server (compose's OJ_TAG): `k3s/scripts/pin-images.sh <commit sha>` sets all six, `main` floats them
+# again. A floating tag means any push to main changes what a restarted pod runs.
+images:
+  - name: docker.io/thanhtuanle/oj-api-gateway
+    newTag: main
+  - name: docker.io/thanhtuanle/oj-identity-service
+    newTag: main
+  - name: docker.io/thanhtuanle/oj-problem-service
+    newTag: main
+  - name: docker.io/thanhtuanle/oj-submission-service
+    newTag: main
+  - name: docker.io/thanhtuanle/judge-worker
+    newTag: main
+  - name: docker.io/thanhtuanle/judge-portal
+    newTag: main

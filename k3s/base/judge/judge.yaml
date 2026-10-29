@@ -8,11 +8,13 @@ metadata:
     app: judge
 spec:
   # no replicas: KEDA's HorizontalPodAutoscaler owns the count (k3s/base/keda), and an apply must not reset it
+  # A rollout replaces the pod in place: a surge pod needs 1.66Gi of the node's memory (see k3s/README.md, Autoscaling), which is
+  # the ceiling, so surging would leave the rollout Pending; Kafka holds the records while the pod restarts.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: judge
@@ -95,6 +97,9 @@ spec:
               mountPath: /tmp
             - name: sandbox-log
               mountPath: /log
+            # compose's shm_size: 256m; a pod's /dev/shm is 64Mi unless a volume is mounted there
+            - name: dev-shm
+              mountPath: /dev/shm
             - name: cases
               mountPath: /test_case
               readOnly: true
@@ -139,6 +144,8 @@ spec:
               value: "https://minio:9000"
             - name: SANDBOX_HEARTBEAT_URL
               value: "https://submission-service:8000/api/judge_server_heartbeat/"
+            - name: TEST_CASE_CACHE_TTL_SECONDS
+              value: "21600"
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -200,7 +207,7 @@ spec:
       volumes:
         - name: cases
           emptyDir:
-            sizeLimit: 2Gi
+            sizeLimit: 8Gi
         - name: judger
           emptyDir:
             medium: Memory
@@ -212,6 +219,10 @@ spec:
         - name: sandbox-log
           emptyDir:
             sizeLimit: 64Mi
+        - name: dev-shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
         - name: worker-tmp
           emptyDir:
             sizeLimit: 64Mi
@@ -232,11 +243,13 @@ metadata:
     app: run-judge
 spec:
   # no replicas: KEDA's HorizontalPodAutoscaler owns the count (k3s/base/keda), and an apply must not reset it
+  # A rollout replaces the pod in place: a surge pod needs 1.66Gi of the node's memory (see k3s/README.md, Autoscaling), which is
+  # the ceiling, so surging would leave the rollout Pending; Kafka holds the records while the pod restarts.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: run-judge
@@ -318,6 +331,9 @@ spec:
               mountPath: /tmp
             - name: sandbox-log
               mountPath: /log
+            # compose's shm_size: 256m; a pod's /dev/shm is 64Mi unless a volume is mounted there
+            - name: dev-shm
+              mountPath: /dev/shm
             - name: sandbox-tls
               mountPath: /etc/oj/tls
               readOnly: true
@@ -415,6 +431,10 @@ spec:
         - name: sandbox-log
           emptyDir:
             sizeLimit: 64Mi
+        - name: dev-shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
         - name: worker-tmp
           emptyDir:
             sizeLimit: 64Mi
@@ -426,13 +446,3 @@ spec:
           secret:
             secretName: tls-run-worker
             defaultMode: 0440
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: judge
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: judge

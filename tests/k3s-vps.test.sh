@@ -38,8 +38,8 @@ check(host.get("OJ_PUBLIC_HOST", "").endswith(".invalid") or "." in host.get("OJ
 check("@" in host.get("ACME_EMAIL", ""), "overlays/vps/host.env names the ACME email")
 
 # stage 1 = vps minus the judge pods and KEDA, and nothing else
-judge_side = {("Deployment", "judge"), ("Deployment", "run-judge"), ("ScaledObject", "judge"), ("ScaledObject", "run-judge"), ("PodDisruptionBudget", "judge")}
-check(judge_side <= ids(vps), "vps has the judge pods, their scalers and the budget", str(judge_side - ids(vps)))
+judge_side = {("Deployment", "judge"), ("Deployment", "run-judge"), ("ScaledObject", "judge"), ("ScaledObject", "run-judge")}
+check(judge_side <= ids(vps), "vps has the judge pods and their scalers", str(judge_side - ids(vps)))
 check(not (judge_side & ids(stage1)), "vps-stage1 has none of them", str(judge_side & ids(stage1)))
 check(ids(vps) - ids(stage1) == judge_side & ids(vps), "vps-stage1 is vps and nothing else removed", str((ids(vps) - ids(stage1)) - judge_side))
 
@@ -65,4 +65,29 @@ check(cfg and cfg["metadata"].get("namespace") == "kube-system" and "externalTra
       "the platform sets Traefik's Service to externalTrafficPolicy: Local (the gateway sees the real client address)", values[:120])
 sys.exit(1 if failed else 0)
 PY
+# image tags: the server pins our images by commit (compose's OJ_TAG), through the overlay's `images:`; pin-images.sh sets them all
+n=$(grep -c 'name: docker.io/thanhtuanle/' k3s/overlays/vps/kustomization.yaml || true)
+[[ $n == 6 ]] && echo "ok   overlays/vps names the six images it can pin (images:)" || { echo "FAIL overlays/vps has $n images: entries (want 6)"; fail=1; }
+tagged=$(python3 - "$tmp/vps.json" <<'PY'
+import json, sys
+tags = {c["image"].rsplit(":", 1)[1] for o in json.load(open(sys.argv[1])) if o.get("kind") == "Deployment"
+        for c in o["spec"]["template"]["spec"].get("initContainers", []) + o["spec"]["template"]["spec"]["containers"] if c["image"].startswith("docker.io/thanhtuanle/")}
+print(",".join(sorted(tags)))
+PY
+)
+grep -q 'newTag: main' k3s/overlays/vps/kustomization.yaml && [[ $tagged == main ]] && echo "ok   the rendered server manifests run our images at the overlay's tag" || { echo "FAIL rendered tags: $tagged"; fail=1; }
+pin=k3s/scripts/pin-images.sh
+if [[ -x $pin ]]; then
+  cp k3s/overlays/vps/kustomization.yaml "$tmp/kustomization.yaml"
+  if OJ_VPS_KUSTOMIZATION="$tmp/kustomization.yaml" bash "$pin" 0123abc > /dev/null 2>&1; then
+    [[ $(grep -c 'newTag: 0123abc' "$tmp/kustomization.yaml") == 6 ]] && echo "ok   pin-images.sh sets all six images to the commit" || { echo "FAIL pin-images.sh did not set all six tags"; fail=1; }
+  else echo "FAIL pin-images.sh 0123abc"; fail=1; fi
+  OJ_VPS_KUSTOMIZATION="$tmp/kustomization.yaml" bash "$pin" main > /dev/null 2>&1 && [[ $(grep -c 'newTag: main' "$tmp/kustomization.yaml") == 6 ]] && echo "ok   pin-images.sh main sets them back to the floating tag" || { echo "FAIL pin-images.sh main"; fail=1; }
+  refused=0
+  for bad_tag in "" "v 1" 'x;rm -rf /' "../etc" "0123"; do
+    OJ_VPS_KUSTOMIZATION="$tmp/kustomization.yaml" bash "$pin" "$bad_tag" > /dev/null 2>&1 || refused=$((refused + 1))
+  done
+  [[ $refused == 5 ]] && echo "ok   pin-images.sh refuses an empty, malformed or too short tag (a typo must not reach the server)" || { echo "FAIL pin-images.sh refused $refused of 5 bad tags"; fail=1; }
+else echo "FAIL $pin exists and is executable"; fail=1; fi
+
 exit $fail

@@ -5,8 +5,7 @@
                             and api-gateway (the environment, ports, probes and limits of docker-compose.yml)
   gen_services.py configs   the ConfigMaps of the services and the portal: the JVM's DNS caching, portal/nginx-tls.conf and
                             jaeger/config.yaml, byte for byte
-  gen_services.py judge     the Judge Pod and the Run Pod (a sandbox and a worker, one to one) and the Judge Pod's
-                            PodDisruptionBudget
+  gen_services.py judge     the Judge Pod and the Run Pod (a sandbox and a worker, one to one)
 
   python3 k3s/scripts/gen_services.py java > k3s/base/services/java.yaml
 
@@ -222,7 +221,9 @@ JUDGE_PODS = [
     dict(name="judge", worker_tls="tls-judge-worker", otel="judge-worker", cache=True, groups=[12003],
          env=[("CONSUMER_GROUP", "judge-workers"), ("JUDGE_SERVER_URL", "https://localhost:8080"), ("KAFKA_BROKERS", "kafka:29092"),
               ("MAX_POLL_INTERVAL_MS", "600000"), ("MINIO_BUCKET", "test-cases"), ("MINIO_ENDPOINT", "https://minio:9000"),
-              ("SANDBOX_HEARTBEAT_URL", "https://submission-service:8000/api/judge_server_heartbeat/")],
+              ("SANDBOX_HEARTBEAT_URL", "https://submission-service:8000/api/judge_server_heartbeat/"),
+              # the cache is capped by size (8Gi below), not by the worker: bundles unused for 6 hours go (its default is 24)
+              ("TEST_CASE_CACHE_TTL_SECONDS", "21600")],
          secret_env=[("JUDGE_SERVER_TOKEN", "judge-token", "JUDGE_SERVER_TOKEN"), ("MINIO_ACCESS_KEY", "minio-worker", "MINIO_ACCESS_KEY"),
                      ("MINIO_SECRET_KEY", "minio-worker", "MINIO_SECRET_KEY")]),
     dict(name="run-judge", worker_tls="tls-run-worker", otel="run-worker", cache=False, groups=[],
@@ -246,7 +247,7 @@ def judge():
         groups = ("        supplementalGroups: [" + ", ".join(str(g) for g in j["groups"]) + "]\n") if j["groups"] else ""
         cache_sandbox = ("            - name: cases\n              mountPath: /test_case\n              readOnly: true\n") if j["cache"] else ""
         cache_worker = ("            - name: cases\n              mountPath: /test_case\n") if j["cache"] else ""
-        cache_volume = ("        - name: cases\n          emptyDir:\n            sizeLimit: 2Gi\n") if j["cache"] else ""
+        cache_volume = ("        - name: cases\n          emptyDir:\n            sizeLimit: 8Gi\n") if j["cache"] else ""
         out.append(f"""---
 apiVersion: apps/v1
 kind: Deployment
@@ -256,11 +257,13 @@ metadata:
     app: {name}
 spec:
   # no replicas: KEDA's HorizontalPodAutoscaler owns the count (k3s/base/keda), and an apply must not reset it
+  # A rollout replaces the pod in place: a surge pod needs 1.66Gi of the node's memory (see k3s/README.md, Autoscaling), which is
+  # the ceiling, so surging would leave the rollout Pending; Kafka holds the records while the pod restarts.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: {name}
@@ -342,6 +345,9 @@ spec:
               mountPath: /tmp
             - name: sandbox-log
               mountPath: /log
+            # compose's shm_size: 256m; a pod's /dev/shm is 64Mi unless a volume is mounted there
+            - name: dev-shm
+              mountPath: /dev/shm
 {cache_sandbox}            - name: sandbox-tls
               mountPath: /etc/oj/tls
               readOnly: true
@@ -398,6 +404,10 @@ spec:
         - name: sandbox-log
           emptyDir:
             sizeLimit: 64Mi
+        - name: dev-shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
         - name: worker-tmp
           emptyDir:
             sizeLimit: 64Mi
@@ -409,17 +419,6 @@ spec:
           secret:
             secretName: {j["worker_tls"]}
             defaultMode: 0440
-""")
-    out.append("""---
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: judge
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: judge
 """)
     return "".join(out)
 

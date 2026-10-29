@@ -10,7 +10,7 @@ scripts/k3d-up.sh up            # a K3s cluster `oj` in Docker; https://localhos
 scripts/local-stack.sh build    # the images (arm64 Macs: see the README's "Run it on one machine")
 scripts/k3d-up.sh import        # load them into the cluster
 kubectl apply -k k3s/platform   # once per cluster: cert-manager and KEDA, installed by K3s's Helm controller
-kubectl wait --for condition=established crd/certificates.cert-manager.io crd/issuers.cert-manager.io crd/scaledobjects.keda.sh
+k3s/scripts/wait-for-crds.sh    # the Helm controller installs them a minute later; a bare `kubectl wait` fails on a CRD that does not exist yet
 kubectl apply -k k3s/overlays/local
 k3s/scripts/env-to-secrets.sh   # the compose .env files as Secrets (pods wait for them; run it again after a change)
 bash tests/k3s-render.test.sh   # every overlay renders and validates (OJ_DOCKER_CONTEXT=desktop-linux on a Mac)
@@ -113,6 +113,13 @@ compose's.
   `scripts/k3d-up.sh` sets `pod-max-pids=2048` (compose gave the sandbox 1024); install K3s on the server with
   `--kubelet-arg=pod-max-pids=2048`. A cluster created before that flag needs `scripts/k3d-up.sh down` and `up`.
 
+- **Rollout, drain and caches on one node.** A rollout replaces the pod in place (`maxSurge: 0, maxUnavailable: 1`): a surge pod would need
+  1.66Gi of the node's memory, which is the ceiling (see Autoscaling), and would leave the rollout Pending; Kafka holds the records meanwhile.
+  There is no PodDisruptionBudget (a cluster applied before this change still has one: `kubectl -n oj delete pdb judge`, since `apply` does not
+  prune): on a single node it could only stop `kubectl drain` for good, and a drain still waits out the pod's 120 seconds. The sandbox has a 256Mi memory-backed `/dev/shm` (compose's `shm_size: 256m`; a pod's default is 64Mi). The test-case cache
+  (`cases`, judge pod only) may grow to 8Gi before the kubelet evicts the pod, which would kill the judgement in flight; the worker sweeps
+  bundles unused for 6 hours (`TEST_CASE_CACHE_TTL_SECONDS`, default 24 h), so the cache ages out well before the cap on a normal disk.
+
 ## Autoscaling (`base/keda`, `platform/keda.yaml`)
 
 KEDA scales `judge` (1 to 4 pods) and `run-judge` (1 to 2) with the Kafka lag of their consumer groups: one more pod per 5 records
@@ -201,10 +208,11 @@ everything (all three databases and the bucket, replaced exactly), so nothing wr
 1. **Install K3s** with `--kubelet-arg=pod-max-pids=2048`, then `kubectl apply -k k3s/platform` and wait for the CRDs (see the top of this
    file). The platform also sets Traefik's Service to `externalTrafficPolicy: Local`, so the gateway sees the real client address (it bans by
    it); after the DNS change check that the gateway logs a visitor's own address, not the node's.
-2. **Secrets and the public name.** Copy the `.env*` files and `pki/out` to the machine that runs kubectl; `k3s/scripts/ca-from-pki.sh` (the
+2. **Secrets, the public name and the image tags.** Copy the `.env*` files and `pki/out` to the machine that runs kubectl; `k3s/scripts/ca-from-pki.sh` (the
    Secret `oj-ca`, so the leaves keep the CA the clients already trust); put `RESTIC_REPOSITORY` (an S3 or B2 bucket, off this host) and
    `RESTIC_PASSWORD` (copy it elsewhere) in `.env`; `k3s/scripts/env-to-secrets.sh`; edit `k3s/overlays/vps/host.env` (the public host and the
-   ACME email). Make the repository once: `set -a; . ./.env; set +a; restic init` (the nightly job never creates one, so a mistyped address
+   ACME email); pin the images to the commit you tested with `k3s/scripts/pin-images.sh <sha>` (the overlay floats on `main` otherwise, so a
+   restarted pod would run whatever was pushed last). Make the repository once: `set -a; . ./.env; set +a; restic init` (the nightly job never creates one, so a mistyped address
    fails instead of starting an empty repository).
 3. **Apply `kubectl apply -k k3s/overlays/vps-stage1`**: everything but the judge pods and KEDA, so compose is still the only consumer of
    `submission.requested`. Then `k3s/scripts/pg-monitor.sh` once the databases are up. The edge certificate is requested from Let's Encrypt
