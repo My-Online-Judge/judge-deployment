@@ -939,7 +939,7 @@ services:
 
   jaeger:
     logging: *logging
-    image: jaegertracing/jaeger:2.21.0
+    image: jaegertracing/jaeger:2.22.0
     container_name: oj-jaeger
     restart: unless-stopped
     environment: *tz-env
