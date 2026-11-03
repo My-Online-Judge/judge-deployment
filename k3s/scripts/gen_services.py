@@ -195,6 +195,7 @@ JVM_DNS = "networkaddress.cache.ttl=1\nnetworkaddress.cache.negative.ttl=0\n"
 
 def configs():
     return (HEADER.format(target="configs") + configmap("jvm-dns-security", "jvm-dns.security", JVM_DNS)
+            + "---\n" + configmap("java-policy", "java.policy", read("sandbox/java.policy"))
             + "---\n" + configmap("portal-nginx", "nginx.conf", read("portal/nginx-tls.conf"))
             + "---\n" + configmap("jaeger-config", "config.yaml", read("jaeger/config.yaml")))
 
@@ -351,6 +352,10 @@ spec:
 {cache_sandbox}            - name: sandbox-tls
               mountPath: /etc/oj/tls
               readOnly: true
+            - name: java-policy
+              mountPath: /opt/oj/java.policy
+              subPath: java.policy
+              readOnly: true
       containers:
         - name: worker
           image: docker.io/thanhtuanle/judge-worker:main
@@ -411,6 +416,9 @@ spec:
         - name: worker-tmp
           emptyDir:
             sizeLimit: 64Mi
+        - name: java-policy
+          configMap:
+            name: java-policy
         - name: sandbox-tls
           secret:
             secretName: tls-judge-server

@@ -76,6 +76,7 @@ for name, comp_name, worker_tls in PAIRS:
           and sorted(sc["capabilities"]["add"]) == sorted(cs["cap_add"]) and sc.get("readOnlyRootFilesystem") is True,
           f"{name}: the sandbox is not privileged, drops every capability but compose's {len(cs['cap_add'])}, and has a read-only root")
     check(p["securityContext"].get("seccompProfile", {}).get("type") == "RuntimeDefault", f"{name}: RuntimeDefault seccomp")
+    check(any(m["mountPath"] == "/opt/oj/java.policy" and m.get("readOnly") for m in sandbox["volumeMounts"]), f"{name}: the sandbox mounts the Java security policy")
     check(literal(sandbox).get("GUNICORN_CMD_ARGS") == cs["environment"]["GUNICORN_CMD_ARGS"], f"{name}: the sandbox serves mutual TLS with compose's gunicorn arguments")
     check(all(k in sandbox for k in ("startupProbe", "readinessProbe", "livenessProbe")) and all(k in worker for k in ("startupProbe", "readinessProbe", "livenessProbe")),
           f"{name}: both containers have startup, readiness and liveness probes")
