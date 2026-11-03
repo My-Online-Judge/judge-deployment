@@ -357,7 +357,7 @@ services:
     # Pub/sub for the verdict SSE fan-out, and the ban mirror, logout blocklist, session-revocation cutoffs and rate
     # limits. Append-only file on a named volume: a logged-out or revoked token must stay revoked across
     # `docker compose down`/`up` (access tokens live 24 h). everysec: a crash loses at most a second of writes.
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: oj-redis
     restart: unless-stopped
     # TLS only (--port 0 closes the plaintext port): every client must present a certificate signed by the private CA.
