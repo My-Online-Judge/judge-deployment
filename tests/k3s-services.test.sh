@@ -76,6 +76,8 @@ for name in ("identity-service", "submission-service", "api-gateway"):
     s = find("Service", name)
     check(s and {p["port"] for p in s["spec"]["ports"]} == {8000, 8081}, f"Service {name} exposes 8000 and 8081")
 
+policy = find("ConfigMap", "java-policy")
+check(policy and policy["data"]["java.policy"] == open("sandbox/java.policy").read(), "the Java security policy is sandbox/java.policy, byte for byte")
 dns = find("ConfigMap", "jvm-dns-security")
 check(dns and dns["data"]["jvm-dns.security"].strip() == compose_all["configs"]["jvm-dns-security"]["content"].strip(), "the JVM's DNS caching properties are compose's")
 

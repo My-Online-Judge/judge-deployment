@@ -106,6 +106,10 @@ spec:
             - name: sandbox-tls
               mountPath: /etc/oj/tls
               readOnly: true
+            - name: java-policy
+              mountPath: /opt/oj/java.policy
+              subPath: java.policy
+              readOnly: true
       containers:
         - name: worker
           image: docker.io/thanhtuanle/judge-worker:main
@@ -226,6 +230,9 @@ spec:
         - name: worker-tmp
           emptyDir:
             sizeLimit: 64Mi
+        - name: java-policy
+          configMap:
+            name: java-policy
         - name: sandbox-tls
           secret:
             secretName: tls-judge-server
@@ -337,6 +344,10 @@ spec:
             - name: sandbox-tls
               mountPath: /etc/oj/tls
               readOnly: true
+            - name: java-policy
+              mountPath: /opt/oj/java.policy
+              subPath: java.policy
+              readOnly: true
       containers:
         - name: worker
           image: docker.io/thanhtuanle/judge-worker:main
@@ -438,6 +449,9 @@ spec:
         - name: worker-tmp
           emptyDir:
             sizeLimit: 64Mi
+        - name: java-policy
+          configMap:
+            name: java-policy
         - name: sandbox-tls
           secret:
             secretName: tls-judge-server

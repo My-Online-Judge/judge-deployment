@@ -95,6 +95,10 @@ x-sandbox: &sandbox
   tmpfs:
     - /judger:exec,mode=755,size=1g
     - /tmp:size=256m
+  # sandbox/java.policy: Java submissions run under the security manager with this policy (the java language row).
+  configs:
+    - source: java-policy
+      target: /opt/oj/java.policy
   healthcheck: *sandbox-health
   depends_on:
     tls-init:
@@ -1207,6 +1211,8 @@ configs:
       local   all all                     trust
       hostssl all all 0.0.0.0/0           scram-sha-256 clientcert=verify-ca
       hostssl all all ::/0                scram-sha-256 clientcert=verify-ca
+  java-policy:
+    file: ./sandbox/java.policy
   jvm-dns-security:
     # Appended to each JVM's java.security (x-java-tool-options): DNS answers kept 1 s, failed lookups not at all.
     content: |
