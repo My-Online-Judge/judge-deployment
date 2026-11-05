@@ -814,9 +814,14 @@ Replaying `submission.judged.dlq`:
 Limits: a record with a null key replays with the literal key `null`; a record containing a raw newline, or no tab
 between key and value, cannot be replayed with this script.
 
-**Warning.** Replaying `oj.submission.events.dlq` is safe for first verdicts. A REJUDGE event replayed after a newer
-rejudge of the same submission moves the statistics back to the older verdict (the event has no ordering field).
-Replay rejudge events only when no newer rejudge happened for those submissions, or run `scripts/stats-check.sh`
+Replaying `oj.submission.events.dlq` is safe for first verdicts. A REJUDGE event carries its generation
+(`rejudgeCount`) from oj-common 0.10.0 on: one replayed after a newer rejudge of the same submission is ignored by
+problem-service (statistics and contest score keep the newer verdict; logged as "generation … is older than the
+counted generation …").
+
+**Warning.** A REJUDGE event without a generation (dead-lettered before the oj-common 0.10.0 submission-service was
+deployed) cannot be ordered: replayed after a newer rejudge of the same submission, it moves the statistics back to the
+older verdict. Replay those only when no newer rejudge happened for those submissions, or run `scripts/stats-check.sh`
 afterwards.
 
 ## Host notes (this machine)
