@@ -1,6 +1,9 @@
-# The real sandbox is amd64 and needs the Linux host's kernel: locally each Judge Pod runs the mock (mock-judge-server, loaded
-# by scripts/k3d-up.sh import) on plain http. It keeps the base's capabilities: it reads the worker's bundles (mode 0700, the
-# worker's uid) as root, which takes DAC_OVERRIDE, as the real sandbox does.
+# The real sandbox needs the Linux host's kernel (seccomp, rlimits), and its x86_64 build is only verified on the server: locally each
+# Judge Pod runs the same image with `mock`, the server's scripted API (judge-server/internal/mock; compose's docker-compose.mock.yml
+# does the same). Same gRPC over the same mutual TLS, the same token, certificates, probes (`judge-server healthcheck` works against
+# `mock`) and capabilities, so the workers' address stays localhost:8080 and nothing else is patched. The image is the base's
+# (docker.io/thanhtuanle/judge-server:main), built by scripts/local-stack.sh build and loaded by scripts/k3d-up.sh import.
+# MOCK_SLOW_SECONDS: how long a TRIGGER_SLOW source pauses (default 3; an invalid value stops the mock with exit status 2).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,23 +13,10 @@ spec:
     spec:
       initContainers:
         - name: sandbox
-          image: mock-judge-server:latest
-          imagePullPolicy: Never
+          args: ["mock"]
           env:
-            - name: SERVICE_URL
-              value: http://localhost:8080
-          startupProbe: &mock-listening
-            exec:
-              command: [python3, -c, 'import socket; socket.create_connection(("localhost", 8080), 3).close()']
-          readinessProbe:
-            <<: *mock-listening
-          livenessProbe:
-            <<: *mock-listening
-      containers:
-        - name: worker
-          env:
-            - name: JUDGE_SERVER_URL
-              value: http://localhost:8080
+            - name: MOCK_SLOW_SECONDS
+              value: "3"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -37,20 +27,7 @@ spec:
     spec:
       initContainers:
         - name: sandbox
-          image: mock-judge-server:latest
-          imagePullPolicy: Never
+          args: ["mock"]
           env:
-            - name: SERVICE_URL
-              value: http://localhost:8080
-          startupProbe: &mock-listening
-            exec:
-              command: [python3, -c, 'import socket; socket.create_connection(("localhost", 8080), 3).close()']
-          readinessProbe:
-            <<: *mock-listening
-          livenessProbe:
-            <<: *mock-listening
-      containers:
-        - name: worker
-          env:
-            - name: JUDGE_SERVER_URL
-              value: http://localhost:8080
+            - name: MOCK_SLOW_SECONDS
+              value: "3"

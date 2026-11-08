@@ -97,8 +97,15 @@ compose's.
   its startup probe (compose's `depends_on: service_healthy`), and stops after it, so a judgement in flight keeps its sandbox through
   the 120 s the worker has to finish after SIGTERM.
 - **Hardening is compose's `x-sandbox`**: not privileged, every capability dropped but `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`,
-  `SETUID`, `KILL`, no privilege escalation, a read-only root with `/judger` and `/tmp` memory-backed, the pinned image digest.
-  gunicorn runs as root, as in the image; the run users (12001-12003) cannot read the 0440 TLS directory.
+  `SETUID`, `KILL`, no privilege escalation, a read-only root with `/work` (512Mi, `exec`) and `/tmp` (64Mi) memory-backed. The sandbox is
+  the Go `judge-server` (`docker.io/thanhtuanle/judge-server:main`, pinned with our other images by `overlays/vps`); it runs as root, as
+  in the image, and the run users (12001-12003) cannot read the 0440 TLS directory. Its limits are compose's: 1.5 GiB (`1536Mi`) and 2 CPUs,
+  with requests of 768Mi and 1 CPU. Its probes are the image's own `judge-server healthcheck` (Ping over mutual TLS), which verifies the
+  server certificate against the pod's hostname: the pod sets `hostname: judge-server`, the name in `tls-judge-server`.
+- **Open item: zombies.** Compose runs the sandbox with `init: true` so the grandchildren of a killed run (a compiler's helpers) are reaped;
+  a pod has no such switch (`shareProcessNamespace: true` would give the pause process that job, but lets a contestant see the worker's
+  processes), so on K3s they stay zombies under the server until the pod restarts, against the kubelet's 2048-process limit. The fix is in
+  the image (an init as the entrypoint) or the server (reaping), not here.
 - **What a pod cannot do that compose's `sandbox-net` did.** The containers of a pod share one network namespace, so the
   contestant's code is on the worker's network. The pod therefore has no ServiceAccount token, the sandbox container does not get
   the worker's certificate (Kafka and the services need a client certificate; **MinIO does not**: it serves TLS only, so a submission without a
@@ -107,16 +114,17 @@ compose's.
   `egress-run-judge`) lets the pod reach only Kafka, MinIO (judge), submission-service (judge), Jaeger and DNS: no database, no other
   service, no internet, no node. Java and Go submissions have no seccomp filter (see the README's open item), which makes this the
   boundary that matters for them.
-- **Audit trail**: `POD_NAME` (Downward API) is the worker's name, so `t_submissions.judged_by` and the registry's hostname (the
-  sandbox shares the pod's hostname) are the pod that judged.
-- Locally the sandbox is the mock (`overlays/local/mock-sandbox.yaml`). A pod-wide process limit is the kubelet's:
+- **Audit trail**: `POD_NAME` (Downward API) is the worker's name, so `t_submissions.judged_by` is the pod that judged. The registry's
+  hostname is no longer the pod: the sandbox's healthcheck needs the pod's hostname to be `judge-server` (above), so the judge pods share
+  one registry row (it was one row per pod with qduoj, whose heartbeat did not check the name).
+- Locally the sandbox is the same image running `mock` (`overlays/local/mock-sandbox.yaml`). A pod-wide process limit is the kubelet's:
   `scripts/k3d-up.sh` sets `pod-max-pids=2048` (compose gave the sandbox 1024); install K3s on the server with
   `--kubelet-arg=pod-max-pids=2048`. A cluster created before that flag needs `scripts/k3d-up.sh down` and `up`.
 
 - **Rollout, drain and caches on one node.** A rollout replaces the pod in place (`maxSurge: 0, maxUnavailable: 1`): a surge pod would need
-  1.66Gi of the node's memory, which is the ceiling (see Autoscaling), and would leave the rollout Pending; Kafka holds the records meanwhile.
+  0.875Gi of the node's memory, which on a full node is the ceiling (see Autoscaling), and would leave the rollout Pending; Kafka holds the records meanwhile.
   There is no PodDisruptionBudget (a cluster applied before this change still has one: `kubectl -n oj delete pdb judge`, since `apply` does not
-  prune): on a single node it could only stop `kubectl drain` for good, and a drain still waits out the pod's 120 seconds. The sandbox has a 256Mi memory-backed `/dev/shm` (compose's `shm_size: 256m`; a pod's default is 64Mi). The test-case cache
+  prune): on a single node it could only stop `kubectl drain` for good, and a drain still waits out the pod's 360 seconds (`terminationGracePeriodSeconds`: a judgement's deadline is capped at 300 s, then comes the publish; compose's workers have `stop_grace_period: 6m`). The sandbox has no `/dev/shm` volume and no `/log` (compose dropped `shm_size` and the log volumes with the Go server). The test-case cache
   (`cases`, judge pod only) may grow to 8Gi before the kubelet evicts the pod, which would kill the judgement in flight; the worker sweeps
   bundles unused for 6 hours (`TEST_CASE_CACHE_TTL_SECONDS`, default 24 h), so the cache ages out well before the cap on a normal disk.
 
@@ -130,11 +138,14 @@ waiting on `submission.requested` (per 3 on `run.requested`). Never to zero (the
 - KEDA reads Kafka as its own identity (`keda`, certificate `tls-keda`), which `kafka/acls.sh` lets describe those two groups and topics
   and nothing else. It runs in its own namespace, and the broker advertises itself as `kafka:29092` (as in compose), so
   `platform/keda-namespace.yaml` makes `kafka` resolve there too (an ExternalName alias) and Kafka's NetworkPolicy admits that namespace.
-- **The node's memory is the real ceiling.** The scheduler places a pod by its `requests`: a judge pod asks for 1664Mi (sandbox 1536Mi +
+- **The node's memory is the real ceiling.** The scheduler places a pod by its `requests`: a judge pod asks for 896Mi (sandbox 768Mi +
   worker 128Mi), the rest of the stack for about 3.6Gi. So `maxReplicaCount` of both Deployments together must not exceed
-  `(allocatable memory - 3.6Gi) / 1.66Gi`; past that the HPA asks for more pods than fit and the extra ones stay Pending (on the 10Gi
-  k3d node three judge pods and one run pod fit, the fourth judge pod waits), never an out-of-memory kill.
-- Trying it: `TRIGGER_SLOW` in a source makes the mock take three seconds (`MOCK_SLOW_SECONDS`), so records published to
+  `(allocatable memory - 3.6Gi) / 0.875Gi`; past that the HPA asks for more pods than fit and the extra ones stay Pending (arithmetic, not
+  measured: on the 10Gi k3d node that is about seven pods, so the six at most, four judge and two run, fit). The sandbox's request is half its
+  1536Mi limit, so what the scheduler guarantees is not what a busy sandbox can use: six pods each at their limit would need about 9Gi on top
+  of the 3.6Gi, and the kubelet would then OOM-kill by the limit, not leave the pod Pending. A real sizing waits for task 6.
+- Trying it: `TRIGGER_SLOW` in a source makes the mock wait `MOCK_SLOW_SECONDS` seconds (default 3; an empty value means the default, a
+  value that is not a number of seconds from 0 to 86400 stops the mock with exit status 2), so records published to
   `submission.requested` build a lag. `kafka-console-producer.sh` in `kafka-0` (the plaintext loopback listener) can publish copies of an
   outbox record (`SELECT convert_from(payload, 'UTF8') FROM t_outbox WHERE topic = 'submission.requested'`) with fresh `submissionId`s.
 
@@ -242,10 +253,11 @@ the client address behind ServiceLB on a real host, and the judge pods on the re
 
 ## What cannot be done on a laptop
 
-The real qduoj sandbox is amd64 and needs the Linux host's kernel, so locally the Judge Pod runs the mock. Left for the
+The real sandbox needs the Linux host's kernel (seccomp, rlimits) and its x86_64 build is verified only on the server, so locally the Judge Pod
+runs the same image with `mock`. Left for the
 server (the checklist grows as the plan's tasks land):
 
-- Task 6, sizing the sandbox's memory and CPU (and checking that the memory-backed `/judger` volume allows `exec`, that the six capabilities
+- Task 6, sizing the sandbox's memory and CPU (and checking that the memory-backed `/work` volume allows `exec`, that the six capabilities
   are enough under `RuntimeDefault` seccomp and that a C++ compile fits the memory limit) with real judgements (a+b, a heavy compile, a time-limit overrun, an
   out-of-memory kill, `kubectl delete pod` in the middle of a 10 s C++ judgement).
 - Task 10, the cutover from compose.

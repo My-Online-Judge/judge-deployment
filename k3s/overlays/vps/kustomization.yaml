@@ -1,5 +1,5 @@
-# The single-node server: the whole base, the public name (host.env) and a Let's Encrypt certificate for the edge. The real qduoj sandbox is
-# the base's own; its measured limits (task 6) are the base's starting values until they are measured on that host. See k3s/README.md.
+# The single-node server: the whole base, the public name (host.env) and a Let's Encrypt certificate for the edge. The real sandbox (the Go
+# judge-server) is the base's own; its measured limits (task 6) are the base's starting values until they are measured on that host. See k3s/README.md.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: oj
@@ -24,7 +24,7 @@ replacements:
     targets:
       - select: {kind: ClusterIssuer, name: letsencrypt}
         fieldPaths: [spec.acme.email]
-# Our images, pinned by commit on the server (compose's OJ_TAG): `k3s/scripts/pin-images.sh <commit sha>` sets all six, `main` floats them
+# Our images, pinned by commit on the server (compose's OJ_TAG): `k3s/scripts/pin-images.sh <commit sha>` sets all seven, `main` floats them
 # again. A floating tag means any push to main changes what a restarted pod runs.
 images:
   - name: docker.io/thanhtuanle/oj-api-gateway
@@ -38,4 +38,6 @@ images:
   - name: docker.io/thanhtuanle/judge-worker
     newTag: main
   - name: docker.io/thanhtuanle/judge-portal
+    newTag: main
+  - name: docker.io/thanhtuanle/judge-server
     newTag: main

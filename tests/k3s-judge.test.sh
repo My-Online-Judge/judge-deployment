@@ -2,7 +2,7 @@
 # k3s/base/judge (sub-project 15): the Judge Pod pairs a sandbox with a worker, one to one. The worker's environment and the
 # sandbox's hardening are compared with docker-compose.yml's; the sandbox is a native sidecar (it starts first and stops last,
 # so a judgement in flight finishes); the pod has no ServiceAccount token and may reach only what the worker needs; the local
-# overlay swaps the sandbox for the mock. Works on a copy of the .example files; prints descriptions.
+# overlay runs the same sandbox image as the mock. Works on a copy of the .example files; prints descriptions.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 yq=mikefarah/yq:4.44.3
@@ -25,7 +25,7 @@ OJ_DEPLOY_DIR=$tmp bash scripts/local-stack.sh env > /dev/null
 docker compose --project-directory "$tmp" -f "$PWD/docker-compose.yml" config --format json > "$tmp/compose.json"
 
 python3 - "$tmp" <<'PY' || fail=1
-import json, sys
+import json, re, sys
 tmp = sys.argv[1]
 base = json.load(open(f"{tmp}/base.json"))
 local = json.load(open(f"{tmp}/local.json"))
@@ -38,6 +38,9 @@ def bad(m):
     print("FAIL " + m)
 def check(cond, m, detail=""): (ok(m) if cond else bad(m + (": " + detail if detail else "")))
 def find(objs, kind, name): return next((o for o in objs if o.get("kind") == kind and o["metadata"]["name"] == name), None)
+def seconds(d):   # compose prints a duration as 6m0s
+    m = re.fullmatch(r"(?:(\d+)m)?(?:(\d+)s)?", d)
+    return int(m.group(1) or 0) * 60 + int(m.group(2) or 0) if m else None
 def pod(o): return o["spec"]["template"]["spec"]
 def literal(c): return {e["name"]: e["value"] for e in c.get("env", []) if "value" in e}
 def names(c): return {e["name"] for e in c.get("env", [])}
@@ -62,61 +65,78 @@ for name, comp_name, worker_tls in PAIRS:
     lit = literal(worker)
     differ = sorted(k for k, v in lit.items() if k in comp_env and k != "JUDGE_SERVER_URL" and comp_env[k] != v)
     check(not differ, f"{name}: every literal value is compose's", ", ".join(f"{k}: {lit[k]!r} vs {comp_env[k]!r}" for k in differ))
-    check(lit.get("JUDGE_SERVER_URL") == "https://localhost:8080", f"{name}: the worker calls its own sandbox over mutual TLS on localhost")
+    check(lit.get("JUDGE_SERVER_URL") == "localhost:8080", f"{name}: the worker calls its own sandbox (gRPC, mutual TLS from OJ_TLS_DIR) on localhost:8080")
     pn = next((e for e in worker["env"] if e["name"] == "POD_NAME"), {})
     check(pn.get("valueFrom", {}).get("fieldRef", {}).get("fieldPath") == "metadata.name", f"{name}: POD_NAME comes from the Downward API")
     if name == "judge":
-        check(lit.get("CONSUMER_GROUP") == "judge-workers" and lit.get("MAX_POLL_INTERVAL_MS") == "600000", "judge: consumer group judge-workers, 10 minute poll interval")
+        check(lit.get("CONSUMER_GROUP") == "judge-workers" and lit.get("MAX_POLL_INTERVAL_MS") == "900000", "judge: consumer group judge-workers, 15 minute poll interval (two sandboxes at the 300 s deadline cap plus the MinIO budget)")
         check(12003 in p["securityContext"].get("supplementalGroups", []), "judge: the worker is in group 12003 (the checker's group), as compose's group_add")
     # the sandbox: compose's image, command environment and hardening
     cs = compose["judge-server"]
     sc = sandbox["securityContext"]
-    check(sandbox["image"] == cs["image"], f"{name}: the sandbox image is compose's, pinned by digest")
+    check(sandbox["image"] == cs["image"] == "docker.io/thanhtuanle/judge-server:main", f"{name}: the sandbox image is compose's (the Go judge-server, same registry and tag)", sandbox["image"])
     check(sc.get("privileged") in (None, False) and sc.get("allowPrivilegeEscalation") is False and sc["capabilities"]["drop"] == ["ALL"]
           and sorted(sc["capabilities"]["add"]) == sorted(cs["cap_add"]) and sc.get("readOnlyRootFilesystem") is True,
           f"{name}: the sandbox is not privileged, drops every capability but compose's {len(cs['cap_add'])}, and has a read-only root")
     check(p["securityContext"].get("seccompProfile", {}).get("type") == "RuntimeDefault", f"{name}: RuntimeDefault seccomp")
     check(any(m["mountPath"] == "/opt/oj/java.policy" and m.get("readOnly") for m in sandbox["volumeMounts"]), f"{name}: the sandbox mounts the Java security policy")
-    check(literal(sandbox).get("GUNICORN_CMD_ARGS") == cs["environment"]["GUNICORN_CMD_ARGS"], f"{name}: the sandbox serves mutual TLS with compose's gunicorn arguments")
+    ce = {k: str(v) for k, v in cs["environment"].items() if k != "TOKEN"}
+    check(literal(sandbox) == ce and "GUNICORN_CMD_ARGS" not in names(sandbox) and "SERVICE_URL" not in names(sandbox),
+          f"{name}: the sandbox has compose's literal environment (TLS_DIR, JUDGE_ALLOWED_CLIENTS, LOG_FORMAT), no gunicorn or SERVICE_URL", str(literal(sandbox)))
+    tok = next((e for e in sandbox["env"] if e["name"] == "TOKEN"), {}).get("valueFrom", {}).get("secretKeyRef", {})
+    check(tok == {"name": "judge-token", "key": "JUDGE_SERVER_TOKEN"}, f"{name}: the sandbox's TOKEN is the judge-token secret, as the worker's JUDGE_SERVER_TOKEN")
     check(all(k in sandbox for k in ("startupProbe", "readinessProbe", "livenessProbe")) and all(k in worker for k in ("startupProbe", "readinessProbe", "livenessProbe")),
           f"{name}: both containers have startup, readiness and liveness probes")
-    check(sandbox["resources"]["limits"].get("memory") and sandbox["resources"]["limits"].get("cpu") and sandbox["resources"]["requests"].get("cpu")
-          and worker["resources"]["limits"].get("memory"), f"{name}: the sandbox has CPU and memory limits, the worker a memory limit")
-    check(p.get("terminationGracePeriodSeconds") == 120 and p.get("shareProcessNamespace") is False, f"{name}: 120 s to finish a judgement, no shared process namespace")
+    hc = cs["healthcheck"]["test"][1:]
+    check(all(sandbox[k].get("exec", {}).get("command") == hc for k in ("startupProbe", "readinessProbe", "livenessProbe")) and hc == ["/usr/local/bin/judge-server", "healthcheck"]
+          and sandbox["readinessProbe"].get("initialDelaySeconds") == 60 and sandbox["livenessProbe"].get("initialDelaySeconds") == 60
+          and sandbox["startupProbe"]["periodSeconds"] * sandbox["startupProbe"]["failureThreshold"] >= 60,
+          f"{name}: the sandbox's three probes run compose's healthcheck command, with its 60 s start period (startup window, readiness and liveness delay)")
+    check(p.get("hostname") == "judge-server", f"{name}: the pod's hostname is the name in the sandbox's certificate (the healthcheck verifies it)")
+    lim, req = sandbox["resources"]["limits"], sandbox["resources"]["requests"]
+    check(lim.get("memory") == "1536Mi" and 1536 * 1024 * 1024 == int(cs["mem_limit"]) and lim.get("cpu") == "2" and float(cs["cpus"]) == 2 and req.get("cpu") == "1" and req.get("memory") == "768Mi"
+          and worker["resources"]["limits"].get("memory"), f"{name}: the sandbox has compose's 1.5 GiB and 2 CPUs as limits (requests 1 CPU, 768Mi), the worker a memory limit")
+    grace = seconds(compose["judge-worker" if name == "judge" else "run-worker"]["stop_grace_period"])
+    check(p.get("terminationGracePeriodSeconds") == 360 and grace == 360 and p.get("shareProcessNamespace") is False,
+          f"{name}: 360 s to finish a judgement (compose's 6m stop_grace_period), no shared process namespace", f"grace {grace}")
     check(p.get("automountServiceAccountToken") is False, f"{name}: no ServiceAccount token in a pod that runs contestants' code")
     vols = {v["name"]: v for v in p["volumes"]}
-    check(vols.get("judger", {}).get("emptyDir", {}).get("medium") == "Memory", f"{name}: /judger is memory-backed (compose: tmpfs)")
+    mounts_by_path = {m["mountPath"]: m["name"] for m in sandbox["volumeMounts"]}
+    check(vols.get(mounts_by_path.get("/work"), {}).get("emptyDir") == {"medium": "Memory", "sizeLimit": "512Mi"}
+          and vols.get(mounts_by_path.get("/tmp"), {}).get("emptyDir") == {"medium": "Memory", "sizeLimit": "64Mi"},
+          f"{name}: /work (512Mi) and /tmp (64Mi) are memory-backed (compose: tmpfs)")
+    check("/judger" not in mounts_by_path and "/log" not in mounts_by_path and "/dev/shm" not in mounts_by_path and not {"judger", "sandbox-log", "dev-shm"} & set(vols),
+          f"{name}: no /judger, /log or /dev/shm volume (the Go server has none; compose dropped shm_size and the log volumes)")
     secrets = {v["secret"]["secretName"] for v in p["volumes"] if "secret" in v}
     check(secrets == {"tls-judge-server", worker_tls}, f"{name}: the sandbox gets its own certificate and the worker its own, neither the other's", str(sorted(secrets)))
     mounts = {m["mountPath"] for m in sandbox["volumeMounts"]}
     check("/etc/oj/tls" in mounts and all(m["name"] != next(v["name"] for v in p["volumes"] if v.get("secret", {}).get("secretName") == worker_tls)
           for m in sandbox["volumeMounts"]), f"{name}: the worker's key is not mounted in the sandbox container")
 
-# rollout and drain on one node: a PodDisruptionBudget of 1 on one replica would stop `kubectl drain` for good, and a surge pod needs 1.66Gi
+# rollout and drain on one node: a PodDisruptionBudget of 1 on one replica would stop `kubectl drain` for good, and a surge pod needs 0.875Gi
 # free (the node's memory is the ceiling, see k3s/README.md), so a rollout replaces the pod in place; Kafka holds the records meanwhile
-check(find(base, "PodDisruptionBudget", "judge") is None, "no PodDisruptionBudget: it can only block a drain on a single node (the 120 s grace period still lets a judgement finish)")
+check(find(base, "PodDisruptionBudget", "judge") is None, "no PodDisruptionBudget: it can only block a drain on a single node (the 360 s grace period still lets a judgement finish)")
 for name in ("judge", "run-judge"):
     d = find(base, "Deployment", name)
     check(d and d["spec"]["strategy"] == {"type": "RollingUpdate", "rollingUpdate": {"maxSurge": 0, "maxUnavailable": 1}}, f"{name}: a rollout replaces the pod (maxSurge 0, maxUnavailable 1) instead of stalling for memory to surge")
-    p = pod(d) if d else {"containers": [], "initContainers": [], "volumes": []}
-    sb = next((c for c in p.get("initContainers", []) if c["name"] == "sandbox"), {})
-    shm = next((v for v in p.get("volumes", []) if v["name"] == "dev-shm"), {})
-    check(any(m["name"] == "dev-shm" and m["mountPath"] == "/dev/shm" for m in sb.get("volumeMounts", [])) and shm.get("emptyDir") == {"medium": "Memory", "sizeLimit": "256Mi"},
-          f"{name}: the sandbox has a 256Mi memory-backed /dev/shm, as compose's shm_size: 256m (a pod's default is 64Mi)")
 jd = find(base, "Deployment", "judge")
 cases = next((v for v in pod(jd)["volumes"] if v["name"] == "cases"), {}) if jd else {}
 check(cases.get("emptyDir", {}).get("sizeLimit") == "8Gi", "judge: the test-case cache may grow to 8Gi before the kubelet evicts the pod (2Gi could evict it mid-judgement)")
 wk = next((c for c in pod(jd)["containers"] if c["name"] == "worker"), {}) if jd else {}
 check({e["name"]: e.get("value") for e in wk.get("env", [])}.get("TEST_CASE_CACHE_TTL_SECONDS") == "21600", "judge: cached bundles unused for 6 hours are swept (the worker's default is 24 h; the cache is capped by size, so it ages out sooner)")
 
-# the local overlay: the mock sandbox
+# the local overlay: the same sandbox image running `mock`, everything else (TLS, token, probes, capabilities, the worker's address) the base's
 for name in ("judge", "run-judge"):
-    d = find(local, "Deployment", name)
+    d, b = find(local, "Deployment", name), find(base, "Deployment", name)
     sb = next((c for c in pod(d).get("initContainers", []) if c["name"] == "sandbox"), None) if d else None
+    bsb = next((c for c in pod(b).get("initContainers", []) if c["name"] == "sandbox"), None) if b else None
     wk = next((c for c in pod(d)["containers"] if c["name"] == "worker"), None) if d else None
-    check(sb and sb["image"] == "mock-judge-server:latest" and sb.get("imagePullPolicy") == "Never" and "DAC_OVERRIDE" in sb["securityContext"]["capabilities"]["add"],
-          f"local {name}: the sandbox is the mock (a local image, still able to read the worker's bundles)")
-    check(wk and literal(wk).get("JUDGE_SERVER_URL") == "http://localhost:8080", f"local {name}: the worker calls the mock over plain http on localhost")
+    bwk = next((c for c in pod(b)["containers"] if c["name"] == "worker"), None) if b else None
+    check(sb and bsb and sb["image"] == bsb["image"] and sb.get("args") == ["mock"] and "DAC_OVERRIDE" in sb["securityContext"]["capabilities"]["add"],
+          f"local {name}: the sandbox is the base's image running `mock` (still able to read the worker's bundles)")
+    check(sb and bsb and {e["name"] for e in sb["env"]} - {e["name"] for e in bsb["env"]} == {"MOCK_SLOW_SECONDS"} and all(sb[k] == bsb[k] for k in ("startupProbe", "readinessProbe", "livenessProbe", "volumeMounts")),
+          f"local {name}: the mock adds MOCK_SLOW_SECONDS to the base's environment and keeps its probes and mounts")
+    check(wk and bwk and wk["env"] == bwk["env"] and literal(wk).get("JUDGE_SERVER_URL") == "localhost:8080", f"local {name}: the worker is untouched: it calls the mock at localhost:8080 over the same mutual TLS")
 
 # network: what the judge pods may reach, and who may reach them
 pols = {p["metadata"]["name"]: p["spec"] for p in base if p.get("kind") == "NetworkPolicy"}

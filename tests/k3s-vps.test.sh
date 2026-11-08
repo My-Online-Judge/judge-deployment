@@ -67,7 +67,7 @@ sys.exit(1 if failed else 0)
 PY
 # image tags: the server pins our images by commit (compose's OJ_TAG), through the overlay's `images:`; pin-images.sh sets them all
 n=$(grep -c 'name: docker.io/thanhtuanle/' k3s/overlays/vps/kustomization.yaml || true)
-[[ $n == 6 ]] && echo "ok   overlays/vps names the six images it can pin (images:)" || { echo "FAIL overlays/vps has $n images: entries (want 6)"; fail=1; }
+[[ $n == 7 ]] && echo "ok   overlays/vps names the seven images it can pin (images:)" || { echo "FAIL overlays/vps has $n images: entries (want 7)"; fail=1; }
 tagged=$(python3 - "$tmp/vps.json" <<'PY'
 import json, sys
 tags = {c["image"].rsplit(":", 1)[1] for o in json.load(open(sys.argv[1])) if o.get("kind") == "Deployment"
@@ -80,9 +80,9 @@ pin=k3s/scripts/pin-images.sh
 if [[ -x $pin ]]; then
   cp k3s/overlays/vps/kustomization.yaml "$tmp/kustomization.yaml"
   if OJ_VPS_KUSTOMIZATION="$tmp/kustomization.yaml" bash "$pin" 0123abc > /dev/null 2>&1; then
-    [[ $(grep -c 'newTag: 0123abc' "$tmp/kustomization.yaml") == 6 ]] && echo "ok   pin-images.sh sets all six images to the commit" || { echo "FAIL pin-images.sh did not set all six tags"; fail=1; }
+    [[ $(grep -c 'newTag: 0123abc' "$tmp/kustomization.yaml") == 7 ]] && echo "ok   pin-images.sh sets all seven images to the commit" || { echo "FAIL pin-images.sh did not set all seven tags"; fail=1; }
   else echo "FAIL pin-images.sh 0123abc"; fail=1; fi
-  OJ_VPS_KUSTOMIZATION="$tmp/kustomization.yaml" bash "$pin" main > /dev/null 2>&1 && [[ $(grep -c 'newTag: main' "$tmp/kustomization.yaml") == 6 ]] && echo "ok   pin-images.sh main sets them back to the floating tag" || { echo "FAIL pin-images.sh main"; fail=1; }
+  OJ_VPS_KUSTOMIZATION="$tmp/kustomization.yaml" bash "$pin" main > /dev/null 2>&1 && [[ $(grep -c 'newTag: main' "$tmp/kustomization.yaml") == 7 ]] && echo "ok   pin-images.sh main sets them back to the floating tag" || { echo "FAIL pin-images.sh main"; fail=1; }
   refused=0
   for bad_tag in "" "v 1" 'x;rm -rf /' "../etc" "0123"; do
     OJ_VPS_KUSTOMIZATION="$tmp/kustomization.yaml" bash "$pin" "$bad_tag" > /dev/null 2>&1 || refused=$((refused + 1))
