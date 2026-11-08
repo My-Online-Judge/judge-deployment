@@ -37,15 +37,16 @@ run_worker_allowlist="sorted(['CONSUMER_GROUP','JUDGED_TOPIC','JUDGE_INFRA_RETRY
   'REQUESTED_TOPIC','TZ'])"
 check "run-worker gets exactly the variables it reads (no MinIO, no heartbeat relay)" "sorted(s['run-worker']['environment']) == $run_worker_allowlist"
 # Graceful shutdown (sub-project 15): SIGTERM lets a worker finish the submission in hand; docker's default 10 s would
-# SIGKILL a judgement of up to JUDGE_TIMEOUT + SPJ compile (50 s) plus the verdict publish. 2 min = the K3s grace period.
-check "both workers get a 2 min stop grace period (a judgement in flight finishes on SIGTERM)" \
-  "s['judge-worker'].get('stop_grace_period') == '2m0s' and s['run-worker'].get('stop_grace_period') == '2m0s'"
+# SIGKILL a judgement of up to JUDGE_TIMEOUT_MAX_SECONDS (300 s, the cap of the scaled deadline) plus the verdict publish. 6 min =
+# the K3s grace period (360 s).
+check "both workers get a 6 min stop grace period (a judgement in flight finishes on SIGTERM)" \
+  "s['judge-worker'].get('stop_grace_period') == '6m0s' and s['run-worker'].get('stop_grace_period') == '6m0s'"
 check "run-worker consumes run.requested as run-workers, answers on run.judged, retries infra for 30 s" \
   "{k: s['run-worker']['environment'].get(k) for k in ('REQUESTED_TOPIC', 'JUDGED_TOPIC', 'CONSUMER_GROUP', 'JUDGE_INFRA_RETRY_SECONDS')} == {'REQUESTED_TOPIC': 'run.requested', 'JUDGED_TOPIC': 'run.judged', 'CONSUMER_GROUP': 'run-workers', 'JUDGE_INFRA_RETRY_SECONDS': '30'}"
 check "run-worker is the judge-worker image on both networks with its own certificate, two replicas, no bundle cache" \
   "s['run-worker']['image'] == s['judge-worker']['image'] and set(s['run-worker']['networks']) == {'oj-net', 'sandbox-net'} and any(m.get('volume', {}).get('subpath') == 'run-worker' for m in s['run-worker']['volumes'] if m.get('source') == 'tls') and not any(m.get('source') == 'test_case_cache' for m in s['run-worker']['volumes']) and s['run-worker'].get('deploy', {}).get('replicas') == 2"
-check_raw "run-worker calls both sandboxes over https" \
-  "s['run-worker']['environment'].get('JUDGE_SERVER_URL') == 'https://judge-server:8080,https://judge-server-2:8080'"
+check_raw "run-worker calls both sandboxes as host:port (gRPC; TLS comes from OJ_TLS_DIR)" \
+  "s['run-worker']['environment'].get('JUDGE_SERVER_URL') == 'judge-server:8080,judge-server-2:8080'"
 
 check "kafka keeps its logs on the named volume kafkadata" \
   "s['kafka']['environment'].get('KAFKA_LOG_DIRS') == '/var/lib/kafka/data' and any(m.get('source') == 'kafkadata' and m.get('target') == '/var/lib/kafka/data' for m in s['kafka'].get('volumes', [])) and 'kafkadata' in v"
@@ -68,20 +69,24 @@ check "the JVM services load the jvm-dns-security config as Security properties 
 
 # The sandboxes run untrusted code: least privilege, and a network that reaches only the worker.
 sandboxes="('judge-server', 'judge-server-2')"
-check "sandboxes are not privileged and keep only the capabilities the judger uses" \
+check "sandboxes are not privileged and keep only the capabilities the sandbox uses" \
   "all(not s[n].get('privileged') and s[n].get('cap_drop') == ['ALL'] and sorted(s[n].get('cap_add', [])) == ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'KILL', 'SETGID', 'SETUID'] for n in $sandboxes)"
-check "sandboxes run read-only with no-new-privileges, compiling into an exec tmpfs /judger" \
-  "all(s[n].get('read_only') is True and 'no-new-privileges:true' in s[n].get('security_opt', []) and any(t.startswith('/judger:exec') for t in s[n].get('tmpfs', [])) for n in $sandboxes)"
+check "sandboxes run read-only with no-new-privileges, judging in an exec tmpfs /work of 512m and a /tmp of 64m" \
+  "all(s[n].get('read_only') is True and 'no-new-privileges:true' in s[n].get('security_opt', []) and sorted(s[n].get('tmpfs', [])) == ['/tmp:size=64m', '/work:exec,mode=755,size=512m'] for n in $sandboxes)"
 check "sandboxes sit only on the internal sandbox-net, which the worker also joins" \
   "c['networks']['sandbox-net'].get('internal') is True and all(list(s[n]['networks']) == ['sandbox-net'] for n in $sandboxes) and set(s['judge-worker']['networks']) == {'oj-net', 'sandbox-net'}"
-check "sandboxes have stable hostnames (the registry is keyed by hostname) and no BACKEND_URL" \
+# The healthcheck verifies the server certificate against the hostname, and the certificate's name is the service's (pki/identities.txt).
+check "sandboxes have stable hostnames (the certificate names and the registry are keyed by hostname) and no BACKEND_URL" \
   "all(s[n].get('hostname') == n and 'BACKEND_URL' not in s[n]['environment'] for n in $sandboxes)"
 check "sandboxes mount the Java security policy the java language row names" \
   "c['configs']['java-policy']['file'].endswith('sandbox/java.policy') and all(any(x.get('source') == 'java-policy' and x.get('target') == '/opt/oj/java.policy' for x in s[n].get('configs', [])) for n in $sandboxes)"
-check "sandboxes are capped at 3 GiB, 6 CPUs and 1024 pids" \
-  "all(s[n].get('mem_limit') in (3221225472, '3221225472') and float(s[n].get('cpus')) == 6 and s[n].get('pids_limit') == 1024 for n in $sandboxes)"
-check "judge-server keeps /log on the named volume js1log, not a bind mount" \
-  "not any(m.get('source', '').startswith('/') for m in s['judge-server'].get('volumes', [])) and any(m.get('source') == 'js1log' and m.get('target') == '/log' for m in s['judge-server'].get('volumes', [])) and 'js1log' in v"
+# The Go sandbox's budget (spec go-judge-server-design §6): 1.5 GiB and 2 CPUs each, 3 GiB for both.
+check "sandboxes are capped at 1.5 GiB, 2 CPUs and 1024 pids" \
+  "all(s[n].get('mem_limit') in (1610612736, '1610612736') and float(s[n].get('cpus')) == 2 and s[n].get('pids_limit') == 1024 for n in $sandboxes)"
+check "sandboxes run an init process (a killed run's grandchildren are reaped) and get 130 s to stop (the server's graceful stop is 120 s)" \
+  "all(s[n].get('init') is True and s[n].get('stop_grace_period') == '2m10s' for n in $sandboxes)"
+check "sandboxes keep no /log (the Go server logs to stdout): no volume mounts it and js1log/js2log are gone" \
+  "not any(m.get('target') == '/log' for n in $sandboxes for m in s[n].get('volumes', [])) and 'js1log' not in v and 'js2log' not in v"
 
 
 # TLS (sub-project 10): tls-init distributes the certificates; every mount of the tls volume is read-only at /etc/oj/tls,
@@ -159,17 +164,18 @@ check_raw "problem-service uses the problem key and judge-worker the worker key 
 check_raw "only minio and minio-init get MinIO's root account" \
   "all('MINIO_ROOT' not in str(x.get('environment') or {}) for n, x in s.items() if n not in ('minio', 'minio-init'))"
 
-# The sandboxes' API over mutual TLS (task 12): gunicorn serves 8080 with the certificate of the sandbox's own tls subpath
-# and requires a client certificate signed by the CA (--cert-reqs=2 is ssl.CERT_REQUIRED). The worker calls both over
-# https (a literal: the names are the certificates' SANs), and the healthcheck presents the sandbox's own certificate.
-sandbox_gunicorn="['--certfile=/etc/oj/tls/tls.crt', '--keyfile=/etc/oj/tls/tls.key', '--ca-certs=/etc/oj/tls/ca.crt', '--cert-reqs=2']"
-check "sandboxes serve https with the certificate of their own tls subpath and require a client certificate (--cert-reqs=2)" \
-  "all(s[n]['environment'].get('GUNICORN_CMD_ARGS', '').split() == $sandbox_gunicorn and s[n]['environment'].get('SERVICE_URL') == f'https://{n}:8080' and any(m.get('volume', {}).get('subpath') == n for m in s[n].get('volumes', []) if m.get('source') == 'tls') for n in $sandboxes)"
-SANDBOX_HEALTH='import hashlib,os,ssl,urllib.request as u; c=ssl.create_default_context(cafile="/etc/oj/tls/ca.crt"); c.load_cert_chain("/etc/oj/tls/tls.crt","/etc/oj/tls/tls.key"); t=hashlib.sha256(os.environ["TOKEN"].encode()).hexdigest(); u.urlopen(u.Request("https://localhost:8080/ping",data=b"{}",headers={"X-Judge-Server-Token":t,"Content-Type":"application/json"}),timeout=3,context=c)' \
-  check "sandbox healthcheck pings /ping over mutual TLS with the sandbox's own certificate" \
-  "all(s[n]['healthcheck']['test'] == ['CMD', 'python3', '-c', __import__('os').environ['SANDBOX_HEALTH']] for n in $sandboxes)"
-check_raw "judge-worker calls both sandboxes over https, never http:// (a literal, not from .env)" \
-  "s['judge-worker']['environment'].get('JUDGE_SERVER_URL') == 'https://judge-server:8080,https://judge-server-2:8080' and 'http://' not in s['judge-worker']['environment']['JUDGE_SERVER_URL']"
+# The sandboxes' gRPC API over mutual TLS (task 12, now the Go server): it serves 8080 with the certificate of the sandbox's own tls
+# subpath (TLS_DIR) and requires a client certificate signed by the CA, admitting Judge only for the allowed CNs. The worker calls both as
+# host:port (a literal: the names are the certificates' SANs; TLS is decided by its OJ_TLS_DIR), and the healthcheck is the server's own
+# subcommand, which presents the sandbox's own certificate.
+check "sandboxes serve gRPC over mutual TLS from their own tls subpath and admit only the two worker identities, with the token" \
+  "all({k: s[n]['environment'].get(k) for k in ('TLS_DIR', 'JUDGE_ALLOWED_CLIENTS', 'LOG_FORMAT')} == {'TLS_DIR': '/etc/oj/tls', 'JUDGE_ALLOWED_CLIENTS': 'judge-worker,run-worker', 'LOG_FORMAT': 'json'} and s[n]['environment'].get('TOKEN') and 'GUNICORN_CMD_ARGS' not in s[n]['environment'] and 'SERVICE_URL' not in s[n]['environment'] and any(m.get('volume', {}).get('subpath') == n for m in s[n].get('volumes', []) if m.get('source') == 'tls') for n in $sandboxes)"
+check_raw "sandboxes take the token from JUDGE_SERVER_TOKEN, like the workers" \
+  "all(s[n]['environment'].get('TOKEN') == '\${JUDGE_SERVER_TOKEN}' for n in $sandboxes)"
+check "sandbox healthcheck is the image's own judge-server healthcheck subcommand (Ping over mutual TLS), with a 60 s start period for the cache warm-up" \
+  "all(s[n]['healthcheck']['test'] == ['CMD', '/usr/local/bin/judge-server', 'healthcheck'] and s[n]['healthcheck'].get('start_period') == '1m0s' and s[n]['healthcheck'].get('interval') == '15s' and s[n]['healthcheck'].get('retries') == 3 for n in $sandboxes)"
+check_raw "judge-worker calls both sandboxes as host:port, never http:// (a literal, not from .env)" \
+  "s['judge-worker']['environment'].get('JUDGE_SERVER_URL') == 'judge-server:8080,judge-server-2:8080' and 'http://' not in s['judge-worker']['environment']['JUDGE_SERVER_URL']"
 # OTLP to Jaeger over mutual TLS (task 13): Jaeger runs jaeger/config.yaml (tests/jaeger-config.test.sh) with the
 # certificate of its own tls subpath, and every traced service exports over https with the CA and its own certificate.
 check "jaeger runs jaeger/config.yaml, mounted read-only at /etc/jaeger/config.yaml, with the jaeger tls subpath" \
@@ -209,17 +215,18 @@ check "no environment value in docker-compose.yml is an http:// URL of a stack s
 # the second config below proves it. The unset variables keep the operator's shell from deciding the first.
 check "every service (the one-shots too) rotates its json-file logs: max-size 10m, max-file 3" \
   "all(x.get('logging') == {'driver': 'json-file', 'options': {'max-size': '10m', 'max-file': '3'}} for x in s.values())"
-built="{'identity-service': 'oj-identity-service', 'problem-service': 'oj-problem-service', 'submission-service': 'oj-submission-service', 'api-gateway': 'oj-api-gateway', 'judge-worker': 'judge-worker', 'run-worker': 'judge-worker', 'judge-portal': 'judge-portal'}"
-default_cfg=$(env -u OJ_TAG -u OJ_REGISTRY -u OJ_IDENTITY_TAG -u OJ_PROBLEM_TAG -u OJ_SUBMISSION_TAG -u OJ_GATEWAY_TAG -u OJ_WORKER_TAG -u OJ_PORTAL_TAG \
+built="{'identity-service': 'oj-identity-service', 'problem-service': 'oj-problem-service', 'submission-service': 'oj-submission-service', 'api-gateway': 'oj-api-gateway', 'judge-worker': 'judge-worker', 'run-worker': 'judge-worker', 'judge-portal': 'judge-portal', 'judge-server': 'judge-server', 'judge-server-2': 'judge-server'}"
+default_cfg=$(env -u OJ_TAG -u OJ_REGISTRY -u OJ_IDENTITY_TAG -u OJ_PROBLEM_TAG -u OJ_SUBMISSION_TAG -u OJ_GATEWAY_TAG -u OJ_WORKER_TAG -u OJ_PORTAL_TAG -u OJ_SANDBOX_TAG \
   docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
 _check "$default_cfg" "built services reference docker.io/thanhtuanle/<name>:main (Docker Hub) and keep their build" \
   "all(s[n]['image'] == f'docker.io/thanhtuanle/{img}:main' and s[n].get('build') for n, img in $built.items())"
-tagged_cfg=$(env -u OJ_REGISTRY -u OJ_PROBLEM_TAG -u OJ_SUBMISSION_TAG -u OJ_GATEWAY_TAG -u OJ_WORKER_TAG -u OJ_PORTAL_TAG OJ_TAG=t1 OJ_IDENTITY_TAG=t2 \
+tagged_cfg=$(env -u OJ_REGISTRY -u OJ_PROBLEM_TAG -u OJ_SUBMISSION_TAG -u OJ_GATEWAY_TAG -u OJ_WORKER_TAG -u OJ_PORTAL_TAG -u OJ_SANDBOX_TAG OJ_TAG=t1 OJ_IDENTITY_TAG=t2 \
   docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)
 _check "$tagged_cfg" "OJ_IDENTITY_TAG beats OJ_TAG: identity is :t2, every other built service :t1" \
   "all(s[n]['image'].endswith(':t2' if n == 'identity-service' else ':t1') for n in $built)"
-check "both sandboxes run qduoj pinned by digest" \
-  "all(s[n]['image'] == 'docker.io/qduoj/judge-server@sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e' for n in $sandboxes)"
+_check "$(env -u OJ_REGISTRY -u OJ_TAG OJ_SANDBOX_TAG=t3 docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" config --format json)" \
+  "OJ_SANDBOX_TAG sets the sandbox tag alone (judge-server:t3, built from ../judge-server's release stage); OJ_TAG covers it above" \
+  "all(s[n]['image'] == 'docker.io/thanhtuanle/judge-server:t3' and s[n]['build']['context'].endswith('/judge-server') and s[n]['build'].get('target') == 'release' for n in $sandboxes)"
 
 # Exporters (sp12 task 15). Six serve /metrics over mutual TLS with the leaf of their own tls subpath, as the image's own
 # user (the owner pki/identities.txt gives that subpath); cAdvisor has no TLS and stays plain HTTP on oj-net. None
@@ -263,9 +270,9 @@ check "volume-init: alpine one-shot that gives the test_case_cache volume to own
   "(lambda x: {k: val for k, val in x.items() if k not in ('logging', 'command')} == {'image': 'alpine:3.24', 'restart': 'no', 'network_mode': 'none', 'volumes': [{'type': 'volume', 'source': 'test_case_cache', 'target': '/test_case', 'volume': {}}], 'entrypoint': ['/bin/sh', '-c', 'chown -R 10001 /test_case']})(s.get('volume-init', {}))"
 check "judge-worker waits for volume-init to complete" \
   "s['judge-worker']['depends_on'].get('volume-init', {}).get('condition') == 'service_completed_successfully'"
-# A checker bundle's directory and inputs go to group 12003, qduoj's spj, which runs the checker; a submission (code,
+# A checker bundle's directory and inputs go to group 12003, the sandbox image's spj, which runs the checker; a submission (code,
 # 12002) is not in it (sp13). The worker can give its files only to a group it is in.
-check "judge-worker joins group 12003 (qduoj's spj) and nothing else, as uid 10001 (its image's user)" \
+check "judge-worker joins group 12003 (the sandbox image's spj) and nothing else, as uid 10001 (its image's user)" \
   "s['judge-worker'].get('group_add') == ['12003'] and 'user' not in s['judge-worker']"
 
 # Grafana (sp12 task 18).
@@ -276,9 +283,10 @@ check_raw "grafana: the admin password is \${GRAFANA_ADMIN_PASSWORD:?run migrati
 check "grafana: provisioning and dashboards are mounted read-only, its data is the named volume grafanadata, and it logs like the others" \
   "(lambda g: {(m['source'], m['target'], bool(m.get('read_only'))) for m in g.get('volumes', []) if m.get('type') == 'bind'} == {(m['source'], m['target'], True) for m in g.get('volumes', []) if m.get('type') == 'bind' and m['target'] in ('/etc/grafana/provisioning', '/var/lib/grafana/dashboards')} and len([m for m in g.get('volumes', []) if m.get('type') == 'bind']) == 2 and any(m.get('source') == 'grafanadata' and m.get('target') == '/var/lib/grafana' for m in g.get('volumes', [])) and 'grafanadata' in v and g.get('logging') == s['prometheus'].get('logging'))(s.get('grafana', {}))"
 
-# The mock sandbox speaks plain HTTP: its overlay points the worker at http:// and nothing expects TLS of the mock.
+# The mock sandbox is the same image running `mock`: same gRPC over the same mutual TLS, same environment, same healthcheck, so
+# the overlay changes the command and adds MOCK_SLOW_SECONDS, and nothing else (the workers' addresses stay as they are).
 mock=$(docker compose --project-directory "$deploy_dir" -f "$PWD/docker-compose.yml" -f "$PWD/docker-compose.mock.yml" config --format json)
-_check "$mock" "with docker-compose.mock.yml the worker calls both mock sandboxes over http, and their healthcheck and SERVICE_URL expect no TLS" \
-  "s['judge-worker']['environment'].get('JUDGE_SERVER_URL') == 'http://judge-server:8080,http://judge-server-2:8080' and all(s[n]['image'] == 'mock-judge-server' and 'https' not in str(s[n]['healthcheck']['test']) and s[n]['environment'].get('SERVICE_URL') == f'http://{n}:8080' for n in $sandboxes)"
+BASE_CFG=$config _check "$mock" "with docker-compose.mock.yml both sandboxes run the same image with the command mock and MOCK_SLOW_SECONDS, everything else as the base" \
+  "(lambda b: all(s[n]['command'] == ['mock'] and s[n]['environment'].get('MOCK_SLOW_SECONDS') == '3' and {k: val for k, val in s[n]['environment'].items() if k != 'MOCK_SLOW_SECONDS'} == b[n]['environment'] and all(s[n][k] == b[n][k] for k in ('image', 'healthcheck', 'cap_add', 'mem_limit', 'volumes', 'networks')) for n in $sandboxes) and all(s[n]['environment'] == b[n]['environment'] for n in ('judge-worker', 'run-worker')))(json.loads(__import__('os').environ['BASE_CFG'])['services'])"
 
 exit $fail

@@ -162,9 +162,10 @@ else
 fi
 
 # ---- sandbox: the sandboxes' API (8080) requires a CA-signed client certificate (task 12) ------------------------
-# Probed from oj-sandbox-net, the sandboxes' only network ($OJ_SANDBOX_NET for a scratch stack). gunicorn checks the CA,
-# not the CN: tls-probe's certificate passes TLS, and the judge-server token still guards the API. To plaintext gunicorn
-# 20.0.4 writes nothing and resets the connection.
+# Probed from oj-sandbox-net, the sandboxes' only network ($OJ_SANDBOX_NET for a scratch stack). The Go server (gRPC) checks
+# the client certificate against the CA in the handshake and the CN only per call (Judge admits JUDGE_ALLOWED_CLIENTS, Ping any
+# CA-signed client): tls-probe's certificate passes TLS, and the judge-server token still guards the API. To plaintext the TLS
+# listener answers with a TLS alert or a reset, never HTTP.
 for js in judge-server judge-server-2; do
   OJ_NET=${OJ_SANDBOX_NET:-oj-sandbox-net} probe_handshake "$js:8080" none fail
   OJ_NET=${OJ_SANDBOX_NET:-oj-sandbox-net} probe_handshake "$js:8080" rogue fail

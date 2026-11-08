@@ -238,6 +238,33 @@ into place as a root-owned 0555 binary, so a half-written binary from a crash is
 writable by any judge uid. The directory is removed when the response is sent, success or failure, and on
 cancellation.
 
+### 5.1a Isolation between concurrent jobs (added after the part-1 final review, 2026-11-08)
+
+Two jobs can run on one sandbox (`MAX_JOBS`), and the final review showed that one shared run uid lets a submission
+read the other job's files through `/proc/<pid>/cmdline`, kill or trace its programs under `""`, exhaust the shared
+`RLIMIT_NPROC` with detached children, and fill the shared `/work`. The design therefore uses **per-slot identities**:
+
+- The image pre-creates run users `code0`..`code7` (uids 12100-12107) each with its own primary group (gids
+  12100-12107). `config.Validate` rejects `MAX_JOBS > 8`. Admission hands each job a slot index; the job runs its
+  program as `(12100+slot, 12100+slot)`, its compiler as `(12001, 12100+slot)` and its checker as
+  `(12003, 12100+slot)`: the gid is the job's, the uids keep their roles.
+- Job dir `root:<slotgid> 0710`; `src/` `root:<slotgid> 0770` (source 0640, artifact as the compiler leaves it);
+  `in/` and `out/` `root:<slotgid> 0750` (files 0640, created by the shim as root); the job's `TMPDIR` is
+  `/tmp/jobs/<id>` (`root:<slotgid> 0770`) on the separate 64 MiB `/tmp` tmpfs, so temporary files can never fill
+  `/work`. Another slot's processes cannot traverse any of it.
+- After every run, and on cancellation, the server kills every process whose uid is the slot's (a `/proc` sweep),
+  so a child that escaped the process group with `setsid` dies with the job. `RLIMIT_NPROC` is then per slot.
+- Output: the program's stderr goes to `/dev/null` for runs (it never affects the verdict, §4.3; compile and
+  checker stderr are still captured). `N.out` is deleted as soon as the case is judged, so a job holds at most
+  `pool × OUTPUT_FILE_CAP_BYTES` on `/work`. `OUTPUT_FILE_CAP_BYTES` defaults to 16 MiB and `config.Validate`
+  refuses a configuration where `MAX_JOBS × 8 × OUTPUT_FILE_CAP_BYTES + GOCACHE_CAP_BYTES` exceeds the size of the
+  `/work` filesystem. The seccomp open rules for `c_cpp`/`general` also deny `O_CREAT`, `O_TRUNC` and `O_TMPFILE`,
+  so those runs cannot create files at all.
+- The output comparison streams the file through the normaliser into md5 (no whole-file buffers), reading only
+  `OUTPUT_RESPONSE_CAP_BYTES + 1` bytes for the response.
+- Residual, accepted: uids 12001 (compiler) and 12003 (checker) are shared by both sandbox containers and by both
+  slots; they run only trusted tools on contestant-controlled input, bounded by compile limits.
+
 ### 5.2 Job pipeline
 
 1. Validate (§4.2 `INVALID_ARGUMENT` rules), resolve the bundle (`/test_case/<id>/info`, `NOT_FOUND`), admit the job
@@ -319,6 +346,12 @@ loop that trips both reads as CPU TLE). `cpu_time` is **user time only** (`ru_ut
 of 0 then goes through comparison (WA) or the checker (WA / -11). Real time is measured with sub-millisecond
 resolution before rounding, because the checks are strict `>`.
 
+Two small, deliberate differences from upstream: qduoj maps a `SIGUSR1` termination to SYSTEM_ERROR because its own
+setup failures surface that way; here setup failures arrive as `error != 0` over the shim's pipe, so a program that
+kills itself with SIGUSR1 is an ordinary RE. Times are rounded half-up to milliseconds (upstream truncates), so a run
+within half a millisecond of the limit can differ. The shim's real-time clock starts at `execve`; the Go backstop
+(limit + 1 s) counts from the call.
+
 (An earlier version of this section stated "real TLE > CPU TLE" and let a SIGSEGV run fall through to the time
 checks; that was wrong and was corrected after reading the upstream source.)
 
@@ -328,7 +361,7 @@ checks; that was wrong and was corrected after reading the upstream source.)
 `TOKEN` (optional, additive), `JUDGE_ALLOWED_CLIENTS=judge-worker,run-worker`, `TEST_CASE_DIR=/test_case`,
 `WORK_DIR=/work`, `MAX_JOBS=2`, `MAX_QUEUE=4`, `RUN_POOL_BUDGET_BYTES=1 GiB`, `COMPILE_MAX_MEMORY_BYTES=512 MiB`
 (a ceiling over the request's compile `max_memory` when that is positive; see §6 for `-1`), `GOCACHE_CAP_BYTES=128 MiB`,
-`OUTPUT_FILE_CAP_BYTES=32 MiB`, `OUTPUT_RESPONSE_CAP_BYTES=64 KiB`, `COMPILE_MESSAGE_CAP_BYTES=64 KiB`,
+`OUTPUT_FILE_CAP_BYTES=16 MiB`, `OUTPUT_RESPONSE_CAP_BYTES=64 KiB`, `COMPILE_MESSAGE_CAP_BYTES=64 KiB`,
 `INLINE_INPUT_CAP_BYTES=1 MiB` (sum over a Run's cases), `LOG_FORMAT=json`.
 
 ### 5.6 Observability
@@ -430,11 +463,18 @@ Mock: `judge-server mock` serves the same gRPC API with today's `TRIGGER_*` mark
 counts (port of `mock-judge-server/app.py`). `docker-compose.mock.yml` points at the Go image with that subcommand;
 the Python mock is deleted.
 
-Compose (`judge-deployment/docker-compose.yml`): `x-sandbox` image → the Go image by digest; `mem_limit: 1536m`,
-`cpus: 2`, tmpfs `/work:exec,size=512m` and `/tmp:size=64m`; same `cap_add`, `read_only`, `no-new-privileges`,
-`sandbox-net`; env `TOKEN`, `TLS_DIR`, `JUDGE_ALLOWED_CLIENTS`; healthcheck `["CMD", "/judge-server", "healthcheck"]`.
-Worker `JUDGE_SERVER_URL: judge-server:8080,judge-server-2:8080`. `pki/identities.txt` unchanged (same CNs).
-`README.md` sandbox sections and the k3s spec row 5 (`cpu 2, memory 2.5Gi`) are updated to the new budget.
+Compose (`judge-deployment/docker-compose.yml`), as built in the cut-over (2026-11-08): `x-sandbox` image
+`${OJ_REGISTRY:-docker.io/thanhtuanle}/judge-server:${OJ_SANDBOX_TAG:-${OJ_TAG:-main}}` with `build: {context: ../judge-server,
+target: release}`, like the other services (a tag, not a digest: the image is built and pushed by this project, and `OJ_SANDBOX_TAG`
+pins it); `init: true` (the shim kills only the program, so a killed run's grandchildren need an init to be reaped);
+`stop_grace_period: 130s` (the server's graceful stop is 120 s); `mem_limit: 1536m`, `cpus: 2`, `pids_limit: 1024`, tmpfs
+`/work:exec,mode=755,size=512m` and `/tmp:size=64m`; no `shm_size` and no `/log` volumes; same `cap_add`, `read_only`,
+`no-new-privileges`, `sandbox-net`; env `TOKEN`, `TLS_DIR`, `JUDGE_ALLOWED_CLIENTS`, `LOG_FORMAT` (the rest are the defaults of 5.5);
+healthcheck `["CMD", "/usr/local/bin/judge-server", "healthcheck"]` with `start_period: 60s`, which needs each service's
+compose `hostname:` to stay equal to its certificate name. Worker `JUDGE_SERVER_URL: judge-server:8080,judge-server-2:8080`,
+`stop_grace_period: 6m` on both workers. `pki/identities.txt` unchanged (same CNs). `README.md` ("Go sandbox"), the K3s manifests
+(`k3s/scripts/gen_services.py`, the local overlay's `mock` patch, `overlays/vps` pinning the image) and the k3s spec row 5
+(`cpu 2, memory 1.5Gi`) are updated to the new budget; the mock runs the same image (`docker-compose.mock.yml`, `command: ["mock"]`).
 
 Repository: new sibling `my-oj/judge-server` (Go module), with `cmd/judge-server`, `internal/{api,judge,sandbox,
 bundle,seccomp,mock}`, `Dockerfile`, and a `conformance/` corpus (see §9). The proto lives in oj-common.

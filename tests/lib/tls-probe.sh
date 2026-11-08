@@ -81,7 +81,7 @@ probe_http() { # <https-url> <tls-probe|none> <expected-status|none>
 }
 
 # _plain_result <host:port> -> prints refused|answered|error (error: the TCP connect itself failed)
-#   refused: no HTTP answer at all (gunicorn 20.0.4, the sandboxes, writes nothing and resets the connection), or
+#   refused: no HTTP answer at all (the sandboxes' gRPC TLS listener answers a TLS alert or resets the connection), or
 #   Tomcat's fixed answer to plaintext on its TLS port ("HTTP/1.1 400" + "This combination of host and port requires
 #   TLS."), which it writes before reading any request: nothing behind the TLS layer answered.
 _plain_result() {

@@ -3,7 +3,7 @@
 **Single source of truth** for running the whole Online Judge system with Docker Compose.
 Every service is containerized; all configuration lives in this directory. Build contexts
 reference the sibling repos (`../oj-submission-service`, `../oj-identity-service`, `../oj-problem-service`, `../oj-api-gateway`, `../oj-common`, `../judge-portal`,
-`../judge-worker`, `../mock-judge-server`) — no source is copied here.
+`../judge-worker`, `../judge-server`) — no source is copied here.
 
 > This directory supersedes the scattered compose files
 > (`../docker-compose.integration.yml`, `../docker-compose.mock.yml`,
@@ -26,10 +26,10 @@ Browser
                                                      └── kafka  ──produce→ submission.requested, oj.submission.events
                                                                 ←consume── submission.judged
                                                                       │            └→ problem-service (statistics)
-                                                                judge-worker (Python, kafka-python) ── relays each sandbox's /ping
-                                                                      │  HTTP POST /judge                → submission-service:8000
+                                                                judge-worker (Python, kafka-python) ── relays each sandbox's Ping
+                                                                      │  gRPC Judge/Ping :8080 (mTLS)    → submission-service:8000
                                                                       │  (sandbox-net: internal, worker + sandboxes only)   /api/judge_server_heartbeat/
-                                                                      └→ judge-server ×2 (qduoj sandbox: no privileged, 6 caps, read-only)
+                                                                      └→ judge-server ×2 (Go sandbox: no privileged, 6 caps, read-only, 1.5 GiB each)
 Traces: api-gateway, submission-service, identity-service, problem-service, judge-worker ──OTLP, mutual TLS──→ jaeger (UI http://127.0.0.1:16686)
 ```
 
@@ -48,7 +48,7 @@ Traces: api-gateway, submission-service, identity-service, problem-service, judg
 | `problem-db`   | `postgres:16`            | — (internal) | problem-service's database (`problem`) |
 | `jaeger`       | `jaegertracing/jaeger:2.21.0` | 127.0.0.1:16686 | Tracing UI (plain HTTP, loopback only) + OTLP collector (`jaeger/config.yaml`): `:4317`/`:4318` TLS + client certificate, in-memory, at most 100000 traces |
 | `judge-worker` | build `../judge-worker`  | —         | Kafka ⇄ judge-server bridge; relays sandbox status to the registry (mutual TLS); `/metrics` `:9100` TLS + client certificate |
-| `judge-server` | `docker.io/qduoj/judge-server@sha256:a580a164…` (2020-07-09, pinned) | — | Code sandbox (×2) on the internal `sandbox-net`; least privilege, see `x-sandbox`; API `:8080` TLS + client certificate (the worker's) |
+| `judge-server` | build `../judge-server` (Go; `docker.io/thanhtuanle/judge-server`, tag `OJ_SANDBOX_TAG`) | — | Code sandbox (×2) on the internal `sandbox-net`; least privilege (no `privileged`, six capabilities, read-only root, 1.5 GiB and 2 CPUs each), see `x-sandbox` and [Go sandbox](#go-sandbox-sub-project-16); gRPC `:8080` over mutual TLS: a client certificate from the CA, and `Judge` only for `judge-worker` and `run-worker` |
 | `judge-portal` | build `../judge-portal`  | — (internal) | Vue 3 frontend (nginx, TLS, answers only CN=`edge`) |
 | `alertmanager` | see [Alerting](#alerting-sub-project-12) | 9093 (loopback) | Receives Prometheus's alerts; Telegram when configured |
 | `grafana` | see [Dashboards](#dashboards-sub-project-12) | 3000 (loopback) | Provisioned dashboards over Prometheus |
@@ -63,13 +63,13 @@ cd judge-deployment
 scripts/preflight.sh   # from a git worktree, set OJ_ROOT to the directory holding the sibling repos
 
 # real sandbox (default): build one image at a time on this host (see Images), then start without building
-for svc in identity-service problem-service submission-service api-gateway judge-worker judge-portal; do
+for svc in identity-service problem-service submission-service api-gateway judge-worker judge-portal judge-server; do
   docker compose build "$svc"
 done
 docker compose up -d --no-build
 
-# mock sandbox — offline / CI: the same builds, plus the mock sandbox's image, then start without building
-docker compose -f docker-compose.yml -f docker-compose.mock.yml build judge-server
+# mock sandbox — offline / CI: the same builds (the mock is the same judge-server image running `judge-server mock`), then start
+# without building
 docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --no-build
 
 # logs
@@ -121,9 +121,12 @@ admin is `admin` with the password the identity V2 migration seeds, `Admin@12345
 
 What is different from the server stack:
 
-- **Mock sandboxes** (`docker-compose.mock.yml`): the real qduoj image is amd64 and needs the host's kernel for its judger.
-  The mock answers like the real server where the worker can tell (one result per case of the bundle, `/ping`), and a
-  `TRIGGER_WA`, `TRIGGER_TLE`, `TRIGGER_MLE`, `TRIGGER_RE`, `TRIGGER_SE` or `TRIGGER_CE` comment in the source picks the verdict.
+- **Mock sandboxes** (`docker-compose.mock.yml`): the real engine needs the host's kernel (seccomp, rlimits). The Go image is
+  multi-arch and runs natively on arm64 and amd64, so the mock is the same image running `judge-server mock`: the same gRPC API over
+  the same mutual TLS, the same token, hardening and healthcheck, nothing but the command differs. It answers like the real server
+  where the worker can tell (one result per case of the bundle, `Ping`), and a `TRIGGER_WA`, `TRIGGER_TLE`, `TRIGGER_MLE`,
+  `TRIGGER_RE`, `TRIGGER_SE` or `TRIGGER_CE` comment in the source picks the verdict; `TRIGGER_SLOW` makes the call wait
+  `MOCK_SLOW_SECONDS` (default 3). The Python mock (`mock-judge-server/`) is gone.
 - **No observability**: Prometheus, Grafana, Alertmanager, cAdvisor and the exporters read the Linux host (`/proc`, `/sys`,
   `docker.sock`) and are left out.
 - **MinIO's console** (`127.0.0.1:9001`) is not published (`docker-compose.local.yml`); `doctor` and `up` stop when a port
@@ -399,8 +402,9 @@ analysis that turns each run into CSV, charts and tables. The live stack is stop
 ## Images (sub-project 12)
 
 Every built service names its image `${OJ_REGISTRY:-docker.io/thanhtuanle}/<name>:<tag>` in `docker-compose.yml`
-(`oj-identity-service`, `oj-problem-service`, `oj-submission-service`, `oj-api-gateway`, `judge-worker`, `judge-portal`),
-with the tag `OJ_<NAME>_TAG`, else `OJ_TAG`, else `main` (`.env.example` lists the variables). Each service keeps its
+(`oj-identity-service`, `oj-problem-service`, `oj-submission-service`, `oj-api-gateway`, `judge-worker`, `judge-portal`, and the
+sandbox `judge-server`, which both `judge-server` and `judge-server-2` run), with the tag `OJ_<NAME>_TAG` (`OJ_SANDBOX_TAG` for the
+sandbox), else `OJ_TAG`, else `main` (`.env.example` lists the variables). Each service keeps its
 `build:`, so `docker compose build <service>` tags the local build with that name and `docker compose up -d --no-build`
 runs it without pulling. Build one image at a time on this host. The bench overlay runs the same names, never pulled.
 
@@ -419,10 +423,12 @@ time on this host), then `docker compose up -d --no-build`. For CI's images, run
 - **Rollback** to an earlier image: `OJ_<NAME>_TAG=<old sha> docker compose up -d <service>`, or for every service tagged
   alike `OJ_TAG=<shared tag> docker compose up -d`.
 - **Logs** of every container rotate: json-file, 3 files of 10 MB (`x-logging`).
-- **The sandbox** is pinned by digest at its source: `docker.io/qduoj/judge-server@sha256:a580a164...` (the 2020-07-09
-  image). The first `up` after this change pulls it (2.25 GB).
-- **Optional: mirror the sandbox into the org's GHCR** so a Docker Hub outage cannot stop a deploy. It needs a GitHub token
-  with `write:packages`; run it yourself, then point `x-sandbox.image` at the mirror:
+- **The sandbox** is the Go `judge-server`, built from `../judge-server` (`target: release`) and pushed to Docker Hub by its CI like
+  the other services (`:<commit sha>` and `:main`); `OJ_SANDBOX_TAG` pins it alone. Rolling back to the previous sandbox is in
+  [Go sandbox](#go-sandbox-sub-project-16). Its image is about 1.7 GB on disk (435 MB compressed).
+- **The previous sandbox** (rollback only): `docker.io/qduoj/judge-server@sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e`
+  (the 2020-07-09 image, 2.25 GB, pinned by digest at its source; it was `x-sandbox.image` until the Go sandbox). To keep a copy that a
+  Docker Hub outage cannot take away, mirror it into the org's GHCR (needs a GitHub token with `write:packages`; run it yourself):
 
   ```bash
   gh auth token | docker --context default login ghcr.io -u <github user> --password-stdin
@@ -544,6 +550,83 @@ Everything is provisioned read-only from `grafana/`, so a dashboard is changed i
 - Check: `bash tests/grafana.test.sh` (throwaway `prom/prometheus:v3.15.0` and Grafana: every panel query is valid, the
   three dashboards load) and the Grafana checks in `tests/compose.test.sh`.
 
+## Go sandbox (sub-project 16)
+
+`judge-server` and `judge-server-2` are the Go gRPC sandbox built from `../judge-server` (spec
+`docs/superpowers/specs/2026-11-08-go-judge-server-design.md`; its own README has the build, the tests and the corpus). It replaces
+the qduoj Python/gunicorn container: the same languages and verdict rules, a bounded memory budget, and `oj.judge.v1` gRPC over
+mutual TLS instead of HTTP. `docker-compose.yml` changed (`x-sandbox`, `x-sandbox-health`, `x-sandbox-env`, the two services, the
+workers' address and grace period), `docker-compose.mock.yml` now runs the same image as `judge-server mock`, and `mock-judge-server/`
+was removed in favour of that subcommand.
+
+### Memory and CPU
+
+| | qduoj (before) | Go sandbox |
+|---|---|---|
+| Container cap per sandbox | 3 GiB + 1.25 GiB of tmpfs | 1.5 GiB (`mem_limit: 1536m`; tmpfs counted inside it) |
+| Both sandboxes at peak | about 8.5 GiB | 3 GiB |
+| CPUs per sandbox | 6 | 2 |
+| Work space | 1 GiB `/judger` + 256 MiB `/tmp` (+ `shm_size` 256m) | 512 MiB `/work` (`exec`) + 64 MiB `/tmp`; a job's files are wiped when it ends; no `shm_size`, no `/log` volumes |
+| Compile cap | 1 GiB | the request's `compile_max_memory` capped at 512 MiB (virtual) when the row gives a positive one; no address-space limit when it is `-1` (Java, Go) |
+| Cases at once | all in parallel | a pool of `clamp(floor(1 GiB / reservation), 1, 8)`: a C++ case at 128 MiB reserves 256 MiB, so 4 at once |
+| Jobs at once per sandbox | gunicorn workers | `MAX_JOBS` 2, then a queue of `MAX_QUEUE` 4, then `RESOURCE_EXHAUSTED` (the worker tries the other sandbox, then backs off; never a verdict) |
+| Stop | docker's 10 s | `stop_grace_period: 130s` (the server's graceful stop is 120 s); `init: true` reaps a killed run's grandchildren |
+
+`pids_limit` (1024), the six capabilities, `read_only`, `no-new-privileges`, `sandbox-net` and the Java policy mount are unchanged. A big
+bundle now takes longer than under qduoj (a 20-case C++ problem with a 1 s limit takes up to about 15 s, Java about 30 s, where qduoj took
+about 3 s): the owner accepted that for the memory (spec section 11), and the worker's deadline scales with it (below). x86_64 is
+unverified: everything was run on arm64 (Docker Desktop on Apple Silicon); the first x86_64 run is the server, where
+`judge-server/scripts/sandbox-test.sh` must pass before the cut-over counts as done.
+
+### Settings
+
+Compose sets four variables (`x-sandbox-env`); the rest are the server's defaults (`judge-server/README.md` has them all; to change one,
+add it to `x-sandbox-env`):
+
+| Variable | Value here | Meaning |
+|---|---|---|
+| `TOKEN` | `${JUDGE_SERVER_TOKEN}` | additive: every call must also carry `x-judge-server-token: sha256(TOKEN)` |
+| `TLS_DIR` | `/etc/oj/tls` | the sandbox's own tls subpath: `tls.crt`, `tls.key`, `ca.crt`; the server refuses to start without them and never listens in plaintext |
+| `JUDGE_ALLOWED_CLIENTS` | `judge-worker,run-worker` | the client certificate CNs admitted to `Judge` (`Ping` admits any CA-signed client, for the healthcheck); an empty list stops the server |
+| `LOG_FORMAT` | `json` | one JSON line per job and per failure on stdout (`docker compose logs judge-server`) |
+| `MAX_JOBS`, `MAX_QUEUE` | default `2`, `4` | jobs judged at once, jobs waiting for a slot |
+| `RUN_POOL_BUDGET_BYTES` | default 1 GiB | memory handed to running programs, shared by all jobs; sizes each job's pool |
+| `COMPILE_MAX_MEMORY_BYTES` | default 512 MiB | ceiling over a request's compile memory limit |
+| `OUTPUT_FILE_CAP_BYTES`, `OUTPUT_RESPONSE_CAP_BYTES`, `COMPILE_MESSAGE_CAP_BYTES` | default 32 MiB, 64 KiB, 64 KiB | the most a case's output file can hold (`RLIMIT_FSIZE`), the output returned per case, the compiler output returned in a compile error |
+
+The mock (`judge-server mock`) also reads `MOCK_SLOW_SECONDS` (default 3, set in `docker-compose.mock.yml`).
+
+### Worker deadline and shutdown
+
+The worker's deadline for one `Judge` call is `min(JUDGE_TIMEOUT_SECONDS (30) + cases x 3 x max_cpu_time (seconds, rounded up) +
+SPJ_COMPILE_ALLOWANCE_SECONDS (20, only when the problem has a checker), JUDGE_TIMEOUT_MAX_SECONDS (300))`; a Run's `cases` is its
+inline count. The worst stretch without a Kafka poll is then MinIO 3 x 60 s plus two sandboxes x 300 s = 780 s, which is why
+`MAX_POLL_INTERVAL_MS` is the worker's new default, 900000 (15 minutes), and compose does not set it; a third sandbox adds up to 300 s and needs
+it raised. `judge-worker` and `run-worker` have `stop_grace_period: 6m` (one 300 s judgement plus the publish; K3s: `terminationGracePeriodSeconds: 360`).
+
+### Rollback
+
+The cut-over is a compose change plus the worker image plus one migration; there is no dual-transport period, so a rollback reverts all
+three, in this order:
+
+1. **Compose.** `git revert` the cut-over commit, or `git checkout <the commit before it> -- docker-compose.yml docker-compose.mock.yml
+   mock-judge-server` (the mock directory comes back with it). That puts the qduoj image
+   (`docker.io/qduoj/judge-server@sha256:a580a164...`, see Images) back in `x-sandbox`, with its 3 GiB caps and the HTTP healthcheck.
+2. **Workers.** The gRPC worker cannot talk to qduoj: run the worker image of the tag before the cut-over,
+   `OJ_WORKER_TAG=<previous tag> docker compose up -d --no-build judge-worker run-worker` (build or pull it first).
+3. **submission-service.** Its previous tag is optional: `V10` (Python 3 compiles to `solution.pyc`) works on qduoj as well and needs no
+   rollback. `V11` has already run and stays run, whichever tag is deployed, and it offers JavaScript and PHP, which the qduoj image cannot
+   judge. Disable them by hand (takes effect at once, nothing caches the language list):
+
+   ```bash
+   docker exec -i oj-submission-db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+   UPDATE t_languages SET is_disabled = true WHERE identifier IN ('javascript','php');
+   SQL
+   ```
+
+   Going forward again, set them back with `is_disabled = false` (V11 does not run twice).
+4. `docker compose up -d --no-build`, then check `docker compose ps` (both sandboxes `healthy`) and the worker's `oj_sandbox_up`.
+
 ## Configuration
 
 Shared knobs live in **`.env`**. No service loads it through `env_file`: each gets only the variables it
@@ -555,10 +638,12 @@ Notes:
 - `api-gateway` does **not** load `.env`; compose passes it only the service URIs, the profile and
   the OpenTelemetry settings. submission-service is not published on the host — everything goes
   through the HTTPS edge (`https://localhost/api/v1`; the gateway has no host port).
-- `.env` holds **container-network** addresses (`kafka:29092`). The worker's sandbox URLs are fixed in compose
-  (`https://judge-server:8080,https://judge-server-2:8080`).
+- `.env` holds **container-network** addresses (`kafka:29092`). The worker's sandbox addresses are fixed in compose
+  (`JUDGE_SERVER_URL: judge-server:8080,judge-server-2:8080`: gRPC, `host:port`; the worker accepts `https://host:port` too, and
+  TLS comes from its `OJ_TLS_DIR`, not from the prefix).
 - `.env` and every `.env.<service>` hold secrets: keep them mode 600 (`chmod 600 .env`).
-- One `JUDGE_SERVER_TOKEN` is shared by api, worker, and judge-server.
+- One `JUDGE_SERVER_TOKEN` is shared by api, worker, and judge-server (the sandbox's `TOKEN`; the worker sends its sha256 in the
+  `x-judge-server-token` metadata, on top of the client certificate).
 - `problem-service` does not load `.env` either: it reads `.env.problem` (its database) and compose
   passes it MinIO and Kafka; submission-service likewise reads `.env.submission` plus Kafka, Redis and
   the judge-server token. submission-service calls problem-service's gRPC API over mutual TLS: its
@@ -851,24 +936,30 @@ some local quirks worth recording:
   `minio-init` get the root account. `minio-init` creates the bucket, the policies (`minio/policies`) and the two users
   on every `up` and never touches objects. `mc` inside `oj-minio` needs an `https://` alias; the container's
   `SSL_CERT_FILE` points it at the CA.
-- **Sandbox health and the admin "Judge servers" page.** Compose replaces the image's own healthcheck
-  (QingdaoU's heartbeat script, which always exited 1 here) with a call to the sandbox's `/ping` (mutual TLS with the
-  sandbox's own certificate: gunicorn serves `:8080` only to clients with a certificate from the CA), and
-  `judge-worker` waits for `service_healthy`. The sandboxes sit on the internal `sandbox-net` and cannot
-  reach submission-service, so `judge-worker` relays each one's `/ping` to `t_judge_servers` every 10 s
-  (`SANDBOX_HEARTBEAT_URL`); rows are keyed by the fixed hostnames `judge-server` / `judge-server-2`. The
-  registry stores the worker's IP for them, not the sandbox's. Rows from before the fixed hostnames
-  (one per old container id) stay "Offline" until deleted.
-- **Java and Go run without a qduoj seccomp filter (open item, sub-project 15).** `t_languages.seccomp_rule` is NULL for Java
-  and `''` for Go (`V2__seed_languages.sql`); C, C++ and Python 3 have `c_cpp`/`general`. As far as I recall qduoj's own
-  configuration also gives Java no rule, because the JVM needs threads and many syscalls (not verified here). What still
-  bounds such a submission: the judger's rlimits (CPU, real time, memory, output), the unprivileged run user (uid 12002), the
-  container's `cap_drop`/`no-new-privileges`/read-only root/`pids_limit`, and `sandbox-net` (no route out). It does *not* bound
+- **Sandbox health and the admin "Judge servers" page.** The image declares no healthcheck; compose runs its own subcommand,
+  `judge-server healthcheck` (`x-sandbox-health`): it dials `127.0.0.1:8080` over mutual TLS, verifies the server certificate against the
+  container's hostname and presents the sandbox's own certificate (`Ping` admits any client the CA signed), sends the token, and exits 0
+  only when `Ping` answers. So each sandbox's compose `hostname:` (`judge-server`, `judge-server-2`) must stay equal to the name in its
+  certificate (`pki/identities.txt`); `start_period` is 60 s because the server warms its Go build cache before it listens.
+  `judge-worker` waits for `service_healthy`. The sandboxes sit on the internal `sandbox-net` and cannot reach submission-service,
+  so `judge-worker` relays each one's gRPC `Ping` (hostname, version, cores, load, `running_jobs`, `max_jobs`) to `t_judge_servers` every
+  10 s (`SANDBOX_HEARTBEAT_URL`); rows are keyed by the fixed hostnames `judge-server` / `judge-server-2`. The registry stores the
+  worker's IP for them, not the sandbox's. Rows from before the fixed hostnames (one per old container id) stay "Offline" until deleted.
+- **JavaScript and PHP are judged again** (migration `V11__enable_javascript_php.sql` of oj-submission-service): the qduoj image had neither
+  runtime, so V3 disabled them; the Go image ships both. V11 must be deployed with the cut-over, never before it (on qduoj those two
+  languages would be offered and every submission in them would fail); its rollback is in [Go sandbox](#go-sandbox-sub-project-16).
+  Python 3 compiles to a flat `solution.pyc` since `V10` (safe on either sandbox).
+- **Seccomp, and what is not filtered (open item, sub-project 15).** The two filters (`c_cpp`: allow-list; `general`: deny-list) are ports of
+  QingdaoU/Judger's, built into the sandbox's `judge-runner` shim; their provenance, the additions and what is not covered are in
+  `judge-server/internal/sandbox/seccomp_rules.md`. `t_languages.seccomp_rule` is NULL for Java and `''` for Go, JavaScript and PHP
+  (`V2__seed_languages.sql`), which means no filter; C, C++ and Python run under `c_cpp`/`general`. What still bounds an unfiltered
+  submission: the shim's rlimits (CPU, real time, address space where the language allows it, output), the unprivileged run user (uid
+  12002), the container's `cap_drop`/`no-new-privileges`/read-only root/`pids_limit`, and `sandbox-net` (no route out). It does *not* bound
   one submission against another on the same sandbox (shared uid and PID namespace) or a fork bomb against the container's
   `pids_limit`. Not changed blind, because a rule the JVM or the Go runtime cannot live under turns every submission in that
   language into a runtime error. To decide on the host that runs the stack: judge a+b in each language, then a program that
-  forks or opens a socket, with the candidate rule set by hand in `t_languages` (Go: `golang`; Java: only a rule that still
-  passes a+b). If a rule passes, add it as the next Flyway migration in oj-submission-service
+  forks or opens a socket, with the candidate rule set by hand in `t_languages` (only a rule name the sandbox implements, `c_cpp` or
+  `general`, and one that still passes a+b). If a rule passes, add it as the next Flyway migration in oj-submission-service
   (`UPDATE t_languages SET seccomp_rule = '<rule>' WHERE identifier = '<language>'`) and list the date and result here; if
   none does, either accept the isolation above or disable the language (`is_disabled = true`).
 - **Legacy stacks may still be running** on the snap daemon (`judge-server` and `my-oj`
