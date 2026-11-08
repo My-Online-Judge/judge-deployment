@@ -89,9 +89,9 @@ for name, comp_name, worker_tls in PAIRS:
           f"{name}: both containers have startup, readiness and liveness probes")
     hc = cs["healthcheck"]["test"][1:]
     check(all(sandbox[k].get("exec", {}).get("command") == hc for k in ("startupProbe", "readinessProbe", "livenessProbe")) and hc == ["/usr/local/bin/judge-server", "healthcheck"]
-          and sandbox["readinessProbe"].get("initialDelaySeconds") == 60 and sandbox["livenessProbe"].get("initialDelaySeconds") == 60
+          and not sandbox["readinessProbe"].get("initialDelaySeconds") and not sandbox["livenessProbe"].get("initialDelaySeconds")
           and sandbox["startupProbe"]["periodSeconds"] * sandbox["startupProbe"]["failureThreshold"] >= 60,
-          f"{name}: the sandbox's three probes run compose's healthcheck command, with its 60 s start period (startup window, readiness and liveness delay)")
+          f"{name}: the sandbox's three probes run compose's healthcheck command; the startup probe's window covers compose's 60 s start period (no fixed delay on readiness or liveness)")
     check(p.get("hostname") == "judge-server", f"{name}: the pod's hostname is the name in the sandbox's certificate (the healthcheck verifies it)")
     lim, req = sandbox["resources"]["limits"], sandbox["resources"]["requests"]
     check(lim.get("memory") == "1536Mi" and 1536 * 1024 * 1024 == int(cs["mem_limit"]) and lim.get("cpu") == "2" and float(cs["cpus"]) == 2 and req.get("cpu") == "1" and req.get("memory") == "768Mi"
@@ -105,6 +105,16 @@ for name, comp_name, worker_tls in PAIRS:
     check(vols.get(mounts_by_path.get("/work"), {}).get("emptyDir") == {"medium": "Memory", "sizeLimit": "512Mi"}
           and vols.get(mounts_by_path.get("/tmp"), {}).get("emptyDir") == {"medium": "Memory", "sizeLimit": "64Mi"},
           f"{name}: /work (512Mi) and /tmp (64Mi) are memory-backed (compose: tmpfs)")
+    # compose's /work tmpfs is mode=755: only root may write under it. A pod's emptyDir is 0777 (fsGroup adds setgid), so an init step must
+    # close it before the sandbox starts, or uids 12001-12003 could write directly under /work.
+    order = [c["name"] for c in p.get("initContainers", [])]
+    perm = sidecars.get("sandbox-work-perms", {})
+    psc = perm.get("securityContext", {})
+    check(perm and perm.get("restartPolicy") != "Always" and "sandbox" in order and order.index("sandbox-work-perms") < order.index("sandbox")
+          and perm.get("image") == sandbox["image"] and perm.get("command") == ["/bin/sh", "-c", "chmod 0755 /work"]
+          and any(m["mountPath"] == "/work" and m["name"] == mounts_by_path.get("/work") for m in perm.get("volumeMounts", []))
+          and psc.get("runAsUser") == 0 and psc.get("allowPrivilegeEscalation") is False and psc.get("capabilities") == {"drop": ["ALL"]},
+          f"{name}: an init step (before the sandbox starts, as root with no capabilities) makes /work root-owned 0755, as compose's tmpfs mode=755: the run users cannot write under it")
     check("/judger" not in mounts_by_path and "/log" not in mounts_by_path and "/dev/shm" not in mounts_by_path and not {"judger", "sandbox-log", "dev-shm"} & set(vols),
           f"{name}: no /judger, /log or /dev/shm volume (the Go server has none; compose dropped shm_size and the log volumes)")
     secrets = {v["secret"]["secretName"] for v in p["volumes"] if "secret" in v}

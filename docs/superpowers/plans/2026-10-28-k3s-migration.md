@@ -23,7 +23,7 @@
 
 ## Review Focus
 
-1. Pod judge bị `kubectl delete` khi worker đang `wait()` vì Kafka down: pod phải thoát trong 120 s, không chờ hết retry — kiểm tra ở T6 Step 6 (kịch bản Kafka scaled to 0).
+1. Pod judge bị `kubectl delete` khi worker đang `wait()` vì Kafka down: pod phải thoát trong 120 s, không chờ hết retry — kiểm tra ở T6 Step 6 (kịch bản Kafka scaled to 0). (Cập nhật 2026-11-08: `terminationGracePeriodSeconds` là 360 s vì deadline mỗi lần chấm tới 300 s, nên giới hạn là 360 s.)
 2. Sandbox OOMKilled giữa bài (`memory 2.5Gi` không đủ cho một bài compile nặng): worker nhận connection reset → phải thành SYSTEM_ERROR có `judgedBy`, không treo — T6 Step 5.
 3. cert-manager chưa cấp xong cert khi Pod start: container phải `CrashLoop` rồi tự lên, không chạy plaintext — T2 Step 4 (xóa Secret, xem pod).
 4. KEDA scale về 0 là **không** được phép (`minReplicaCount: 1`), vì heartbeat registry dựa vào worker — T7 Step 3.
@@ -107,7 +107,7 @@
 
 - [ ] **Step 1: Render test** thêm assertion: container `sandbox` không `privileged`, `capabilities.drop == [ALL]`, `readOnlyRootFilesystem: true`; container `worker` `runAsUser: 10001`.
 - [ ] **Step 2: Implement.**
-- [ ] **Step 3: Live k3d với mock:** submit → verdict về SSE; `t_judge_servers` có row Online tên = tên pod (sandbox chung hostname với Pod); `judged_by` trong DB = tên pod.
+- [ ] **Step 3: Live k3d với mock:** submit → verdict về SSE; `t_judge_servers` có row Online tên = tên pod (sandbox chung hostname với Pod); `judged_by` trong DB = tên pod. (Cập nhật 2026-11-08: sandbox Go cần `hostname: judge-server`, nên row Online tên `judge-server` dùng chung cho các judge pod; chỉ `judged_by` = tên pod.)
 - [ ] **Step 4: Commit** — `feat(k3s): judge and run-judge pods — sandbox and worker side by side`
 
 ---
@@ -123,7 +123,7 @@
 - [ ] **Step 3: Bài TLE thật (vòng lặp vô hạn, time limit 1 s)** → TLE, không SYSTEM_ERROR, thời gian cpu đo được ≈ time limit (không false TLE do throttle): so với compose cùng bài.
 - [ ] **Step 4: 2 pod, 8 bài cùng problem** → cả hai pod tải bundle, cả 8 ACCEPTED (Review Focus 5).
 - [ ] **Step 5: OOM giả lập** — tạm set sandbox `limits.memory 300Mi`, submit compile nặng → verdict SYSTEM_ERROR có `judgedBy`, pod sandbox restart, worker không treo (Review Focus 2). Khôi phục limit.
-- [ ] **Step 6: Shutdown** — submit bài C++ chạy 10 s, `kubectl delete pod judge-xxx` ngay → verdict thật trong DB, `judged_by` = pod cũ, pod mới lên, không SYSTEM_ERROR; lặp lại với `kubectl scale sts kafka --replicas=0` trước khi delete pod → pod thoát trong < 120 s (Review Focus 1), scale kafka lại → bài được chấm lại bởi pod mới (at-least-once, verdict đầu thắng).
+- [ ] **Step 6: Shutdown** — submit bài C++ chạy 10 s, `kubectl delete pod judge-xxx` ngay → verdict thật trong DB, `judged_by` = pod cũ, pod mới lên, không SYSTEM_ERROR; lặp lại với `kubectl scale sts kafka --replicas=0` trước khi delete pod → pod thoát trong < 360 s (Review Focus 1; trước 2026-11-08 là 120 s), scale kafka lại → bài được chấm lại bởi pod mới (at-least-once, verdict đầu thắng).
 - [ ] **Step 7: Ghi số liệu vào `k3s/README.md`; commit** — `docs(k3s): judge pod sizing from the a+b, heavy-compile and shutdown runs`
 
 ---

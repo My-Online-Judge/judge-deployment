@@ -35,7 +35,7 @@ jobs:
           exit $fail
 
   # The stack on a real K3s (k3d) with the mock sandbox (the judge-server image running `mock`): every pod ready, Prometheus scraping every
-  # target, a backup that restores. By hand (Actions > ci > Run workflow): it pulls the service images from GHCR and needs about 6 GB. The offline k3s tests above
+  # target, a backup that restores. By hand (Actions > ci > Run workflow): it pulls the service images from Docker Hub (only MinIO is on GHCR) and needs about 6 GB. The judge-server image must be published first: that repo has no CI yet. The offline k3s tests above
   # already run on every push.
   k3s-live:
     if: github.event_name == 'workflow_dispatch'
@@ -56,7 +56,7 @@ jobs:
       - name: Cluster
         run: K3D_MEMORY=6g scripts/k3d-up.sh up
 
-      - name: Images (all of them, the judge-server sandbox included, come from GHCR; the local overlay runs it with `mock`)
+      - name: Images (from Docker Hub, MinIO from GHCR; the judge-server sandbox is among them once its repo publishes it; the local overlay runs it with `mock`)
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           kubectl kustomize k3s/overlays/local | sed -n 's/^ *image: //p' | sort -u | xargs -n1 docker pull -q

@@ -30,7 +30,7 @@ thống cùng ngày (phần 2) + các quyết định đã chốt (phần 3). Ha
 | 6 | `JAVA_OPTS` | `ENTRYPOINT ["java","-jar"]` không đọc `JAVA_OPTS`; OTel agent đi qua `JAVA_TOOL_OPTIONS` | Dùng `JAVA_TOOL_OPTIONS`, nối với chuỗi OTel. |
 | 7 | Kafka 3.9.0; (`kafka_2_nats.md` muốn NATS) | Compose 3.8.1 | **Giữ Kafka**, cap heap 512M + `mem_limit`/limits 1Gi. NATS không nằm trong scope. |
 | 8 | Gateway public :8000 | Caddy edge 443, private CA, mTLS mọi hop, Kafka ACL theo CN | K3s: Traefik + cert-manager; nội bộ: cert-manager CA issuer thay `pki.sh`. |
-| 9 | Registry sandbox theo hostname cố định | `t_judge_servers` keyed `judge-server`/`judge-server-2` | Key = `POD_NAME`; dọn row Offline > 24 h. |
+| 9 | Registry sandbox theo hostname cố định | `t_judge_servers` keyed `judge-server`/`judge-server-2` | Key = `POD_NAME`; dọn row Offline > 24 h. **Cập nhật 2026-11-08 (sandbox Go):** `healthcheck` kiểm cert theo hostname nên pod đặt `hostname: judge-server`; các judge pod dùng chung một row `judge-server` trong registry (không còn key theo pod) cho tới khi `healthcheck` đọc tên server từ `HEALTHCHECK_SERVER_NAME`; `judged_by` vẫn là `POD_NAME`. |
 
 ## 3. Quyết định đã chốt
 
@@ -72,5 +72,7 @@ Thay `qduoj/judge-server` bằng sandbox Go (`../judge-server`, gRPC `oj.judge.v
   `MAX_POLL_INTERVAL_MS` của worker 900000 (trước 600000). Compose: `stop_grace_period: 6m` cho hai worker, `130s` cho sandbox.
 - Hàng 9: `judge-server healthcheck` kiểm chứng chỉ server theo hostname của pod, chứng chỉ `tls-judge-server` cấp cho `judge-server`,
   nên pod đặt `hostname: judge-server`. Hệ quả: mọi judge pod báo cùng hostname `judge-server`, registry chỉ còn một row chung (trước: key
-  theo tên pod); `judged_by` vẫn là `POD_NAME`. Muốn trả lại một row mỗi pod: cho `healthcheck` đọc tên server từ biến môi trường.
+  theo tên pod); `judged_by` vẫn là `POD_NAME`. Muốn trả lại một row mỗi pod: `healthcheck` đọc tên server từ `HEALTHCHECK_SERVER_NAME` (chưa có; việc của repo judge-server), rồi bỏ `hostname:` khỏi pod.
+- `/work`: emptyDir của pod là 0777 (fsGroup thêm setgid) nên init container `sandbox-work-perms` chạy `chmod 0755 /work` trước sandbox (compose: tmpfs `mode=755`); `tests/k3s-judge.test.sh` kiểm tra bước này.
+- Mở: image `docker.io/thanhtuanle/judge-server` chưa tồn tại (repo judge-server chưa có CI); đến lúc đó phải build và push/import tay (`k3s/README.md`).
 - Mở: compose chạy sandbox với `init: true` để dọn tiến trình con của lần chạy bị kill; pod không có tương đương (xem `k3s/README.md`).

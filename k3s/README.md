@@ -95,7 +95,7 @@ compose's.
 
 - **The sandbox is a native sidecar** (an init container with `restartPolicy: Always`): it starts before the worker, which waits for
   its startup probe (compose's `depends_on: service_healthy`), and stops after it, so a judgement in flight keeps its sandbox through
-  the 120 s the worker has to finish after SIGTERM.
+  the 360 s the worker has to finish after SIGTERM (a judgement is capped at 300 s, then it publishes).
 - **Hardening is compose's `x-sandbox`**: not privileged, every capability dropped but `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`,
   `SETUID`, `KILL`, no privilege escalation, a read-only root with `/work` (512Mi, `exec`) and `/tmp` (64Mi) memory-backed. The sandbox is
   the Go `judge-server` (`docker.io/thanhtuanle/judge-server:main`, pinned with our other images by `overlays/vps`); it runs as root, as
@@ -106,6 +106,15 @@ compose's.
   a pod has no such switch (`shareProcessNamespace: true` would give the pause process that job, but lets a contestant see the worker's
   processes), so on K3s they stay zombies under the server until the pod restarts, against the kubelet's 2048-process limit. The fix is in
   the image (an init as the entrypoint) or the server (reaping), not here.
+- **`/work` must be root-only (compose: tmpfs `mode=755`).** A pod's emptyDir is created 0777 and `fsGroup: 10001` adds the setgid bit, so
+  left alone the run users (12001-12003) could write directly under `/work`. The init container `sandbox-work-perms` (the sandbox image,
+  root, no capabilities) runs `chmod 0755 /work` before the sandbox starts, and `tests/k3s-judge.test.sh` fails without it. The server is
+  to do the same itself (chmod its work root 0755 and its tmp root 0711 at start); the init step stays as the pod's own guarantee until
+  that is released and measured on the server.
+- **Open item: the sandbox image is not published.** `judge-server` has no CI workflow yet, so `docker.io/thanhtuanle/judge-server` does
+  not exist: `base/judge/judge.yaml`, the vps overlay and the `k3s-live` CI job point at an image nobody has pushed. Until that repo
+  publishes `:main` and `:<commit sha>`, build it (`docker compose build judge-server`) and push it by hand (`docker push`) for the server, or load it into
+  k3d with `scripts/k3d-up.sh import` (which imports every local `thanhtuanle/` image); `pin-images.sh <sha>` can only pin a sha that exists.
 - **What a pod cannot do that compose's `sandbox-net` did.** The containers of a pod share one network namespace, so the
   contestant's code is on the worker's network. The pod therefore has no ServiceAccount token, the sandbox container does not get
   the worker's certificate (Kafka and the services need a client certificate; **MinIO does not**: it serves TLS only, so a submission without a
@@ -116,7 +125,7 @@ compose's.
   boundary that matters for them.
 - **Audit trail**: `POD_NAME` (Downward API) is the worker's name, so `t_submissions.judged_by` is the pod that judged. The registry's
   hostname is no longer the pod: the sandbox's healthcheck needs the pod's hostname to be `judge-server` (above), so the judge pods share
-  one registry row (it was one row per pod with qduoj, whose heartbeat did not check the name).
+  one registry row (it was one row per pod with qduoj) until `healthcheck` can take its server name from `HEALTHCHECK_SERVER_NAME` (not there yet: judge-server's work), after which the pod's `hostname:` can go.
 - Locally the sandbox is the same image running `mock` (`overlays/local/mock-sandbox.yaml`). A pod-wide process limit is the kubelet's:
   `scripts/k3d-up.sh` sets `pod-max-pids=2048` (compose gave the sandbox 1024); install K3s on the server with
   `--kubelet-arg=pod-max-pids=2048`. A cluster created before that flag needs `scripts/k3d-up.sh down` and `up`.

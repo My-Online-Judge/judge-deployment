@@ -85,7 +85,7 @@ check "sandboxes are capped at 1.5 GiB, 2 CPUs and 1024 pids" \
   "all(s[n].get('mem_limit') in (1610612736, '1610612736') and float(s[n].get('cpus')) == 2 and s[n].get('pids_limit') == 1024 for n in $sandboxes)"
 check "sandboxes run an init process (a killed run's grandchildren are reaped) and get 130 s to stop (the server's graceful stop is 120 s)" \
   "all(s[n].get('init') is True and s[n].get('stop_grace_period') == '2m10s' for n in $sandboxes)"
-check "sandboxes keep no /log (the Go server logs to stdout): no volume mounts it and js1log/js2log are gone" \
+check "sandboxes keep no /log (the Go server logs to stderr, which docker logs shows): no volume mounts it and js1log/js2log are gone" \
   "not any(m.get('target') == '/log' for n in $sandboxes for m in s[n].get('volumes', [])) and 'js1log' not in v and 'js2log' not in v"
 
 

@@ -41,6 +41,30 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
+        # compose mounts /work as a tmpfs with mode=755 (root only), so the run users (12001-12003) cannot write directly under it.
+        # A pod's emptyDir is created 0777 and fsGroup adds the setgid bit, so this step closes it before the sandbox starts:
+        # root owns /work and nobody else may write there. (The server will chmod its work and tmp roots itself; until that
+        # lands, and as a guard after it, this is the pod's own guarantee, asserted by tests/k3s-judge.test.sh.) It uses the
+        # sandbox image, which has /bin/sh; /tmp needs nothing here, the server closes its own tmp root.
+        - name: sandbox-work-perms
+          image: docker.io/thanhtuanle/judge-server:main
+          command: [/bin/sh, -c, "chmod 0755 /work"]
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          volumeMounts:
+            - name: sandbox-work
+              mountPath: /work
         # A native sidecar: it starts before the worker (the worker waits for its startup probe, as compose's depends_on
         # service_healthy) and stops after it, so a judgement in flight still has its sandbox.
         - name: sandbox
@@ -85,8 +109,8 @@ spec:
               cpu: "2"
               memory: 1536Mi
           # `judge-server healthcheck` dials 127.0.0.1:8080 over mutual TLS (Ping). The server warms its Go build cache before it
-          # listens, which compose gives 60 s of start_period: the startup probe's 150 s window covers it, and liveness and readiness
-          # wait 60 s from the container's start as well.
+          # listens, which compose gives 60 s of start_period: the startup probe's 150 s window covers it (liveness and readiness
+          # only start once it has passed).
           startupProbe:
             exec:
               command: [/usr/local/bin/judge-server, healthcheck]
@@ -96,13 +120,11 @@ spec:
           readinessProbe:
             exec:
               command: [/usr/local/bin/judge-server, healthcheck]
-            initialDelaySeconds: 60
             periodSeconds: 15
             timeoutSeconds: 5
           livenessProbe:
             exec:
               command: [/usr/local/bin/judge-server, healthcheck]
-            initialDelaySeconds: 60
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 6
@@ -286,6 +308,30 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
+        # compose mounts /work as a tmpfs with mode=755 (root only), so the run users (12001-12003) cannot write directly under it.
+        # A pod's emptyDir is created 0777 and fsGroup adds the setgid bit, so this step closes it before the sandbox starts:
+        # root owns /work and nobody else may write there. (The server will chmod its work and tmp roots itself; until that
+        # lands, and as a guard after it, this is the pod's own guarantee, asserted by tests/k3s-judge.test.sh.) It uses the
+        # sandbox image, which has /bin/sh; /tmp needs nothing here, the server closes its own tmp root.
+        - name: sandbox-work-perms
+          image: docker.io/thanhtuanle/judge-server:main
+          command: [/bin/sh, -c, "chmod 0755 /work"]
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          volumeMounts:
+            - name: sandbox-work
+              mountPath: /work
         # A native sidecar: it starts before the worker (the worker waits for its startup probe, as compose's depends_on
         # service_healthy) and stops after it, so a judgement in flight still has its sandbox.
         - name: sandbox
@@ -330,8 +376,8 @@ spec:
               cpu: "2"
               memory: 1536Mi
           # `judge-server healthcheck` dials 127.0.0.1:8080 over mutual TLS (Ping). The server warms its Go build cache before it
-          # listens, which compose gives 60 s of start_period: the startup probe's 150 s window covers it, and liveness and readiness
-          # wait 60 s from the container's start as well.
+          # listens, which compose gives 60 s of start_period: the startup probe's 150 s window covers it (liveness and readiness
+          # only start once it has passed).
           startupProbe:
             exec:
               command: [/usr/local/bin/judge-server, healthcheck]
@@ -341,13 +387,11 @@ spec:
           readinessProbe:
             exec:
               command: [/usr/local/bin/judge-server, healthcheck]
-            initialDelaySeconds: 60
             periodSeconds: 15
             timeoutSeconds: 5
           livenessProbe:
             exec:
               command: [/usr/local/bin/judge-server, healthcheck]
-            initialDelaySeconds: 60
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 6

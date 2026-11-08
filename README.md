@@ -121,8 +121,9 @@ admin is `admin` with the password the identity V2 migration seeds, `Admin@12345
 
 What is different from the server stack:
 
-- **Mock sandboxes** (`docker-compose.mock.yml`): the real engine needs the host's kernel (seccomp, rlimits). The Go image is
-  multi-arch and runs natively on arm64 and amd64, so the mock is the same image running `judge-server mock`: the same gRPC API over
+- **Mock sandboxes** (`docker-compose.mock.yml`): the real engine needs the host's kernel (seccomp, rlimits). The Go image runs
+  natively on arm64 (verified on Apple Silicon; amd64 is unverified until the VPS run), so the mock is the same image running
+  `judge-server mock`: the same gRPC API over
   the same mutual TLS, the same token, hardening and healthcheck, nothing but the command differs. It answers like the real server
   where the worker can tell (one result per case of the bundle, `Ping`), and a `TRIGGER_WA`, `TRIGGER_TLE`, `TRIGGER_MLE`,
   `TRIGGER_RE`, `TRIGGER_SE` or `TRIGGER_CE` comment in the source picks the verdict; `TRIGGER_SLOW` makes the call wait
@@ -423,8 +424,10 @@ time on this host), then `docker compose up -d --no-build`. For CI's images, run
 - **Rollback** to an earlier image: `OJ_<NAME>_TAG=<old sha> docker compose up -d <service>`, or for every service tagged
   alike `OJ_TAG=<shared tag> docker compose up -d`.
 - **Logs** of every container rotate: json-file, 3 files of 10 MB (`x-logging`).
-- **The sandbox** is the Go `judge-server`, built from `../judge-server` (`target: release`) and pushed to Docker Hub by its CI like
-  the other services (`:<commit sha>` and `:main`); `OJ_SANDBOX_TAG` pins it alone. Rolling back to the previous sandbox is in
+- **The sandbox** is the Go `judge-server`, built locally by compose from `../judge-server` (`target: release`); `OJ_SANDBOX_TAG` pins
+  its tag alone. It is not on Docker Hub: `judge-server` has no CI workflow yet, so `docker.io/thanhtuanle/judge-server` does not
+  exist, and `docker compose pull`, the K3s manifests and the `k3s-live` CI job cannot fetch it. Once that repo gets a workflow it
+  will push `:<commit sha>` and `:main` like the other services. Rolling back to the previous sandbox is in
   [Go sandbox](#go-sandbox-sub-project-16). Its image is about 1.7 GB on disk (435 MB compressed).
 - **The previous sandbox** (rollback only): `docker.io/qduoj/judge-server@sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e`
   (the 2020-07-09 image, 2.25 GB, pinned by digest at its source; it was `x-sandbox.image` until the Go sandbox). To keep a copy that a
@@ -564,7 +567,7 @@ was removed in favour of that subcommand.
 | | qduoj (before) | Go sandbox |
 |---|---|---|
 | Container cap per sandbox | 3 GiB + 1.25 GiB of tmpfs | 1.5 GiB (`mem_limit: 1536m`; tmpfs counted inside it) |
-| Both sandboxes at peak | about 8.5 GiB | 3 GiB |
+| Both sandboxes at peak | 3 GiB + 1.25 GiB of tmpfs per sandbox (the tmpfs counts inside the cgroup, so about 6 GiB real ceiling for both) | 3 GiB |
 | CPUs per sandbox | 6 | 2 |
 | Work space | 1 GiB `/judger` + 256 MiB `/tmp` (+ `shm_size` 256m) | 512 MiB `/work` (`exec`) + 64 MiB `/tmp`; a job's files are wiped when it ends; no `shm_size`, no `/log` volumes |
 | Compile cap | 1 GiB | the request's `compile_max_memory` capped at 512 MiB (virtual) when the row gives a positive one; no address-space limit when it is `-1` (Java, Go) |
@@ -588,7 +591,7 @@ add it to `x-sandbox-env`):
 | `TOKEN` | `${JUDGE_SERVER_TOKEN}` | additive: every call must also carry `x-judge-server-token: sha256(TOKEN)` |
 | `TLS_DIR` | `/etc/oj/tls` | the sandbox's own tls subpath: `tls.crt`, `tls.key`, `ca.crt`; the server refuses to start without them and never listens in plaintext |
 | `JUDGE_ALLOWED_CLIENTS` | `judge-worker,run-worker` | the client certificate CNs admitted to `Judge` (`Ping` admits any CA-signed client, for the healthcheck); an empty list stops the server |
-| `LOG_FORMAT` | `json` | one JSON line per job and per failure on stdout (`docker compose logs judge-server`) |
+| `LOG_FORMAT` | `json` | one JSON line per job and per failure on stderr (`docker compose logs judge-server` shows both streams) |
 | `MAX_JOBS`, `MAX_QUEUE` | default `2`, `4` | jobs judged at once, jobs waiting for a slot |
 | `RUN_POOL_BUDGET_BYTES` | default 1 GiB | memory handed to running programs, shared by all jobs; sizes each job's pool |
 | `COMPILE_MAX_MEMORY_BYTES` | default 512 MiB | ceiling over a request's compile memory limit |
@@ -611,7 +614,7 @@ three, in this order:
 
 1. **Compose.** `git revert` the cut-over commit, or `git checkout <the commit before it> -- docker-compose.yml docker-compose.mock.yml
    mock-judge-server` (the mock directory comes back with it). That puts the qduoj image
-   (`docker.io/qduoj/judge-server@sha256:a580a164...`, see Images) back in `x-sandbox`, with its 3 GiB caps and the HTTP healthcheck.
+   (`docker.io/qduoj/judge-server@sha256:a580a164...`, see Images) back in `x-sandbox`, with its 3 GiB caps and the HTTPS mutual-TLS `/ping` healthcheck.
 2. **Workers.** The gRPC worker cannot talk to qduoj: run the worker image of the tag before the cut-over,
    `OJ_WORKER_TAG=<previous tag> docker compose up -d --no-build judge-worker run-worker` (build or pull it first).
 3. **submission-service.** Its previous tag is optional: `V10` (Python 3 compiles to `solution.pyc`) works on qduoj as well and needs no

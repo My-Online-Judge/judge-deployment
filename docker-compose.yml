@@ -68,7 +68,7 @@ x-sandbox-health: &sandbox-health
 #   for; docker's tini reaps them so they never pile up as zombies against pids_limit.
 # - Read-only root filesystem; /work (job directories, so `exec`: programs are compiled and run from it) and /tmp (compiler
 #   scratch) are size-capped tmpfs, counted inside mem_limit. Docker's default seccomp and AppArmor profiles apply again.
-# - 1.5 GiB and 2 CPUs per sandbox (3 GiB for both, was ~8.5 GiB): the server bounds the cases it runs at once
+# - 1.5 GiB and 2 CPUs per sandbox (3 GiB for both; qduoj had 3 GiB + 1.25 GiB of tmpfs each): the server bounds the cases it runs at once
 #   (RUN_POOL_BUDGET_BYTES, 1 GiB) instead of running them all in parallel. README "Go sandbox".
 # - Only sandbox-net: no route to Kafka, Redis, the databases, MinIO or the internet — whatever a
 #   submission's language does or does not filter at the syscall level.
