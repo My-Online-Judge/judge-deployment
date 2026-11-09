@@ -560,7 +560,7 @@ Everything is provisioned read-only from `grafana/`, so a dashboard is changed i
 the qduoj Python/gunicorn container: the same languages and verdict rules, a bounded memory budget, and `oj.judge.v1` gRPC over
 mutual TLS instead of HTTP. `docker-compose.yml` changed (`x-sandbox`, `x-sandbox-health`, `x-sandbox-env`, the two services, the
 workers' address and grace period), `docker-compose.mock.yml` now runs the same image as `judge-server mock`, and `mock-judge-server/`
-was removed in favour of that subcommand.
+was removed in favour of that subcommand. It goes live as one release with the worker and submission-service ([Cut-over](#cut-over)).
 
 ### Memory and CPU
 
@@ -609,6 +609,16 @@ SPJ_COMPILE_ALLOWANCE_SECONDS (20, only when the problem has a checker), JUDGE_T
 inline count. The worst stretch without a Kafka poll is then MinIO 3 x 60 s plus two sandboxes x 300 s = 780 s, which is why
 `MAX_POLL_INTERVAL_MS` is the worker's new default, 900000 (15 minutes), and compose does not set it; a third sandbox adds up to 300 s and needs
 it raised. `judge-worker` and `run-worker` have `stop_grace_period: 6m` (one 300 s judgement plus the publish; K3s: `terminationGracePeriodSeconds: 360`).
+
+### Recreating a sandbox
+
+A worker keeps one gRPC channel per sandbox address for the life of its process and looks the name up again only after a long pause, so after a
+sandbox is recreated (a new image, a changed `x-sandbox`) it can keep dialing the old address: it failed every call with
+`Peer name judge-server is not in peer certificate` for over a minute when both sandboxes were recreated and swapped addresses. After
+recreating a sandbox, recreate the workers (`docker compose up -d --force-recreate judge-worker run-worker`), or recreate the sandboxes one at a time
+(`docker compose up -d --no-deps judge-server`, wait until it is `healthy`, then `judge-server-2`). The judge lane waits it out within its 300 s
+budget; the run lane answers SYSTEM_ERROR "Judge infrastructure unavailable" after 30 s. Delete this note once the judge-worker image contains the commit
+`fix(dispatcher): re-resolve the sandbox address within a second ...` (it sets `grpc.dns_min_time_between_resolutions_ms=1000`).
 
 ### Parity and memory
 
@@ -660,19 +670,60 @@ exported from git, built locally, linux/arm64; it is not on Docker Hub), worker 
 | Memory, both sandboxes | sampled every 2 s: at most 85 MiB together (0.08 GiB). Cgroup high-water marks over the whole run: 588 MiB and 78 MiB (sum 666 MiB, under the 3 GiB, and each far under its 1.5 GiB cap); `OOMKilled=false`, 0 restarts, on both. A 2 s sample misses sub-second spikes, so the peak is the figure that counts; which job caused it was not recorded |
 | Latency, 20-case C++ problem, 1 s limit | AC program (`--latency 6`): 0.29 s median from submit to verdict (0.28-0.38 s). Worst case (`--latency-worst 3`, over the CPU limit on every case): 15.2 s median (15.15-15.31 s), a pool of 4 cases at once. qduoj: not measured (arm64); about 3 s is the figure of design spec section 11 |
 
+### Cut-over
+
+One release of four repositories: this compose change (`judge-deployment`), the gRPC worker (`judge-worker`), the submission-service image
+that carries migration `V11` (`oj-submission-service`) and the sandbox image (`judge-server`). The pieces are not independent, so they go
+live together (spec section 7).
+
+- **Prerequisites.**
+  1. `judge-server/scripts/sandbox-test.sh` passes on the x86_64 server (everything so far ran on arm64).
+  2. The sandbox image is built from `judge-server` `31df07a` or later. It is not published (`judge-server` has no CI workflow): build it from
+     a checkout (`docker compose build judge-server`), or `docker push` it by hand before `docker compose pull` or any K3s apply.
+  3. When an x86_64 host is available, run `scripts/parity-run.sh --baseline qduoj` once against the old stack ([Parity and
+     memory](#parity-and-memory)). Not on a production host: the script leaves `parity_1`..`parity_8` and the `parity-*` problems behind.
+- **Ordering hazards.** `V11` offers JavaScript and PHP from the next start of submission-service; on the qduoj stack every submission in
+  them fails. The gRPC worker cannot talk to qduoj: every judgement waits 300 s, then ends as SYSTEM_ERROR. CI pushes `:main` for `judge-worker`
+  and `oj-submission-service` on every merge, and compose and `overlays/vps` default to `main`, so a merge in one repository can reach the server
+  before the others. Either pin `OJ_WORKER_TAG` and `OJ_SUBMISSION_TAG` in `.env` to the images that run now until the switch (CI tags an image
+  with the full 40-digit commit sha; the last commits before the cut-over work were `judge-worker` `b0f41d9` and `oj-submission-service`
+  `19d767a`), and `OJ_SANDBOX_TAG` to the sandbox image you tested (no Go image existed before; the old compose file names the qduoj sandbox by
+  digest), or merge and deploy the four repositories together.
+- **Switch compose, worker and submission-service in one `up`.** Set the new `OJ_WORKER_TAG` and `OJ_SUBMISSION_TAG` in `.env`, then:
+
+  ```bash
+  docker compose build judge-server                                    # the tested sandbox, built from ../judge-server
+  docker compose pull judge-worker run-worker submission-service       # by name: a bare `pull` cannot fetch the unpublished sandbox
+  docker compose up -d --no-build                                      # sandboxes, both workers and submission-service (V11) at once
+  ```
+
+  K3s follows the same order: push the sandbox image, pin the tags (`k3s/scripts/pin-images.sh`, or per image in `overlays/vps/kustomization.yaml`),
+  and change the judge pods and submission-service in one `kubectl apply -k k3s/overlays/vps`, so `V11` and the gRPC worker arrive together.
+- **Verify.** Both sandboxes are `healthy` in `docker compose ps`; `min by (sandbox) (oj_sandbox_up)` is 1 for both; `scripts/parity-run.sh` ends with
+  exit 0 (it leaves 8 `parity_*` users and four public `parity-*` problems: remove or hide them afterwards); one real submission in each of the eight languages, JavaScript and PHP included, gets its
+  verdict. If a check fails, roll back as below.
+
 ### Rollback
 
-The cut-over is a compose change plus the worker image plus one migration; there is no dual-transport period, so a rollback reverts all
-three, in this order:
+The cut-over is a compose change plus the worker image plus one migration, and on K3s the judge pod manifests; there is no dual-transport
+period, so a rollback reverts all of them, in this order. `502958c` (the merge of pull request #25) is the last commit before the cut-over.
 
-1. **Compose.** `git revert` the cut-over commit, or `git checkout <the commit before it> -- docker-compose.yml docker-compose.mock.yml
-   mock-judge-server` (the mock directory comes back with it). That puts the qduoj image
-   (`docker.io/qduoj/judge-server@sha256:a580a164...`, see Images) back in `x-sandbox`, with its 3 GiB caps and the HTTPS mutual-TLS `/ping` healthcheck.
-2. **Workers.** The gRPC worker cannot talk to qduoj: run the worker image of the tag before the cut-over,
+Handle JavaScript and PHP first. A submission in either that is still queued in Kafka when the sandbox goes back to qduoj, and a later rejudge of an
+accepted one, is judged by qduoj, which has neither runtime, and fails. Wait until the queue is drained
+(`docker exec oj-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 --describe --group judge-workers` shows no lag) and disable the
+two languages (step 3) so no new ones arrive; do not rejudge JavaScript or PHP submissions while qduoj judges.
+
+1. **Compose.** `git checkout 502958c -- docker-compose.yml docker-compose.mock.yml mock-judge-server` (the mock directory comes back with it).
+   That puts the qduoj image (`docker.io/qduoj/judge-server@sha256:a580a164...`, see Images) back in `x-sandbox`, with its 3 GiB caps and the HTTPS
+   mutual-TLS `/ping` healthcheck. A `git revert` must undo every commit that changed `docker-compose.yml` since `502958c`, newest first
+   (`git log --oneline 502958c..HEAD -- docker-compose.yml`: `ebd645c` (`MAX_QUEUE`), `3d78263`, `245a4e2`, `9bacab8`, `65e78f6`); reverting
+   one of them alone conflicts or leaves a half-state.
+2. **Workers.** The gRPC worker cannot talk to qduoj: run the worker image of the tag before the cut-over (the shas pinned in Cut-over),
    `OJ_WORKER_TAG=<previous tag> docker compose up -d --no-build judge-worker run-worker` (build or pull it first).
 3. **submission-service.** Its previous tag is optional: `V10` (Python 3 compiles to `solution.pyc`) works on qduoj as well and needs no
-   rollback. `V11` has already run and stays run, whichever tag is deployed, and it offers JavaScript and PHP, which the qduoj image cannot
-   judge. Disable them by hand (takes effect at once, nothing caches the language list):
+   rollback; pin `OJ_SUBMISSION_TAG` to the earlier image only if you want its code back. `V11` has already run and stays run, whichever tag is
+   deployed, and it offers JavaScript and PHP, which the qduoj image cannot judge. Disable them by hand (takes effect at once, nothing caches the
+   language list):
 
    ```bash
    docker exec -i oj-submission-db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
@@ -681,7 +732,16 @@ three, in this order:
    ```
 
    Going forward again, set them back with `is_disabled = false` (V11 does not run twice).
-4. `docker compose up -d --no-build`, then check `docker compose ps` (both sandboxes `healthy`) and the worker's `oj_sandbox_up`.
+4. `docker compose up -d --no-build`, then check `docker compose ps` (both sandboxes `healthy`) and the worker's `oj_sandbox_up`. The tests that
+   assert the Go sandbox (`tests/compose.test.sh`, `tests/k3s-judge.test.sh`) fail on the restored files until the cut-over is redone.
+5. **K3s.** The judge pods' image, environment, init container, probes, `MAX_POLL_INTERVAL_MS` and grace period changed in `0b7eab9`, `9bacab8`,
+   `685ed66` and the `MAX_QUEUE` commit. If a cluster has applied them,
+   `git checkout 502958c -- k3s/base/judge/judge.yaml k3s/overlays k3s/scripts` and `kubectl apply -k k3s/overlays/vps`, with the worker and
+   submission-service tags pinned to the earlier images (`k3s/scripts/pin-images.sh <sha>` sets all seven to one tag; edit
+   `overlays/vps/kustomization.yaml` for one image). Not `k3s/` as a whole: `k3s/base/data/init-scripts.yaml` also holds the unrelated Kafka ACLs
+   (`48dd270`). If no cluster has applied the new manifests (the sandbox image is unpublished), K3s was not cut over and there is nothing to revert.
+
+Sandboxes recreated on their own later: see [Recreating a sandbox](#recreating-a-sandbox).
 
 ## Configuration
 

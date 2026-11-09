@@ -444,8 +444,16 @@ name: `gcc`/`g++` 11, `openjdk-17-jdk-headless` (javac + java), `python2` with `
 Users `compiler` 12001, `spj` 12003 and the per-slot run users `code0`..`code7` (12100-12107; `code`, 12002, stays in the image, unused). `/opt/oj/java.policy` is still mounted by compose for the Java row. The Go binary is built in a
 separate stage and copied in; the image has no shell needs beyond the compilers.
 
-Two Flyway migrations in submission-service, both safe on qduoj as well as on the Go sandbox so that ordering and
-rollback are not coupled to the compose change:
+Two Flyway migrations in submission-service. `V10` is safe on qduoj as well as on the Go sandbox, so its ordering and
+rollback are not coupled to the compose change. `V11` is not: it offers JavaScript and PHP, which qduoj cannot run, and the gRPC worker
+cannot talk to qduoj either. The compose switch, the worker image and the submission-service image that carries `V11` therefore go
+live together, in one `docker compose up -d`: merge and deploy the four repositories (judge-deployment, judge-worker,
+oj-submission-service, judge-server) as one release, or pin `OJ_WORKER_TAG`, `OJ_SUBMISSION_TAG` and `OJ_SANDBOX_TAG` to the
+pre-cut-over images until the switch, because each repository's CI pushes `:main` on merge and a floating tag would move one of the
+three early. The sandbox image is not published (judge-server has no CI): build it from a checkout, or `docker push` it by hand
+before `docker compose pull` or any k3s apply. The runbook is README "Go sandbox", sections Cut-over and Rollback.
+
+The two migrations:
 
 - `V10__python3_flat_pyc.sql`: Python 3's compile command becomes
   `/usr/bin/python3 -c __import__('py_compile').compile('{src_path}',cfile='{exe_path}',doraise=True)` (no
@@ -455,9 +463,10 @@ rollback are not coupled to the compose change:
   touch this row.
 - `V11__enable_javascript_php.sql`: `is_disabled = false` for `javascript` and `php` (V3 disabled them because the
   qduoj image lacks the runtimes). This one must ship with the cut-over, not before it: it goes in the
-  submission-service image tag that the cut-over compose change deploys. Rollback of the cut-over disables them again
-  by hand (`UPDATE t_languages SET is_disabled = true WHERE identifier IN ('javascript','php')`), documented in the
-  README's rollback section.
+  submission-service image tag that the cut-over compose change deploys, and on qduoj every JavaScript and PHP submission fails.
+  Rollback of the cut-over disables them again by hand (`UPDATE t_languages SET is_disabled = true WHERE identifier IN
+  ('javascript','php')`), documented in the README's rollback section, which also says to drain or hold back the JavaScript and PHP
+  jobs still queued in Kafka, since qduoj fails them too.
 
 Everything else in `t_languages` is honoured unchanged.
 
@@ -532,7 +541,8 @@ bundle,seccomp,mock}`, `Dockerfile`, and a `conformance/` corpus (see §9). The 
    Anything else that differs is a bug.
 4. Memory: `docker stats` during the parity run; both sandboxes ≤ 3 GiB, no container OOM kill.
 
-Cut-over is a compose change plus the worker image; rollback is reverting both. No dual-transport period.
+Cut-over is a compose change plus the worker image plus `V11` (and the k3s manifests), deployed together (§7); rollback is the README's
+steps, which restore the compose files from `502958c` and put the earlier worker image back. No dual-transport period.
 
 ## 10. Left to the builder
 
