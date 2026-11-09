@@ -572,7 +572,7 @@ was removed in favour of that subcommand.
 | Work space | 1 GiB `/judger` + 256 MiB `/tmp` (+ `shm_size` 256m) | 512 MiB `/work` (`exec`) + 64 MiB `/tmp`; a job's files are wiped when it ends; no `shm_size`, no `/log` volumes |
 | Compile cap | 1 GiB | the request's `compile_max_memory` capped at 512 MiB (virtual) when the row gives a positive one; no address-space limit when it is `-1` (Java, Go) |
 | Cases at once | all in parallel | a pool of `clamp(floor(1 GiB / reservation), 1, 8)`: a C++ case at 128 MiB reserves 256 MiB, so 4 at once |
-| Jobs at once per sandbox | gunicorn workers | `MAX_JOBS` 2, then a queue of `MAX_QUEUE` 4, then `RESOURCE_EXHAUSTED` (the worker tries the other sandbox, then backs off; never a verdict) |
+| Jobs at once per sandbox | gunicorn workers | `MAX_JOBS` 2, no queue here (`MAX_QUEUE` 0): a third call gets `RESOURCE_EXHAUSTED` at once, the worker tries the other sandbox, then backs off 2, 4, 8 s (see [Settings](#settings)) |
 | Stop | docker's 10 s | `stop_grace_period: 130s` (the server's graceful stop is 120 s); the image's entrypoint is `tini -s`, which reaps a killed run's grandchildren (compose keeps `init: true` too, redundant) |
 
 `pids_limit` (1024), the six capabilities, `read_only`, `no-new-privileges`, `sandbox-net` and the Java policy mount are unchanged. A big
@@ -585,8 +585,8 @@ unverified: everything was run on arm64 (Docker Desktop on Apple Silicon); the f
 
 ### Settings
 
-Compose sets four variables (`x-sandbox-env`); the rest are the server's defaults (`judge-server/README.md` has them all; to change one,
-add it to `x-sandbox-env`):
+Compose sets five variables (`x-sandbox-env`; the k3s sandbox containers set the same five, plus `HEALTHCHECK_SERVER_NAME`); the rest are the
+server's defaults (`judge-server/README.md` has them all; to change one, add it to `x-sandbox-env`):
 
 | Variable | Value here | Meaning |
 |---|---|---|
@@ -594,7 +594,8 @@ add it to `x-sandbox-env`):
 | `TLS_DIR` | `/etc/oj/tls` | the sandbox's own tls subpath: `tls.crt`, `tls.key`, `ca.crt`; the server refuses to start without them and never listens in plaintext |
 | `JUDGE_ALLOWED_CLIENTS` | `judge-worker,run-worker` | the client certificate CNs admitted to `Judge` (`Ping` admits any CA-signed client, for the healthcheck); an empty list stops the server |
 | `LOG_FORMAT` | `json` | one JSON line per job and per failure on stderr (`docker compose logs judge-server` shows both streams) |
-| `MAX_JOBS`, `MAX_QUEUE` | default `2`, `4` | jobs judged at once, jobs waiting for a slot |
+| `MAX_QUEUE` | `0` (the server's default is `4`) | jobs allowed to wait for a slot. The server queues up to `MAX_QUEUE` callers in a FIFO, and a queued call's wait counts against its own deadline; the worker cannot tell a queued call from one being judged and does not retry `DEADLINE_EXCEEDED`, so a call queued behind slow jobs would end as SYSTEM_ERROR. With 0 a full sandbox answers `RESOURCE_EXHAUSTED` at once and the worker fails over to the other sandbox and backs off. The 4 slots (2 per sandbox) are all there is: a burst beyond them is retried by the worker (judge lane up to 300 s, run lane 30 s) and only ends as SYSTEM_ERROR "Judge infrastructure unavailable" after that budget |
+| `MAX_JOBS` | default `2` | jobs judged at once |
 | `RUN_POOL_BUDGET_BYTES` | default 1 GiB | memory handed to running programs, shared by all jobs; sizes each job's pool |
 | `COMPILE_MAX_MEMORY_BYTES` | default 512 MiB | ceiling over a request's compile memory limit |
 | `OUTPUT_FILE_CAP_BYTES`, `OUTPUT_RESPONSE_CAP_BYTES`, `COMPILE_MESSAGE_CAP_BYTES` | default 16 MiB, 64 KiB, 64 KiB | the most a case's output file can hold (`RLIMIT_FSIZE`), the output returned per case, the compiler output returned in a compile error |

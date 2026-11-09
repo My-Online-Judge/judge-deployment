@@ -82,7 +82,11 @@ for name, comp_name, worker_tls in PAIRS:
     check(any(m["mountPath"] == "/opt/oj/java.policy" and m.get("readOnly") for m in sandbox["volumeMounts"]), f"{name}: the sandbox mounts the Java security policy")
     ce = {k: str(v) for k, v in cs["environment"].items() if k != "TOKEN"}
     check(literal(sandbox) == {**ce, "HEALTHCHECK_SERVER_NAME": "judge-server"} and "GUNICORN_CMD_ARGS" not in names(sandbox) and "SERVICE_URL" not in names(sandbox),
-          f"{name}: the sandbox has compose's literal environment (TLS_DIR, JUDGE_ALLOWED_CLIENTS, LOG_FORMAT) plus HEALTHCHECK_SERVER_NAME, no gunicorn or SERVICE_URL", str(literal(sandbox)))
+          f"{name}: the sandbox has compose's literal environment (TLS_DIR, JUDGE_ALLOWED_CLIENTS, LOG_FORMAT, MAX_QUEUE) plus HEALTHCHECK_SERVER_NAME, no gunicorn or SERVICE_URL", str(literal(sandbox)))
+    # compose's MAX_QUEUE 0 (a queued call's wait counts against the worker's deadline, DEADLINE_EXCEEDED is not retried): asserted on its own so
+    # that dropping it from compose and the pod together cannot pass the comparison above.
+    check(literal(sandbox).get("MAX_QUEUE") == "0" and ce.get("MAX_QUEUE") == "0",
+          f"{name}: the sandbox has no wait queue (MAX_QUEUE is 0, as compose): a full sandbox answers RESOURCE_EXHAUSTED at once", str(literal(sandbox).get("MAX_QUEUE")))
     tok = next((e for e in sandbox["env"] if e["name"] == "TOKEN"), {}).get("valueFrom", {}).get("secretKeyRef", {})
     check(tok == {"name": "judge-token", "key": "JUDGE_SERVER_TOKEN"}, f"{name}: the sandbox's TOKEN is the judge-token secret, as the worker's JUDGE_SERVER_TOKEN")
     check(all(k in sandbox for k in ("startupProbe", "readinessProbe", "livenessProbe")) and all(k in worker for k in ("startupProbe", "readinessProbe", "livenessProbe")),

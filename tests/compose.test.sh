@@ -170,6 +170,10 @@ check_raw "only minio and minio-init get MinIO's root account" \
 # subcommand, which presents the sandbox's own certificate.
 check "sandboxes serve gRPC over mutual TLS from their own tls subpath and admit only the two worker identities, with the token" \
   "all({k: s[n]['environment'].get(k) for k in ('TLS_DIR', 'JUDGE_ALLOWED_CLIENTS', 'LOG_FORMAT')} == {'TLS_DIR': '/etc/oj/tls', 'JUDGE_ALLOWED_CLIENTS': 'judge-worker,run-worker', 'LOG_FORMAT': 'json'} and s[n]['environment'].get('TOKEN') and 'GUNICORN_CMD_ARGS' not in s[n]['environment'] and 'SERVICE_URL' not in s[n]['environment'] and any(m.get('volume', {}).get('subpath') == n for m in s[n].get('volumes', []) if m.get('source') == 'tls') for n in $sandboxes)"
+# MAX_QUEUE 0: a queued Judge call's wait counts against the worker's deadline and DEADLINE_EXCEEDED is not retried, so a full sandbox must
+# answer RESOURCE_EXHAUSTED at once (the worker then tries the other sandbox and backs off). The server's own default is 4 (spec 4.2, README "Go sandbox").
+check "sandboxes have no wait queue (MAX_QUEUE is 0): a full sandbox answers RESOURCE_EXHAUSTED at once, so the worker fails over and backs off" \
+  "all(s[n]['environment'].get('MAX_QUEUE') == '0' for n in $sandboxes)"
 check_raw "sandboxes take the token from JUDGE_SERVER_TOKEN, like the workers" \
   "all(s[n]['environment'].get('TOKEN') == '\${JUDGE_SERVER_TOKEN}' for n in $sandboxes)"
 check "sandbox healthcheck is the image's own judge-server healthcheck subcommand (Ping over mutual TLS), with a 60 s start period for the cache warm-up" \

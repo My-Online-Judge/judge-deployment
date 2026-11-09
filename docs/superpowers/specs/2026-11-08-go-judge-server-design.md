@@ -177,14 +177,20 @@ SYSTEM_ERROR` with the fixed user-facing message it already has, `results → re
 | `PERMISSION_DENIED` | client CN not in the allow-list | raise, no failover |
 | `INVALID_ARGUMENT` | malformed request: unknown seccomp rule, `src_name`/`exe_name` absolute, containing `..`, or resolving outside the job dir (a relative sub-path such as `__pycache__/x.pyc` is fine), `test_case_id` not `<slug>__<hash>`, empty command, inline input over the cap | raise, no failover; the worker's existing path turns it into SYSTEM_ERROR with the status message |
 | `NOT_FOUND` | the bundle directory or its `info` does not exist | raise, no failover; SYSTEM_ERROR "test-case bundle <id> not on this sandbox" (today this is a generic SE; the message now says which) |
-| `RESOURCE_EXHAUSTED` | `running_jobs == MAX_JOBS` **and** the wait queue (`MAX_QUEUE`) is full | try the next sandbox; do **not** mark this one down. When every sandbox is full, `infra_errors.transient_reason` classifies it as transient `"sandbox"` and the worker's existing infra backoff (2,4,8…60 s, 300 s total; 30 s for run-worker) retries the dispatch. The job is never turned into SYSTEM_ERROR for being busy before that window is exhausted. |
+| `RESOURCE_EXHAUSTED` | `running_jobs == MAX_JOBS` **and** the wait queue (`MAX_QUEUE`) is full; with the deployment's `MAX_QUEUE=0`, as soon as every slot is taken | try the next sandbox; do **not** mark this one down. When every sandbox is full, `infra_errors.transient_reason` classifies it as transient `"sandbox"` and the worker's existing infra backoff (2,4,8…60 s, 300 s total; 30 s for run-worker) retries the dispatch. The job ends as SYSTEM_ERROR "Judge infrastructure unavailable" only when that window is exhausted. |
 | `UNAVAILABLE`, `INTERNAL`, connection errors | server not up, TLS handshake failed, judger failure before any case ran | fail over and mark down (today's 5xx/connection rule) |
 | `DEADLINE_EXCEEDED` (client-side) | the worker's deadline passed while the sandbox judges | no failover (today's read-timeout rule). The server observes the call's context: when the client goes away it kills the running children, frees the slot and discards the job, so an abandoned job never holds a slot. |
 
 Admission: a `Judge` call takes a slot when one is free, otherwise waits in a FIFO of at most `MAX_QUEUE` (default 4)
 callers; a waiting call still counts against the client's deadline, which is why the server cancels on context done.
-Slots per sandbox `MAX_JOBS=2`, two sandboxes, up to 3 judge-workers + 2 run-workers calling: all-full is routine under
-load, so busy is a wait, then a transient retry, never a verdict.
+The worker cannot tell a queued call from one being judged, and `DEADLINE_EXCEEDED` is not retried (the row above), so a
+call that queued behind slow jobs would end as SYSTEM_ERROR for nothing but being busy. Each worker process also counts
+sandboxes on its own, so several workers can land on the same sandbox while the other is idle, and then no queue is ever
+full to trigger a fail-over. The deployment therefore sets `MAX_QUEUE=0` (compose `x-sandbox-env`, the k3s sandbox
+containers; the server's own default stays 4, §5.5): a full sandbox answers `RESOURCE_EXHAUSTED` at once. Slots per
+sandbox `MAX_JOBS=2`, two sandboxes, so 4 slots, with up to 3 judge-workers + 2 run-workers calling: all-full is routine
+under load, and a burst beyond the 4 slots is retried by the worker with backoff (judge lane up to 300 s, run lane 30 s);
+only when that budget is spent does it end as SYSTEM_ERROR "Judge infrastructure unavailable".
 
 Auth: mutual TLS is mandatory; the server verifies the client chain against `ca.crt` and admits only CNs in
 `JUDGE_ALLOWED_CLIENTS` (default `judge-worker,run-worker`). The shared token is additive, as in problem-service: when
@@ -549,10 +555,11 @@ Cut-over is a compose change plus the worker image; rollback is reverting both. 
 ## 12. Calls the designer made (for the owner to check)
 
 - Keep the Python worker; gRPC is the seam (§2).
-- 2 CPUs per sandbox, 512 MiB compile cap, `MAX_JOBS=2`, `MAX_QUEUE=4` (§4.2, §6). The 1.5 GiB cap and 1 GiB pool are the owner's.
+- 2 CPUs per sandbox, 512 MiB compile cap, `MAX_JOBS=2`, `MAX_QUEUE=4` as the server's defaults (§4.2, §6); the deployment overrides the queue with `MAX_QUEUE=0` (§4.2). The 1.5 GiB cap and 1 GiB pool are the owner's.
 - Compiles with `compile_max_memory = -1` (Java, Go) get no address-space limit and reserve the whole pool (§6).
-- Busy sandboxes queue, then the worker retries with its infra backoff; busy never becomes SYSTEM_ERROR inside the
-  retry window (§4.2).
+- Busy sandboxes answer `RESOURCE_EXHAUSTED` at once (`MAX_QUEUE=0`), then the worker fails over and retries with its infra
+  backoff; busy becomes SYSTEM_ERROR only after that retry window (§4.2). The server's own queue (default 4) would put the wait
+  inside the call's deadline, which is not retried.
 - Limits via `setrlimit` + container cap + `oom_score_adj`, no cgroups, no namespaces beyond the container's (§2, §5.3).
 - Stack limit 128 MiB as qduoj (§5.3). Output comparison uses the bundle builder's normalisation, CRLF included (§4.3).
 - Keep JDK 17 and the `java.policy` security manager for Java, contrary to what was said in the brainstorm (§2).

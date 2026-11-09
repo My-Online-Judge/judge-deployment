@@ -113,11 +113,17 @@ x-sandbox: &sandbox
 # certificate of the sandbox's tls subpath from TLS_DIR and refuses to start without the three files, never plaintext:
 # it requires a client certificate signed by ca.crt on every call and admits Judge only for the CNs of
 # JUDGE_ALLOWED_CLIENTS. TOKEN is additive: the worker sends sha256(TOKEN) as well.
+# MAX_QUEUE 0 (the server's own default is 4): a Judge call that finds both slots taken answers RESOURCE_EXHAUSTED at once
+# instead of waiting in the server's queue. The worker's deadline covers a queued call's wait as well, and DEADLINE_EXCEEDED
+# is not retried, so a call that queued behind slow jobs would end as SYSTEM_ERROR; RESOURCE_EXHAUSTED makes the worker try the
+# other sandbox and then back off 2, 4, 8 s (judge lane up to 300 s, run lane 30 s). Each worker process counts sandboxes on its
+# own, so several workers can land on the same one while the other is idle.
 x-sandbox-env: &sandbox-env
   TOKEN: ${JUDGE_SERVER_TOKEN}
   TLS_DIR: /etc/oj/tls
   JUDGE_ALLOWED_CLIENTS: judge-worker,run-worker
   LOG_FORMAT: json
+  MAX_QUEUE: "0"
 
 # The JVM services' options: the OpenTelemetry agent, heap sizing, and DNS caching. The JDK keeps a resolved address
 # 30 s and a failed lookup 10 s by default, so a stopped container's old address took connections until the cache

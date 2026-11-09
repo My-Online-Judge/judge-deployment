@@ -78,6 +78,11 @@ spec:
               value: judge-worker,run-worker
             - name: LOG_FORMAT
               value: json
+            # compose's MAX_QUEUE 0 (tests/k3s-judge.test.sh compares the two): a full sandbox answers RESOURCE_EXHAUSTED at once instead of
+            # queuing the call, whose wait would count against the worker's deadline (DEADLINE_EXCEEDED is not retried). The pod's one
+            # worker seldom fills both slots; the value keeps this environment the same as compose's.
+            - name: MAX_QUEUE
+              value: "0"
             # A pod's hostname is the pod's name, which is in no SAN of tls-judge-server (judge-server, judge-server.oj.svc..., localhost). The
             # healthcheck verifies the server certificate for this name instead of os.Hostname() (judge-server e505bee or later: an older image
             # ignores the variable and its probes fail). The pod keeps its own hostname, so Ping reports the pod's name to the registry.
@@ -345,6 +350,11 @@ spec:
               value: judge-worker,run-worker
             - name: LOG_FORMAT
               value: json
+            # compose's MAX_QUEUE 0 (tests/k3s-judge.test.sh compares the two): a full sandbox answers RESOURCE_EXHAUSTED at once instead of
+            # queuing the call, whose wait would count against the worker's deadline (DEADLINE_EXCEEDED is not retried). The pod's one
+            # worker seldom fills both slots; the value keeps this environment the same as compose's.
+            - name: MAX_QUEUE
+              value: "0"
             # A pod's hostname is the pod's name, which is in no SAN of tls-judge-server (judge-server, judge-server.oj.svc..., localhost). The
             # healthcheck verifies the server certificate for this name instead of os.Hostname() (judge-server e505bee or later: an older image
             # ignores the variable and its probes fail). The pod keeps its own hostname, so Ping reports the pod's name to the registry.
