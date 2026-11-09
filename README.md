@@ -6,9 +6,8 @@ reference the sibling repos (`../oj-submission-service`, `../oj-identity-service
 `../judge-worker`, `../judge-server`) — no source is copied here.
 
 > This directory supersedes the scattered compose files
-> (`../docker-compose.integration.yml`, `../docker-compose.mock.yml`,
-> `../judge-server/docker-compose.yml`). Those are kept
-> as legacy references; prefer this stack.
+> (`../docker-compose.integration.yml`, `../docker-compose.mock.yml`). Those are kept
+> as legacy references; prefer this stack. `../judge-server/docker-compose.yml` (the qduoj setup) has been removed.
 
 ## Architecture
 
