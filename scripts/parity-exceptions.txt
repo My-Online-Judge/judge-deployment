@@ -1,0 +1,18 @@
+# Verdicts scripts/parity-run.sh accepts although they differ from corpus.json, one per line:  <lang>/<file> <got>-><expected>
+# (`got` is what the sandbox answers, `expected` what the corpus says). Spec docs/superpowers/specs/2026-11-08-go-judge-server-design.md 4.3.
+#
+# The two intended divergences from qduoj. The Go sandbox gives AC, as the corpus expects; qduoj gives WA.
+cpp/crlf.cpp WA->AC
+cpp/stderr.cpp WA->AC
+#
+# Programs submission-service's source policy refuses before they are queued (HTTP 400, the same on every sandbox), so they
+# never reach a sandbox through the gateway; the in-image engine tests (judge-server scripts/run-all.sh) are what judge them.
+# The three c_cpp real-time-limit programs (rtle, rtle_busy, tle_wait) are refused for <linux/futex.h>: no REAL_TLE verdict is
+# produced by the corpus through the gateway.
+c/socket.c REFUSED->RE
+cpp/rtle.cpp REFUSED->REAL_TLE
+cpp/rtle_busy.cpp REFUSED->REAL_TLE
+cpp/tle_wait.cpp REFUSED->CPU_TLE
+java/exec.java REFUSED->RE
+java/socket.java REFUSED->RE
+python3/fork.py REFUSED->RE
