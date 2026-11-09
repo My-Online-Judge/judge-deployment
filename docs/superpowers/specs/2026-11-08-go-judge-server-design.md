@@ -497,7 +497,8 @@ the Python mock is deleted.
 Compose (`judge-deployment/docker-compose.yml`), as built in the cut-over (2026-11-08): `x-sandbox` image
 `${OJ_REGISTRY:-docker.io/thanhtuanle}/judge-server:${OJ_SANDBOX_TAG:-${OJ_TAG:-main}}` with `build: {context: ../judge-server,
 target: release}`, like the other services (a tag, not a digest: the image is built and pushed by this project, and `OJ_SANDBOX_TAG`
-pins it); `init: true` (the shim kills only the program, so a killed run's grandchildren need an init to be reaped);
+pins it); `init: true` (the shim kills only the program, so a killed run's grandchildren need an init to be reaped; redundant since the image's
+entrypoint is `tini -s`, and kept: the two coexist, docker's init as PID 1 and the image's tini below it as a subreaper);
 `stop_grace_period: 130s` (the server's graceful stop is 120 s); `mem_limit: 1536m`, `cpus: 2`, `pids_limit: 1024`, tmpfs
 `/work:exec,mode=755,size=512m` and `/tmp:size=64m`; no `shm_size` and no `/log` volumes; same `cap_add`, `read_only`,
 `no-new-privileges`, `sandbox-net`; env `TOKEN`, `TLS_DIR`, `JUDGE_ALLOWED_CLIENTS`, `LOG_FORMAT` (the rest are the defaults of 5.5);

@@ -28,10 +28,6 @@ spec:
       # not given the worker's certificate, and the pod may reach only what the worker needs (network/policies.yaml).
       automountServiceAccountToken: false
       shareProcessNamespace: false
-      # The healthcheck verifies the server certificate against the pod's hostname, and the certificate (tls-judge-server) is issued for
-      # judge-server, not for a pod name. So every judge pod is `judge-server` to the sandbox: Ping reports that name, and the registry
-      # keeps one row for the judge pods together (`judged_by` still names the pod, from POD_NAME).
-      hostname: judge-server
       # time to finish the judgement in hand: the worker stops taking records on SIGTERM and exits after publishing and committing; a
       # judgement's deadline is capped at 300 s (JUDGE_TIMEOUT_MAX_SECONDS), then comes the publish. The sandbox's own graceful stop is 120 s.
       terminationGracePeriodSeconds: 360
@@ -41,7 +37,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-        # compose mounts /work as a tmpfs with mode=755 (root only), so the run users (12001-12003) cannot write directly under it.
+        # compose mounts /work as a tmpfs with mode=755 (root only), so the run users (12100-12107) cannot write directly under it.
         # A pod's emptyDir is created 0777 and fsGroup adds the setgid bit, so this step closes it before the sandbox starts:
         # root owns /work and nobody else may write there. (The server will chmod its work and tmp roots itself; until that
         # lands, and as a guard after it, this is the pod's own guarantee, asserted by tests/k3s-judge.test.sh.) It uses the
@@ -82,15 +78,19 @@ spec:
               value: judge-worker,run-worker
             - name: LOG_FORMAT
               value: json
+            # A pod's hostname is the pod's name, which is in no SAN of tls-judge-server (judge-server, judge-server.oj.svc..., localhost). The
+            # healthcheck verifies the server certificate for this name instead of os.Hostname() (judge-server e505bee or later: an older image
+            # ignores the variable and its probes fail). The pod keeps its own hostname, so Ping reports the pod's name to the registry.
+            - name: HEALTHCHECK_SERVER_NAME
+              value: judge-server
           ports:
             - name: judge
               containerPort: 8080
           # compose's x-sandbox: no privileged, six capabilities (CHOWN/FOWNER/DAC_OVERRIDE to prepare each job directory,
           # SETUID/SETGID to drop to the run users, KILL to stop a run over its time limit), no new privileges, read-only root
           # with /work (exec) and /tmp as memory-backed volumes. The server runs as root, as in the image; the run users
-          # (12001-12003) cannot enter the 0440 TLS directory. Compose runs it with init: true so that the grandchildren of a killed run
-          # are reaped; a pod has no such switch (shareProcessNamespace would give the pause process that job, but lets a contestant see
-          # the worker's processes), so they stay zombies under the server until the pod restarts (k3s/README.md, open item).
+          # (12100-12107), the compiler (12001) and the checker (12003) cannot enter the 0440 TLS directory. The grandchildren of a killed
+          # run are reaped by the image's own entrypoint, tini -s (judge-server 8308e4d or later): a pod has no `init: true` switch.
           securityContext:
             runAsUser: 0
             allowPrivilegeEscalation: false
@@ -296,10 +296,6 @@ spec:
       # not given the worker's certificate, and the pod may reach only what the worker needs (network/policies.yaml).
       automountServiceAccountToken: false
       shareProcessNamespace: false
-      # The healthcheck verifies the server certificate against the pod's hostname, and the certificate (tls-judge-server) is issued for
-      # judge-server, not for a pod name. So every judge pod is `judge-server` to the sandbox: Ping reports that name, and the registry
-      # keeps one row for the judge pods together (`judged_by` still names the pod, from POD_NAME).
-      hostname: judge-server
       # time to finish the judgement in hand: the worker stops taking records on SIGTERM and exits after publishing and committing; a
       # judgement's deadline is capped at 300 s (JUDGE_TIMEOUT_MAX_SECONDS), then comes the publish. The sandbox's own graceful stop is 120 s.
       terminationGracePeriodSeconds: 360
@@ -308,7 +304,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-        # compose mounts /work as a tmpfs with mode=755 (root only), so the run users (12001-12003) cannot write directly under it.
+        # compose mounts /work as a tmpfs with mode=755 (root only), so the run users (12100-12107) cannot write directly under it.
         # A pod's emptyDir is created 0777 and fsGroup adds the setgid bit, so this step closes it before the sandbox starts:
         # root owns /work and nobody else may write there. (The server will chmod its work and tmp roots itself; until that
         # lands, and as a guard after it, this is the pod's own guarantee, asserted by tests/k3s-judge.test.sh.) It uses the
@@ -349,15 +345,19 @@ spec:
               value: judge-worker,run-worker
             - name: LOG_FORMAT
               value: json
+            # A pod's hostname is the pod's name, which is in no SAN of tls-judge-server (judge-server, judge-server.oj.svc..., localhost). The
+            # healthcheck verifies the server certificate for this name instead of os.Hostname() (judge-server e505bee or later: an older image
+            # ignores the variable and its probes fail). The pod keeps its own hostname, so Ping reports the pod's name to the registry.
+            - name: HEALTHCHECK_SERVER_NAME
+              value: judge-server
           ports:
             - name: judge
               containerPort: 8080
           # compose's x-sandbox: no privileged, six capabilities (CHOWN/FOWNER/DAC_OVERRIDE to prepare each job directory,
           # SETUID/SETGID to drop to the run users, KILL to stop a run over its time limit), no new privileges, read-only root
           # with /work (exec) and /tmp as memory-backed volumes. The server runs as root, as in the image; the run users
-          # (12001-12003) cannot enter the 0440 TLS directory. Compose runs it with init: true so that the grandchildren of a killed run
-          # are reaped; a pod has no such switch (shareProcessNamespace would give the pause process that job, but lets a contestant see
-          # the worker's processes), so they stay zombies under the server until the pod restarts (k3s/README.md, open item).
+          # (12100-12107), the compiler (12001) and the checker (12003) cannot enter the 0440 TLS directory. The grandchildren of a killed
+          # run are reaped by the image's own entrypoint, tini -s (judge-server 8308e4d or later): a pod has no `init: true` switch.
           securityContext:
             runAsUser: 0
             allowPrivilegeEscalation: false

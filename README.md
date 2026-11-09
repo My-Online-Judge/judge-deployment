@@ -573,7 +573,7 @@ was removed in favour of that subcommand.
 | Compile cap | 1 GiB | the request's `compile_max_memory` capped at 512 MiB (virtual) when the row gives a positive one; no address-space limit when it is `-1` (Java, Go) |
 | Cases at once | all in parallel | a pool of `clamp(floor(1 GiB / reservation), 1, 8)`: a C++ case at 128 MiB reserves 256 MiB, so 4 at once |
 | Jobs at once per sandbox | gunicorn workers | `MAX_JOBS` 2, then a queue of `MAX_QUEUE` 4, then `RESOURCE_EXHAUSTED` (the worker tries the other sandbox, then backs off; never a verdict) |
-| Stop | docker's 10 s | `stop_grace_period: 130s` (the server's graceful stop is 120 s); `init: true` reaps a killed run's grandchildren |
+| Stop | docker's 10 s | `stop_grace_period: 130s` (the server's graceful stop is 120 s); the image's entrypoint is `tini -s`, which reaps a killed run's grandchildren (compose keeps `init: true` too, redundant) |
 
 `pids_limit` (1024), the six capabilities, `read_only`, `no-new-privileges`, `sandbox-net` and the Java policy mount are unchanged. A big
 bundle now takes longer than under qduoj. The pool arithmetic of spec section 11 estimates a 20-case problem with a 1 s limit at up to about 15 s

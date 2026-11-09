@@ -99,15 +99,17 @@ compose's.
 - **Hardening is compose's `x-sandbox`**: not privileged, every capability dropped but `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`,
   `SETUID`, `KILL`, no privilege escalation, a read-only root with `/work` (512Mi, `exec`) and `/tmp` (64Mi) memory-backed. The sandbox is
   the Go `judge-server` (`docker.io/thanhtuanle/judge-server:main`, pinned with our other images by `overlays/vps`); it runs as root, as
-  in the image, and the run users (12001-12003) cannot read the 0440 TLS directory. Its limits are compose's: 1.5 GiB (`1536Mi`) and 2 CPUs,
-  with requests of 768Mi and 1 CPU. Its probes are the image's own `judge-server healthcheck` (Ping over mutual TLS), which verifies the
-  server certificate against the pod's hostname: the pod sets `hostname: judge-server`, the name in `tls-judge-server`.
-- **Open item: zombies.** Compose runs the sandbox with `init: true` so the grandchildren of a killed run (a compiler's helpers) are reaped;
-  a pod has no such switch (`shareProcessNamespace: true` would give the pause process that job, but lets a contestant see the worker's
-  processes), so on K3s they stay zombies under the server until the pod restarts, against the kubelet's 2048-process limit. The fix is in
-  the image (an init as the entrypoint) or the server (reaping), not here.
+  in the image, and the run users (12100-12107, one per job slot), the compiler (12001) and the checker (12003) cannot read the 0440 TLS
+  directory. Its limits are compose's: 1.5 GiB (`1536Mi`) and 2 CPUs, with requests of 768Mi and 1 CPU. Its probes are the image's own
+  `judge-server healthcheck` (Ping over mutual TLS), which verifies the server certificate for `HEALTHCHECK_SERVER_NAME`, set to
+  `judge-server`, the name in `tls-judge-server`: a pod's own hostname is its pod name, which is in no SAN, and the pod keeps it. The variable
+  needs the image of judge-server `e505bee` or later; an older image ignores it and every probe fails.
+- **Zombies are the image's job.** Compose runs the sandbox with `init: true` so the grandchildren of a killed run (a compiler's helpers)
+  are reaped; a pod has no such switch (`shareProcessNamespace: true` would give the pause process that job, but lets a contestant see the
+  worker's processes). The image's entrypoint is `tini -s` since judge-server `8308e4d` (a subreaper, so it also works below compose's
+  `init: true`), which reaps them in a pod too: no zombie piles up against the kubelet's 2048-process limit. An older image has no init.
 - **`/work` must be root-only (compose: tmpfs `mode=755`).** A pod's emptyDir is created 0777 and `fsGroup: 10001` adds the setgid bit, so
-  left alone the run users (12001-12003) could write directly under `/work`. The init container `sandbox-work-perms` (the sandbox image,
+  left alone the run users (12100-12107) could write directly under `/work`. The init container `sandbox-work-perms` (the sandbox image,
   root, no capabilities) runs `chmod 0755 /work` before the sandbox starts, and `tests/k3s-judge.test.sh` fails without it. The server is
   to do the same itself (chmod its work root 0755 and its tmp root 0711 at start); the init step stays as the pod's own guarantee until
   that is released and measured on the server.
@@ -123,9 +125,10 @@ compose's.
   `egress-run-judge`) lets the pod reach only Kafka, MinIO (judge), submission-service (judge), Jaeger and DNS: no database, no other
   service, no internet, no node. Java and Go submissions have no seccomp filter (see the README's open item), which makes this the
   boundary that matters for them.
-- **Audit trail**: `POD_NAME` (Downward API) is the worker's name, so `t_submissions.judged_by` is the pod that judged. The registry's
-  hostname is no longer the pod: the sandbox's healthcheck needs the pod's hostname to be `judge-server` (above), so the judge pods share
-  one registry row (it was one row per pod with qduoj) until `healthcheck` can take its server name from `HEALTHCHECK_SERVER_NAME` (not there yet: judge-server's work), after which the pod's `hostname:` can go.
+- **Audit trail**: `POD_NAME` (Downward API) is the worker's name, so `t_submissions.judged_by` is the pod that judged. The registry
+  (`t_judge_servers`) is keyed by the hostname the worker relays from the sandbox's Ping, which is `os.Hostname()` in the sandbox container,
+  the pod's name (the pod keeps its own hostname, `HEALTHCHECK_SERVER_NAME` carries the certificate's name): one row per judge pod, as with
+  qduoj, with `service_url` `localhost:8080`. A pod that is gone leaves its row Offline until someone deletes it.
 - Locally the sandbox is the same image running `mock` (`overlays/local/mock-sandbox.yaml`). A pod-wide process limit is the kubelet's:
   `scripts/k3d-up.sh` sets `pod-max-pids=2048` (compose gave the sandbox 1024); install K3s on the server with
   `--kubelet-arg=pod-max-pids=2048`. A cluster created before that flag needs `scripts/k3d-up.sh down` and `up`.

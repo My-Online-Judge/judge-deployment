@@ -81,8 +81,8 @@ for name, comp_name, worker_tls in PAIRS:
     check(p["securityContext"].get("seccompProfile", {}).get("type") == "RuntimeDefault", f"{name}: RuntimeDefault seccomp")
     check(any(m["mountPath"] == "/opt/oj/java.policy" and m.get("readOnly") for m in sandbox["volumeMounts"]), f"{name}: the sandbox mounts the Java security policy")
     ce = {k: str(v) for k, v in cs["environment"].items() if k != "TOKEN"}
-    check(literal(sandbox) == ce and "GUNICORN_CMD_ARGS" not in names(sandbox) and "SERVICE_URL" not in names(sandbox),
-          f"{name}: the sandbox has compose's literal environment (TLS_DIR, JUDGE_ALLOWED_CLIENTS, LOG_FORMAT), no gunicorn or SERVICE_URL", str(literal(sandbox)))
+    check(literal(sandbox) == {**ce, "HEALTHCHECK_SERVER_NAME": "judge-server"} and "GUNICORN_CMD_ARGS" not in names(sandbox) and "SERVICE_URL" not in names(sandbox),
+          f"{name}: the sandbox has compose's literal environment (TLS_DIR, JUDGE_ALLOWED_CLIENTS, LOG_FORMAT) plus HEALTHCHECK_SERVER_NAME, no gunicorn or SERVICE_URL", str(literal(sandbox)))
     tok = next((e for e in sandbox["env"] if e["name"] == "TOKEN"), {}).get("valueFrom", {}).get("secretKeyRef", {})
     check(tok == {"name": "judge-token", "key": "JUDGE_SERVER_TOKEN"}, f"{name}: the sandbox's TOKEN is the judge-token secret, as the worker's JUDGE_SERVER_TOKEN")
     check(all(k in sandbox for k in ("startupProbe", "readinessProbe", "livenessProbe")) and all(k in worker for k in ("startupProbe", "readinessProbe", "livenessProbe")),
@@ -92,7 +92,10 @@ for name, comp_name, worker_tls in PAIRS:
           and not sandbox["readinessProbe"].get("initialDelaySeconds") and not sandbox["livenessProbe"].get("initialDelaySeconds")
           and sandbox["startupProbe"]["periodSeconds"] * sandbox["startupProbe"]["failureThreshold"] >= 60,
           f"{name}: the sandbox's three probes run compose's healthcheck command; the startup probe's window covers compose's 60 s start period (no fixed delay on readiness or liveness)")
-    check(p.get("hostname") == "judge-server", f"{name}: the pod's hostname is the name in the sandbox's certificate (the healthcheck verifies it)")
+    # The healthcheck verifies the server certificate for HEALTHCHECK_SERVER_NAME (the name in tls-judge-server), so the pod keeps its own hostname:
+    # forcing it to judge-server would make every judge pod report the same name and share one registry row.
+    check(literal(sandbox).get("HEALTHCHECK_SERVER_NAME") == "judge-server" and "hostname" not in p,
+          f"{name}: the sandbox's healthcheck verifies the certificate for HEALTHCHECK_SERVER_NAME=judge-server and the pod keeps its own hostname (one registry row per pod)")
     lim, req = sandbox["resources"]["limits"], sandbox["resources"]["requests"]
     check(lim.get("memory") == "1536Mi" and 1536 * 1024 * 1024 == int(cs["mem_limit"]) and lim.get("cpu") == "2" and float(cs["cpus"]) == 2 and req.get("cpu") == "1" and req.get("memory") == "768Mi"
           and worker["resources"]["limits"].get("memory"), f"{name}: the sandbox has compose's 1.5 GiB and 2 CPUs as limits (requests 1 CPU, 768Mi), the worker a memory limit")
@@ -106,7 +109,7 @@ for name, comp_name, worker_tls in PAIRS:
           and vols.get(mounts_by_path.get("/tmp"), {}).get("emptyDir") == {"medium": "Memory", "sizeLimit": "64Mi"},
           f"{name}: /work (512Mi) and /tmp (64Mi) are memory-backed (compose: tmpfs)")
     # compose's /work tmpfs is mode=755: only root may write under it. A pod's emptyDir is 0777 (fsGroup adds setgid), so an init step must
-    # close it before the sandbox starts, or uids 12001-12003 could write directly under /work.
+    # close it before the sandbox starts, or the run uids (12100-12107) could write directly under /work.
     order = [c["name"] for c in p.get("initContainers", [])]
     perm = sidecars.get("sandbox-work-perms", {})
     psc = perm.get("securityContext", {})
