@@ -142,15 +142,35 @@ compose's.
   (`cases`, judge pod only) may grow to 8Gi before the kubelet evicts the pod, which would kill the judgement in flight; the worker sweeps
   bundles unused for 6 hours (`TEST_CASE_CACHE_TTL_SECONDS`, default 24 h), so the cache ages out well before the cap on a normal disk.
 
-## Job cgroups (not enabled)
+## Job cgroups (`components/cgroup`, host: `host/`)
 
-The judge-server's per-job cgroups (judge-server spec §14, `docker-compose.cgroup.yml`) are not wired into these manifests, so the Judge Pod and the Run Pod
-run their sandboxes with `CGROUP_MODE` unset (off): `setrlimit` and the container's cap. The server needs a cgroup v2 subtree delegated to it and mounted
-read-write, and in a pod that means a `hostPath` of a systemd slice (`host/systemd/oj-judge-server.slice` style, one directory per pod through `subPathExpr` since
-KEDA runs several replicas on a node). The `oj` namespace enforces Pod Security `baseline`, which forbids `hostPath`, so this needs a decision first: judge pods in a
-namespace of their own at `privileged` (and the NetworkPolicies and service names that move with them), or an admission exemption for that one volume. The
-jobs would also leave the container's cgroup, so the slice must carry the limits the pod's `resources` have now (the server refuses one that does not). Nothing here has
-been run on a cluster.
+The Go sandbox puts every job in a cgroup of its own, whose `memory.max`, `pids.max` and `cpu.max` the kernel enforces (judge-server spec §14, README "Job
+cgroups"). `overlays/vps` applies the component `components/cgroup`; the base and `overlays/local` (the mock) do not use it. It gives the Judge Pod and the Run
+Pod's sandboxes: `runtimeClassName: judge-delegated`; a `hostPath` of `/sys/fs/cgroup/oj-judge.slice` mounted at `/oj-cgroup` with `subPathExpr: $(POD_NAME)`, so
+each pod (KEDA runs several per node) has a directory of its own and sees nothing else of the cgroup file system; and `CGROUP_MODE=auto`, `CGROUP_ROOT`,
+`CGROUP_ROOT_MEMORY_MAX_BYTES` and `CGROUP_ROOT_CPU_MILLIS` from the container's own `resources.limits`, `CGROUP_ROOT_PIDS_MAX=1024`. The jobs run outside the
+container's cgroup, so the pod's limits no longer reach them: the sandbox writes the same numbers on its directory, and refuses to start `required` (or runs
+without, `auto`) if it cannot. Containers keep the six capabilities and no privilege.
+
+**Why a RuntimeClass.** The `oj` namespace enforces Pod Security `baseline`, which forbids `hostPath`, and nothing in `baseline` allows one volume. The
+apiserver's admission configuration (`host/admission-config.yaml`) exempts pods of the RuntimeClass `judge-delegated` from Pod Security, and the
+ValidatingAdmissionPolicy in the component (Kubernetes 1.30+) holds exactly those pods to what the sandbox needs: the one host path above (type Directory),
+no host network, PID or IPC, no privileged container, no capability beyond CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID and KILL, no host port, no sysctl, and
+only pods labelled `app: judge` or `app: run-judge`. The namespace's labels are unchanged.
+
+**Per node, once** (a cgroup v2 host with systemd): `sudo cp k3s/host/oj-judge.slice /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl start
+oj-judge.slice` (the slice is the node's ceiling for all sandbox pods, KEDA's six at most, so its limits are six pods' worth; check `cat
+/sys/fs/cgroup/oj-judge.slice/cgroup.subtree_control` lists `cpu memory pids`), then `sudo install -D -m 0644 k3s/host/admission-config.yaml
+/etc/rancher/k3s/admission-config.yaml`, add `kube-apiserver-arg: ["admission-control-config-file=/etc/rancher/k3s/admission-config.yaml"]` to
+`/etc/rancher/k3s/config.yaml` and restart k3s. A node that has not done this cannot start the pods (the host path must exist, type `Directory`).
+
+**Mode.** The component sets `auto`: a sandbox that cannot use its cgroups runs as before and logs why. After the first rollout on the real node, change
+`CGROUP_MODE` to `required` in `components/cgroup/kustomization.yaml` (both patches): the sandbox then refuses to start without its isolation, and never falls back.
+
+`tests/k3s-cgroup.test.sh` runs the component against a throw-away K3s in Docker: the admission cases above on the pods of `overlays/vps` as rendered, and
+the real sandbox image in the Judge Pod's own spec with `required` (its startup probe passes, `cgroup_isolation=true`, the kubelet-made directory carries
+the declared limits), without the volume with `required` (refuses to start) and with `auto` (starts and says why). **Not run: a real node with systemd's
+`Delegate=` and the real image from the registry.**
 
 ## Autoscaling (`base/keda`, `platform/keda.yaml`)
 

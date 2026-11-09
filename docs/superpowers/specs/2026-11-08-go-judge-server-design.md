@@ -705,11 +705,15 @@ A cgroup v2 host and a subtree the container may write. An unprivileged containe
 systemd slice per sandbox (`host/systemd/oj-judge-server.slice`, `oj-judge-server-2.slice`, `Delegate=cpu memory pids`, carrying `MemoryMax=1536M`, `TasksMax=1024`,
 `CPUQuota=200%`) read-write at `/oj-cgroup`; the capabilities do not change. Checked on Docker Desktop's kernel (7.0.14): a container in its own cgroup namespace, with the six
 capabilities, can create cgroups in a bind-mounted slice, move processes into it and set limits (it was feared that the cgroup namespace would forbid moving processes outside
-its root; it does not). **Not checked: a real systemd host with `Delegate=`, and k3s.**
+its root; it does not). **Not checked: a real systemd host with `Delegate=`.**
 
-K3s is not done. The `oj` namespace enforces Pod Security `baseline`, which forbids the `hostPath` this needs; KEDA runs several judge replicas per node, which needs a
-directory per pod (`subPathExpr`). The options are a namespace of its own for the judge pods at `privileged` (the NetworkPolicies and service names move with them) or an
-admission exemption for that one volume; the owner decides (`k3s/README.md`, "Job cgroups"). Until then the k3s sandboxes run with `CGROUP_MODE` unset.
+K3s (`k3s/components/cgroup`, in `overlays/vps`): the `oj` namespace enforces Pod Security `baseline`, which forbids the `hostPath` a delegated subtree needs, and `baseline` cannot
+allow one volume. Chosen by the owner (2026-11-09): a RuntimeClass `judge-delegated` that the apiserver's Pod Security configuration exempts (`k3s/host/admission-config.yaml`), narrowed again
+by a ValidatingAdmissionPolicy (the one host path `/sys/fs/cgroup/oj-judge.slice`, no host namespaces, no privileged container, only the six capabilities, no host port, only pods
+labelled `app: judge` or `run-judge`), the namespace's labels unchanged. Each pod gets a directory of its own under the slice through `subPathExpr: $(POD_NAME)` (KEDA runs up to six pods
+on a node) and nothing else of the cgroup file system. That directory is made by the kubelet with no limits, so `Open` can write the limits the pod declares on it (`CGROUP_ROOT_MEMORY_MAX_BYTES`
+and `CGROUP_ROOT_CPU_MILLIS` from `resources.limits` through the downward API, `CGROUP_ROOT_PIDS_MAX`); the slice carries the node's ceiling. The other option considered, a namespace of
+its own at `privileged`, would have moved the Secrets, certificates, NetworkPolicies, KEDA objects and service names of both pods.
 
 ### 14.5 Tests (all run by `scripts/sandbox-test.sh`, in the image, with the server's six capabilities)
 
@@ -732,7 +736,7 @@ memory budget free again; the normal jobs came out AC beside all that.
 
 ### 14.7 Decisions the owner made (2026-11-09)
 
-1. Host-side delegation for production: yes. 2. Default mode: `auto` first, then `required`. 3. The shared compiler and checker users stay, `pids.max` per job bounds them;
+1. Host-side delegation for production: yes. 2. Default mode: `auto` first, then `required` (the server's own default is `auto`, since 2026-11-09, so a deployment that sets nothing uses cgroups where the host gave them and warns where it did not). 3. The shared compiler and checker users stay, `pids.max` per job bounds them;
 no per-slot users. 4. A per-slot RSS sum as a stop-gap: no. Requirements kept: `auto` falls back with a clear warning; `required` never starts without isolation; one cgroup per
 job for compile, checker and submission; `memory.max`, `cpu.max`, `pids.max`; `cgroup.kill` at the end or on cancel; stale cgroups handled on restart; no job ends another's
 processes or cgroup; host delegation and access checked before a job is taken.
@@ -741,5 +745,5 @@ processes or cgroup; host delegation and access checked before a job is taken.
 
 Built and tested on arm64 (Docker Desktop, kernel 7.0.14, cgroup v2). **Not yet done: a run on x86_64** (the CI `sandbox` job runs the same script and is the first; a GitHub
 runner is cgroup v2, and the script's privileged helper creates the subtree there) **and on a real systemd host with `Delegate=`**, where the slices' units, the Docker-created
-mount directories and the limits should be checked once (`cat /sys/fs/cgroup/oj-judge-server.slice/{memory.max,pids.max,cpu.max,cgroup.subtree_control}`), and k3s (14.4).
+mount directories and the limits should be checked once (`cat /sys/fs/cgroup/oj-judge-server.slice/{memory.max,pids.max,cpu.max,cgroup.subtree_control}`), and a real node for k3s (14.4: the admission and the sandbox pod are tested against a throw-away K3s in Docker, `tests/k3s-cgroup.test.sh`).
 Switching a deployment from `auto` to `required` is the owner's step after that.

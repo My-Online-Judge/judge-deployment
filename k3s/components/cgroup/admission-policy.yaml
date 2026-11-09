@@ -1,0 +1,44 @@
+# What a pod of RuntimeClass judge-delegated may ask for, now that Pod Security does not look at it: the sandbox of the Judge Pod and the Run Pod, and
+# nothing else. The one host path is the delegated slice (k3s/host/oj-judge.slice). Everything that makes a pod powerful on the node, and that Pod
+# Security `baseline` would have refused, is refused here too. Needs Kubernetes 1.30+ (ValidatingAdmissionPolicy is GA there).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: judge-delegated-pods
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  matchConditions:
+    - name: judge-delegated
+      expression: "object.spec.?runtimeClassName.orValue('') == 'judge-delegated'"
+  variables:
+    - name: allContainers
+      expression: "object.spec.containers + object.spec.?initContainers.orValue([]) + object.spec.?ephemeralContainers.orValue([])"
+  validations:
+    - expression: "object.metadata.?labels['app'].orValue('') in ['judge', 'run-judge']"
+      message: "only the Judge Pod and the Run Pod may use the judge-delegated runtime class"
+    - expression: "object.spec.?volumes.orValue([]).all(v, !has(v.hostPath) || (v.hostPath.path == '/sys/fs/cgroup/oj-judge.slice' && v.hostPath.?type.orValue('') == 'Directory'))"
+      message: "the only host path allowed is the directory /sys/fs/cgroup/oj-judge.slice"
+    - expression: "!object.spec.?hostNetwork.orValue(false) && !object.spec.?hostPID.orValue(false) && !object.spec.?hostIPC.orValue(false)"
+      message: "no host network, PID or IPC namespace"
+    - expression: "variables.allContainers.all(c, !c.?securityContext.?privileged.orValue(false))"
+      message: "no privileged container"
+    - expression: "variables.allContainers.all(c, c.?securityContext.?capabilities.?add.orValue([]).all(cap, cap in ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETGID', 'SETUID', 'KILL']))"
+      message: "only the sandbox's six capabilities (CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID, KILL) may be added"
+    - expression: "variables.allContainers.all(c, c.?ports.orValue([]).all(p, p.?hostPort.orValue(0) == 0))"
+      message: "no host ports"
+    - expression: "object.spec.?securityContext.?sysctls.orValue([]).size() == 0"
+      message: "no sysctls"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: judge-delegated-pods
+spec:
+  policyName: judge-delegated-pods
+  validationActions: ["Deny"]
