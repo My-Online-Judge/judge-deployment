@@ -21,6 +21,8 @@ data:
     # kafka-cluster is Kafka's fixed name for the cluster resource. * is Kafka's wildcard resource name (every topic or group): it
     # is passed quoted below, never expanded by the shell. kafka-exporter (sp12 task 15) only describes: metadata, offsets, lag.
     # keda (sp15, K3s) reads the lag of the two worker groups on their request topics, to scale the judge pods: Describe, nothing else.
+    # submission.progress (2026-11-08, live test ladder): judge-worker writes one record per judged case, submission-service reads it
+    # as submission-progress, like submission.started.
     rules=$(cat <<'RULES'
     User:submission-service Topic submission.requested Write
     User:submission-service Topic submission.requested Describe
@@ -66,12 +68,21 @@ data:
     User:judge-worker Topic submission.started Write
     User:judge-worker Topic submission.started Describe
     User:judge-worker Topic submission.started Create
+    User:judge-worker Topic submission.progress Write
+    User:judge-worker Topic submission.progress Describe
+    User:judge-worker Topic submission.progress Create
     User:submission-service Topic submission.started Read
     User:submission-service Topic submission.started Describe
     User:submission-service Topic submission.started Create
     User:submission-service Topic submission.started Alter
     User:submission-service Topic submission.started DescribeConfigs
     User:submission-service Group submission-started Read
+    User:submission-service Topic submission.progress Read
+    User:submission-service Topic submission.progress Describe
+    User:submission-service Topic submission.progress Create
+    User:submission-service Topic submission.progress Alter
+    User:submission-service Topic submission.progress DescribeConfigs
+    User:submission-service Group submission-progress Read
     User:submission-service Topic run.requested Write
     User:submission-service Topic run.requested Describe
     User:submission-service Topic run.requested Create

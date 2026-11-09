@@ -14,16 +14,16 @@
 
 ## Global Constraints
 
-- Namespace `oj`. Image `ghcr.io/my-online-judge/<name>:<tag>` như compose; sandbox pin digest `sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e`.
+- Namespace `oj`. Image `ghcr.io/my-online-judge/<name>:<tag>` như compose; sandbox pin digest `sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e` (cập nhật 2026-11-08: sandbox là image Go `docker.io/thanhtuanle/judge-server:main`, build từ `../judge-server`, `overlays/vps` pin tag cùng các image khác; digest qduoj này chỉ còn để rollback).
 - Judge Pod: `terminationGracePeriodSeconds: 120`; sandbox `securityContext` = compose `x-sandbox` (drop ALL; add CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID, KILL; `allowPrivilegeEscalation: false`; `readOnlyRootFilesystem: true`; `seccompProfile: RuntimeDefault`); worker `runAsUser: 10001`, drop ALL.
-- Khởi điểm resources (bench ở T6 quyết định giá trị cuối): sandbox `requests cpu 1 / memory 1.5Gi`, `limits cpu 2 / memory 2.5Gi`; worker `requests 100m/128Mi`, `limits 300m/256Mi`; mỗi Java service `limits memory 1Gi`, `JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=60.0 -XX:+UseSerialGC"` nối trước chuỗi OTel; Kafka `KAFKA_HEAP_OPTS="-Xmx512M -Xms512M"`, `limits memory 1Gi`; Postgres mỗi cái `limits memory 512Mi`; Redis 128Mi; MinIO 512Mi.
+- Khởi điểm resources (bench ở T6 quyết định giá trị cuối): sandbox `requests cpu 1 / memory 1.5Gi`, `limits cpu 2 / memory 2.5Gi` (cập nhật 2026-11-08, sandbox Go: `requests cpu 1 / memory 768Mi`, `limits cpu 2 / memory 1.5Gi`, xem `specs/2026-11-08-go-judge-server-design.md` §6); worker `requests 100m/128Mi`, `limits 300m/256Mi`; mỗi Java service `limits memory 1Gi`, `JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=60.0 -XX:+UseSerialGC"` nối trước chuỗi OTel; Kafka `KAFKA_HEAP_OPTS="-Xmx512M -Xms512M"`, `limits memory 1Gi`; Postgres mỗi cái `limits memory 512Mi`; Redis 128Mi; MinIO 512Mi.
 - KEDA: `judge` ScaledObject trigger `kafka` `consumerGroup: judge-workers`, `topic: submission.requested`, `lagThreshold: "5"`, `minReplicaCount: 1`, `maxReplicaCount: 4`, `cooldownPeriod: 300`; `run-judge`: `consumerGroup: run-workers`, `topic: run.requested`, min 1, max 2.
 - Mọi hop nội bộ vẫn mTLS; sandbox 8080 chỉ nhận từ Pod của nó (NetworkPolicy).
 - Không ghi gì ngoài `~/Personal/my-oj`.
 
 ## Review Focus
 
-1. Pod judge bị `kubectl delete` khi worker đang `wait()` vì Kafka down: pod phải thoát trong 120 s, không chờ hết retry — kiểm tra ở T6 Step 6 (kịch bản Kafka scaled to 0).
+1. Pod judge bị `kubectl delete` khi worker đang `wait()` vì Kafka down: pod phải thoát trong 120 s, không chờ hết retry — kiểm tra ở T6 Step 6 (kịch bản Kafka scaled to 0). (Cập nhật 2026-11-08: `terminationGracePeriodSeconds` là 360 s vì deadline mỗi lần chấm tới 300 s, nên giới hạn là 360 s.)
 2. Sandbox OOMKilled giữa bài (`memory 2.5Gi` không đủ cho một bài compile nặng): worker nhận connection reset → phải thành SYSTEM_ERROR có `judgedBy`, không treo — T6 Step 5.
 3. cert-manager chưa cấp xong cert khi Pod start: container phải `CrashLoop` rồi tự lên, không chạy plaintext — T2 Step 4 (xóa Secret, xem pod).
 4. KEDA scale về 0 là **không** được phép (`minReplicaCount: 1`), vì heartbeat registry dựa vào worker — T7 Step 3.
@@ -100,14 +100,14 @@
 ### Task 5: Judge Pod và Run Pod manifests
 
 **Files:**
-- Create: `k3s/base/judge/judge.yaml` (Deployment `judge`: hai container như spec §3 của tài liệu gốc đã đối chiếu; volumes `cases` emptyDir 2Gi, `judger` emptyDir Memory 512Mi, `tmp` emptyDir Memory 256Mi, `tls-judge-server`, `tls-judge-worker`; sandbox `startupProbe`/`livenessProbe` `curl --cacert --cert --key https://localhost:8080/ping`; worker env `POD_NAME` Downward API, `JUDGE_SERVER_URL=https://localhost:8080`, `CONSUMER_GROUP=judge-workers`, `MAX_POLL_INTERVAL_MS=600000`, `SANDBOX_HEARTBEAT_URL`, MinIO worker key; `terminationGracePeriodSeconds: 120`; `shareProcessNamespace: false`), `judge/run-judge.yaml` (bản sao với `CONSUMER_GROUP=run-workers`, topic `run.*`, không MinIO, `JUDGE_INFRA_RETRY_SECONDS=30`), `judge/networkpolicy.yaml` (ingress: chỉ prometheus→9100; egress worker: kafka:29092, minio:9000, submission-service:8000, DNS; sandbox: không egress), `judge/pdb.yaml` (`minAvailable: 1` cho `judge`)
-- Create: `k3s/overlays/local/mock-sandbox-patch.yaml` (thay image sandbox bằng `mock-judge-server`, bỏ cap/seccomp; sửa `mock-judge-server/app.py` `/ping` trả dict để heartbeat không luôn Offline — bug ghi nhận trong đánh giá)
+- Create: `k3s/base/judge/judge.yaml` (Deployment `judge`: hai container như spec §3 của tài liệu gốc đã đối chiếu; volumes `cases` emptyDir 2Gi, `judger` emptyDir Memory 512Mi, `tmp` emptyDir Memory 256Mi, `tls-judge-server`, `tls-judge-worker`; sandbox `startupProbe`/`livenessProbe` `curl --cacert --cert --key https://localhost:8080/ping` (cập nhật 2026-11-08: `exec ["/usr/local/bin/judge-server", "healthcheck"]` với env `HEALTHCHECK_SERVER_NAME=judge-server` vì healthcheck kiểm cert theo tên đó; pod giữ hostname của nó); worker env `POD_NAME` Downward API, `JUDGE_SERVER_URL=https://localhost:8080`, `CONSUMER_GROUP=judge-workers`, `MAX_POLL_INTERVAL_MS=600000`, `SANDBOX_HEARTBEAT_URL`, MinIO worker key; `terminationGracePeriodSeconds: 120`; `shareProcessNamespace: false`), `judge/run-judge.yaml` (bản sao với `CONSUMER_GROUP=run-workers`, topic `run.*`, không MinIO, `JUDGE_INFRA_RETRY_SECONDS=30`), `judge/networkpolicy.yaml` (ingress: chỉ prometheus→9100; egress worker: kafka:29092, minio:9000, submission-service:8000, DNS; sandbox: không egress), `judge/pdb.yaml` (`minAvailable: 1` cho `judge`)
+- Create: `k3s/overlays/local/mock-sandbox-patch.yaml` (thay image sandbox bằng `mock-judge-server`, bỏ cap/seccomp; sửa `mock-judge-server/app.py` `/ping` trả dict để heartbeat không luôn Offline — bug ghi nhận trong đánh giá; cập nhật 2026-11-08: file thật là `mock-sandbox.yaml`, dùng cùng image Go với `args: ["mock"]`, `mock-judge-server/` đã xóa)
 
 **Interfaces:** label `app: judge` / `app: run-judge`; KEDA (T7) target `Deployment/judge`, `Deployment/run-judge`.
 
 - [ ] **Step 1: Render test** thêm assertion: container `sandbox` không `privileged`, `capabilities.drop == [ALL]`, `readOnlyRootFilesystem: true`; container `worker` `runAsUser: 10001`.
 - [ ] **Step 2: Implement.**
-- [ ] **Step 3: Live k3d với mock:** submit → verdict về SSE; `t_judge_servers` có row Online tên = tên pod (sandbox chung hostname với Pod); `judged_by` trong DB = tên pod.
+- [ ] **Step 3: Live k3d với mock:** submit → verdict về SSE; `t_judge_servers` có row Online tên = tên pod (sandbox chung hostname với Pod); `judged_by` trong DB = tên pod. (Cập nhật 2026-11-08: sandbox Go báo `os.Hostname()` = tên pod trong Ping, `HEALTHCHECK_SERVER_NAME=judge-server` lo phần chứng chỉ; mỗi judge pod vẫn một row Online tên = tên pod.)
 - [ ] **Step 4: Commit** — `feat(k3s): judge and run-judge pods — sandbox and worker side by side`
 
 ---
@@ -123,7 +123,7 @@
 - [ ] **Step 3: Bài TLE thật (vòng lặp vô hạn, time limit 1 s)** → TLE, không SYSTEM_ERROR, thời gian cpu đo được ≈ time limit (không false TLE do throttle): so với compose cùng bài.
 - [ ] **Step 4: 2 pod, 8 bài cùng problem** → cả hai pod tải bundle, cả 8 ACCEPTED (Review Focus 5).
 - [ ] **Step 5: OOM giả lập** — tạm set sandbox `limits.memory 300Mi`, submit compile nặng → verdict SYSTEM_ERROR có `judgedBy`, pod sandbox restart, worker không treo (Review Focus 2). Khôi phục limit.
-- [ ] **Step 6: Shutdown** — submit bài C++ chạy 10 s, `kubectl delete pod judge-xxx` ngay → verdict thật trong DB, `judged_by` = pod cũ, pod mới lên, không SYSTEM_ERROR; lặp lại với `kubectl scale sts kafka --replicas=0` trước khi delete pod → pod thoát trong < 120 s (Review Focus 1), scale kafka lại → bài được chấm lại bởi pod mới (at-least-once, verdict đầu thắng).
+- [ ] **Step 6: Shutdown** — submit bài C++ chạy 10 s, `kubectl delete pod judge-xxx` ngay → verdict thật trong DB, `judged_by` = pod cũ, pod mới lên, không SYSTEM_ERROR; lặp lại với `kubectl scale sts kafka --replicas=0` trước khi delete pod → pod thoát trong < 360 s (Review Focus 1; trước 2026-11-08 là 120 s), scale kafka lại → bài được chấm lại bởi pod mới (at-least-once, verdict đầu thắng).
 - [ ] **Step 7: Ghi số liệu vào `k3s/README.md`; commit** — `docs(k3s): judge pod sizing from the a+b, heavy-compile and shutdown runs`
 
 ---

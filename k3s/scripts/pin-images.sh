@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pins the six images of ours that overlays/vps runs (docker.io/thanhtuanle/<name>) to one tag: a commit sha CI pushed, or `main`.
+# Pins the seven images of ours that overlays/vps runs (docker.io/thanhtuanle/<name>) to one tag: a commit sha CI pushed, or `main`.
 #   k3s/scripts/pin-images.sh <tag>     then: kubectl apply -k k3s/overlays/vps (or vps-stage1)
 # Every repo's CI pushes :<commit sha> and :main, but the repos are separate: pin the sha of the commit you tested for each by hand if
 # they differ (edit overlays/vps/kustomization.yaml), this script sets one tag for all, like compose's OJ_TAG.
@@ -14,8 +14,8 @@ import re, sys
 path, tag = sys.argv[1:3]
 text = open(path).read()
 text, n = re.subn(r"(name: docker\.io/thanhtuanle/[\w.-]+\n\s+newTag: )\S+", lambda m: m.group(1) + tag, text)
-if n != 6:
-    sys.exit(f"pin-images.sh: expected 6 images in {path}, found {n}")
+if n != 7:
+    sys.exit(f"pin-images.sh: expected 7 images in {path}, found {n}")
 open(path, "w").write(text)
 print(f"pinned {n} images to {tag} in {path}")
 PY

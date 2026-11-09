@@ -26,11 +26,11 @@ thống cùng ngày (phần 2) + các quyết định đã chốt (phần 3). Ha
 | 2 | Tắt auto-commit, `max_poll_records=1` | Đã có (`judge-worker/main.py:26,31`) | Chỉ còn tăng `MAX_POLL_INTERVAL_MS` và đưa MinIO sync vào budget. |
 | 3 | KEDA đo group `judge-api-results` | Đó là group của submission-service. Worker: `judge-workers`; run-worker: `run-workers` (`config.py:38`, compose `run-worker`) | KEDA trỏ `judge-workers` / `run-workers`. |
 | 4 | `http://localhost:8080` | Sandbox chỉ trả lời mTLS (gunicorn yêu cầu client cert) | `https://localhost:8080`, cert như hiện tại, NetworkPolicy chặn pod khác. |
-| 5 | Sandbox `cpu: 1.0`, `memory: 1Gi` | Compile C++ cần 1 GiB (`V3`); tmpfs tính vào memory cgroup; qduoj chạy case song song | Khởi điểm `limits: cpu 2, memory 2.5Gi`, tmpfs `/judger` 512Mi; **bench a+b trước khi chốt**. |
+| 5 | Sandbox `cpu: 1.0`, `memory: 1Gi` | Compile C++ cần 1 GiB (`V3`); tmpfs tính vào memory cgroup; qduoj chạy case song song | Khởi điểm `limits: cpu 2, memory 2.5Gi`, tmpfs `/judger` 512Mi; **bench a+b trước khi chốt**. **Cập nhật 2026-11-08 (sandbox Go, `specs/2026-11-08-go-judge-server-design.md` §6):** server giới hạn số case chạy cùng lúc nên `limits: cpu 2, memory 1.5Gi` (`requests: cpu 1, memory 768Mi`), tmpfs `/work` 512Mi (exec) + `/tmp` 64Mi, không còn `/judger`, `/log`, `/dev/shm`; probe là `judge-server healthcheck`. |
 | 6 | `JAVA_OPTS` | `ENTRYPOINT ["java","-jar"]` không đọc `JAVA_OPTS`; OTel agent đi qua `JAVA_TOOL_OPTIONS` | Dùng `JAVA_TOOL_OPTIONS`, nối với chuỗi OTel. |
 | 7 | Kafka 3.9.0; (`kafka_2_nats.md` muốn NATS) | Compose 3.8.1 | **Giữ Kafka**, cap heap 512M + `mem_limit`/limits 1Gi. NATS không nằm trong scope. |
 | 8 | Gateway public :8000 | Caddy edge 443, private CA, mTLS mọi hop, Kafka ACL theo CN | K3s: Traefik + cert-manager; nội bộ: cert-manager CA issuer thay `pki.sh`. |
-| 9 | Registry sandbox theo hostname cố định | `t_judge_servers` keyed `judge-server`/`judge-server-2` | Key = `POD_NAME`; dọn row Offline > 24 h. |
+| 9 | Registry sandbox theo hostname cố định | `t_judge_servers` keyed `judge-server`/`judge-server-2` | Key = `POD_NAME`; dọn row Offline > 24 h. **Cập nhật 2026-11-08 (sandbox Go):** registry keyed theo hostname mà sandbox báo trong Ping (`os.Hostname()` của container sandbox = tên pod); pod giữ hostname của mình, `healthcheck` kiểm cert theo `HEALTHCHECK_SERVER_NAME=judge-server` (judge-server `e505bee` trở lên), nên mỗi judge pod một row như trước; `judged_by` là `POD_NAME`. |
 
 ## 3. Quyết định đã chốt
 
@@ -59,3 +59,21 @@ thống cùng ngày (phần 2) + các quyết định đã chốt (phần 3). Ha
 Phase 2 của bản đánh giá: xóa `/auth/introspect`, `iss`/`aud`/`typ`, ép đổi root admin password, privilege
 containment, problem-service deny-by-default, MinIO write sau commit, V7 in-place, cache `GetSampleTestCases`, SSE
 heartbeat, index `created_at`, backup off-host, CA key mã hóa. NATS migration.
+
+## 6. Cập nhật 2026-11-08: sandbox Go thay qduoj
+
+Thay `qduoj/judge-server` bằng sandbox Go (`../judge-server`, gRPC `oj.judge.v1`; thiết kế ở `2026-11-08-go-judge-server-design.md`).
+Ảnh hưởng tới Judge Pod, mỗi mục khớp `k3s/base/judge/judge.yaml` (sinh bởi `k3s/scripts/gen_services.py`):
+
+- Image `docker.io/thanhtuanle/judge-server:main` (không còn digest qduoj; `overlays/vps` pin tag cùng các image khác). Worker gọi
+  `localhost:8080` (gRPC, mTLS từ `OJ_TLS_DIR`; không còn tiền tố `https://`), sandbox chỉ nhận CN `judge-worker`/`run-worker`.
+- Tài nguyên: xem hàng 5. Không còn `GUNICORN_CMD_ARGS`, `SERVICE_URL`, `/log`, `/dev/shm`.
+- `terminationGracePeriodSeconds: 360` (trước 120): deadline mỗi lần chấm tăng theo số case và bị chặn ở 300 s, cộng publish;
+  `MAX_POLL_INTERVAL_MS` của worker 900000 (trước 600000). Compose: `stop_grace_period: 6m` cho hai worker, `130s` cho sandbox.
+- Hàng 9: `judge-server healthcheck` kiểm chứng chỉ server theo `HEALTHCHECK_SERVER_NAME` (đặt `judge-server`, tên trong chứng chỉ
+  `tls-judge-server`), không theo hostname của pod (tên pod không nằm trong SAN nào), nên pod không đặt `hostname:`. Ping báo `os.Hostname()` của
+  sandbox, tức tên pod, nên registry có một row mỗi pod, `service_url` `localhost:8080`; `judged_by` vẫn là `POD_NAME`. Cần image judge-server từ
+  `e505bee`: image cũ bỏ qua biến này và mọi probe fail. (Trước đó pod từng đặt `hostname: judge-server` và các judge pod dùng chung một row.)
+- `/work`: emptyDir của pod là 0777 (fsGroup thêm setgid) nên init container `sandbox-work-perms` chạy `chmod 0755 /work` trước sandbox (compose: tmpfs `mode=755`); `tests/k3s-judge.test.sh` kiểm tra bước này.
+- Mở: CI của judge-server đẩy `docker.io/thanhtuanle/judge-server:main` và `:<sha>` khi có push lên `main`, nhưng chỉ sau khi nhánh `feat/go-judge-server` được merge và repo có secret `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`; cho đến lần push đầu tiên đó image chưa tồn tại, nên phải build và push/import tay (`k3s/README.md`).
+- Đóng: compose chạy sandbox với `init: true` để dọn tiến trình con của lần chạy bị kill; pod không có tương đương, nhưng image có `tini -s` làm entrypoint từ judge-server `8308e4d` nên pod cũng dọn được (`k3s/README.md`). Compose vẫn giữ `init: true`, thừa nhưng vô hại.

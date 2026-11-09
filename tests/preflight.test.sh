@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 script="$PWD/scripts/preflight.sh"
-repos="judge-portal judge-worker oj-common oj-api-gateway oj-identity-service oj-problem-service oj-submission-service"
+repos="judge-portal judge-worker judge-server oj-common oj-api-gateway oj-identity-service oj-problem-service oj-submission-service"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 fail=0

@@ -200,12 +200,12 @@ def configs():
             + "---\n" + configmap("jaeger-config", "config.yaml", read("jaeger/config.yaml")))
 
 
-SANDBOX_IMAGE = "docker.io/qduoj/judge-server@sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e"
-# docker-compose.yml's x-sandbox-env and x-sandbox-health: gunicorn serves mutual TLS; the healthcheck POSTs /ping with the token
-GUNICORN_ARGS = "--certfile=/etc/oj/tls/tls.crt --keyfile=/etc/oj/tls/tls.key --ca-certs=/etc/oj/tls/ca.crt --cert-reqs=2"
-SANDBOX_PING = ('import hashlib,os,ssl,urllib.request as u; c=ssl.create_default_context(cafile="/etc/oj/tls/ca.crt"); '
-                'c.load_cert_chain("/etc/oj/tls/tls.crt","/etc/oj/tls/tls.key"); t=hashlib.sha256(os.environ["TOKEN"].encode()).hexdigest(); '
-                'u.urlopen(u.Request("https://localhost:8080/ping",data=b"{}",headers={"X-Judge-Server-Token":t,"Content-Type":"application/json"}),timeout=3,context=c)')
+# The Go sandbox (../judge-server, compose's judge-server), pushed like our other images: overlays/vps pins its tag with theirs
+# (k3s/scripts/pin-images.sh); the local overlay runs the same image with `mock`.
+SANDBOX_IMAGE = "docker.io/thanhtuanle/judge-server:main"
+# docker-compose.yml's x-sandbox-env: the server serves gRPC over mutual TLS from TLS_DIR and admits Judge only for these client CNs
+# (the pod's worker presents tls-judge-worker or tls-run-worker). The healthcheck is the server's own subcommand.
+SANDBOX_HEALTHCHECK = "[/usr/local/bin/judge-server, healthcheck]"
 WORKER_OTEL = [
     ("OJ_TLS_DIR", "/etc/oj/tls"),
     ("OTEL_EXPORTER_OTLP_CERTIFICATE", "/etc/oj/tls/ca.crt"),
@@ -220,8 +220,9 @@ WORKER_OTEL = [
 # name -> its worker's compose service, TLS identity and settings
 JUDGE_PODS = [
     dict(name="judge", worker_tls="tls-judge-worker", otel="judge-worker", cache=True, groups=[12003],
-         env=[("CONSUMER_GROUP", "judge-workers"), ("JUDGE_SERVER_URL", "https://localhost:8080"), ("KAFKA_BROKERS", "kafka:29092"),
-              ("MAX_POLL_INTERVAL_MS", "600000"), ("MINIO_BUCKET", "test-cases"), ("MINIO_ENDPOINT", "https://minio:9000"),
+         env=[("CONSUMER_GROUP", "judge-workers"), ("JUDGE_SERVER_URL", "localhost:8080"), ("KAFKA_BROKERS", "kafka:29092"),
+              # two sandboxes at the 300 s deadline cap plus the MinIO budget (the worker's default; compose leaves it unset)
+              ("MAX_POLL_INTERVAL_MS", "900000"), ("MINIO_BUCKET", "test-cases"), ("MINIO_ENDPOINT", "https://minio:9000"),
               ("SANDBOX_HEARTBEAT_URL", "https://submission-service:8000/api/judge_server_heartbeat/"),
               # the cache is capped by size (8Gi below), not by the worker: bundles unused for 6 hours go (its default is 24)
               ("TEST_CASE_CACHE_TTL_SECONDS", "21600")],
@@ -230,7 +231,7 @@ JUDGE_PODS = [
     dict(name="run-judge", worker_tls="tls-run-worker", otel="run-worker", cache=False, groups=[],
          # the run lane: its own topics and consumer group, inline cases (no bundle, no MinIO, no heartbeat relay)
          env=[("CONSUMER_GROUP", "run-workers"), ("JUDGED_TOPIC", "run.judged"), ("JUDGE_INFRA_RETRY_SECONDS", "30"),
-              ("JUDGE_SERVER_URL", "https://localhost:8080"), ("KAFKA_BROKERS", "kafka:29092"), ("REQUESTED_TOPIC", "run.requested")],
+              ("JUDGE_SERVER_URL", "localhost:8080"), ("KAFKA_BROKERS", "kafka:29092"), ("REQUESTED_TOPIC", "run.requested")],
          secret_env=[("JUDGE_SERVER_TOKEN", "judge-token", "JUDGE_SERVER_TOKEN")]),
 ]
 
@@ -258,8 +259,8 @@ metadata:
     app: {name}
 spec:
   # no replicas: KEDA's HorizontalPodAutoscaler owns the count (k3s/base/keda), and an apply must not reset it
-  # A rollout replaces the pod in place: a surge pod needs 1.66Gi of the node's memory (see k3s/README.md, Autoscaling), which is
-  # the ceiling, so surging would leave the rollout Pending; Kafka holds the records while the pod restarts.
+  # A rollout replaces the pod in place: a surge pod needs 0.875Gi of the node's memory (see k3s/README.md, Autoscaling), which on
+  # a full node is the ceiling, so surging would leave the rollout Pending; Kafka holds the records while the pod restarts.
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -278,13 +279,38 @@ spec:
       # not given the worker's certificate, and the pod may reach only what the worker needs (network/policies.yaml).
       automountServiceAccountToken: false
       shareProcessNamespace: false
-      # time to finish the judgement in hand: the worker stops taking records on SIGTERM and exits after publishing and committing
-      terminationGracePeriodSeconds: 120
+      # time to finish the judgement in hand: the worker stops taking records on SIGTERM and exits after publishing and committing; a
+      # judgement's deadline is capped at 300 s (JUDGE_TIMEOUT_MAX_SECONDS), then comes the publish. The sandbox's own graceful stop is 120 s.
+      terminationGracePeriodSeconds: 360
       securityContext:
         fsGroup: 10001
 {groups}        seccompProfile:
           type: RuntimeDefault
       initContainers:
+        # compose mounts /work as a tmpfs with mode=755 (root only), so the run users (12100-12107) cannot write directly under it.
+        # A pod's emptyDir is created 0777 and fsGroup adds the setgid bit, so this step closes it before the sandbox starts:
+        # root owns /work and nobody else may write there. (The server will chmod its work and tmp roots itself; until that
+        # lands, and as a guard after it, this is the pod's own guarantee, asserted by tests/k3s-judge.test.sh.) It uses the
+        # sandbox image, which has /bin/sh; /tmp needs nothing here, the server closes its own tmp root.
+        - name: sandbox-work-perms
+          image: {SANDBOX_IMAGE}
+          command: [/bin/sh, -c, "chmod 0755 /work"]
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          volumeMounts:
+            - name: sandbox-work
+              mountPath: /work
         # A native sidecar: it starts before the worker (the worker waits for its startup probe, as compose's depends_on
         # service_healthy) and stops after it, so a judgement in flight still has its sandbox.
         - name: sandbox
@@ -296,17 +322,30 @@ spec:
                 secretKeyRef:
                   name: judge-token
                   key: JUDGE_SERVER_TOKEN
-            - name: GUNICORN_CMD_ARGS
-              value: {q(GUNICORN_ARGS)}
-            - name: SERVICE_URL
-              value: https://localhost:8080
+            - name: TLS_DIR
+              value: /etc/oj/tls
+            - name: JUDGE_ALLOWED_CLIENTS
+              value: judge-worker,run-worker
+            - name: LOG_FORMAT
+              value: json
+            # compose's MAX_QUEUE 0 (tests/k3s-judge.test.sh compares the two): a full sandbox answers RESOURCE_EXHAUSTED at once instead of
+            # queuing the call, whose wait would count against the worker's deadline (DEADLINE_EXCEEDED is not retried). The pod's one
+            # worker seldom fills both slots; the value keeps this environment the same as compose's.
+            - name: MAX_QUEUE
+              value: "0"
+            # A pod's hostname is the pod's name, which is in no SAN of tls-judge-server (judge-server, judge-server.oj.svc..., localhost). The
+            # healthcheck verifies the server certificate for this name instead of os.Hostname() (judge-server e505bee or later: an older image
+            # ignores the variable and its probes fail). The pod keeps its own hostname, so Ping reports the pod's name to the registry.
+            - name: HEALTHCHECK_SERVER_NAME
+              value: judge-server
           ports:
             - name: judge
               containerPort: 8080
-          # compose's x-sandbox: no privileged, six capabilities (CHOWN/FOWNER/DAC_OVERRIDE to prepare each run directory,
+          # compose's x-sandbox: no privileged, six capabilities (CHOWN/FOWNER/DAC_OVERRIDE to prepare each job directory,
           # SETUID/SETGID to drop to the run users, KILL to stop a run over its time limit), no new privileges, read-only root
-          # with /judger (exec) and /tmp as memory-backed volumes. gunicorn runs as root, as in the image; the run users
-          # (12001-12003) cannot enter the 0440 TLS directory.
+          # with /work (exec) and /tmp as memory-backed volumes. The server runs as root, as in the image; the run users
+          # (12100-12107), the compiler (12001) and the checker (12003) cannot enter the 0440 TLS directory. The grandchildren of a killed
+          # run are reaped by the image's own entrypoint, tini -s (judge-server 8308e4d or later): a pod has no `init: true` switch.
           securityContext:
             runAsUser: 0
             allowPrivilegeEscalation: false
@@ -314,41 +353,41 @@ spec:
             capabilities:
               drop: [ALL]
               add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID, KILL]
-          # a starting point, measured on the server in task 6: the compile of <bits/stdc++.h> alone needs about 1 GiB
+          # compose's 1.5 GiB and 2 CPUs (spec go-judge-server-design section 6); the request is half the limit, a starting
+          # point until the server's measured idle and peak are in (k3s/README.md, task 6). The server bounds the cases it runs at once
+          # (RUN_POOL_BUDGET_BYTES, 1 GiB), so a C++ compile no longer needs the 3 GiB qduoj's parallel cases did.
           resources:
             requests:
               cpu: "1"
-              memory: 1536Mi
+              memory: 768Mi
             limits:
               cpu: "2"
-              memory: 2560Mi
+              memory: 1536Mi
+          # `judge-server healthcheck` dials 127.0.0.1:8080 over mutual TLS (Ping). The server warms its Go build cache before it
+          # listens, which compose gives 60 s of start_period: the startup probe's 150 s window covers it (liveness and readiness
+          # only start once it has passed).
           startupProbe:
             exec:
-              command: [python3, -c, {q(SANDBOX_PING)}]
+              command: {SANDBOX_HEALTHCHECK}
             periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 30
           readinessProbe:
             exec:
-              command: [python3, -c, {q(SANDBOX_PING)}]
+              command: {SANDBOX_HEALTHCHECK}
             periodSeconds: 15
             timeoutSeconds: 5
           livenessProbe:
             exec:
-              command: [python3, -c, {q(SANDBOX_PING)}]
+              command: {SANDBOX_HEALTHCHECK}
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 6
           volumeMounts:
-            - name: judger
-              mountPath: /judger
+            - name: sandbox-work
+              mountPath: /work
             - name: sandbox-tmp
               mountPath: /tmp
-            - name: sandbox-log
-              mountPath: /log
-            # compose's shm_size: 256m; a pod's /dev/shm is 64Mi unless a volume is mounted there
-            - name: dev-shm
-              mountPath: /dev/shm
 {cache_sandbox}            - name: sandbox-tls
               mountPath: /etc/oj/tls
               readOnly: true
@@ -398,21 +437,14 @@ spec:
             - name: worker-tmp
               mountPath: /tmp
       volumes:
-{cache_volume}        - name: judger
+{cache_volume}        - name: sandbox-work
           emptyDir:
             medium: Memory
             sizeLimit: 512Mi
         - name: sandbox-tmp
           emptyDir:
             medium: Memory
-            sizeLimit: 256Mi
-        - name: sandbox-log
-          emptyDir:
             sizeLimit: 64Mi
-        - name: dev-shm
-          emptyDir:
-            medium: Memory
-            sizeLimit: 256Mi
         - name: worker-tmp
           emptyDir:
             sizeLimit: 64Mi

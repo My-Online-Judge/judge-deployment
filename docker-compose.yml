@@ -3,9 +3,9 @@
 #
 #   cd judge-deployment
 #   docker compose build <service>    # each built service, one image at a time on this host (README "Images")
-#   docker compose up -d --no-build                                                   # real qduoj sandbox
-#   docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --no-build  # mock sandbox (build its
-#                                                                                     # judge-server with both files first)
+#   docker compose up -d --no-build                                                   # the Go judge-server sandbox
+#   docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --no-build  # the same image running `mock`
+#                                                                                     # (build judge-server first)
 #
 # Config is centralized in ./.env (loaded automatically by Compose); identity-db and identity-service
 # read ./.env.identity instead, which alone holds the JWT signing keys and the Google OAuth secret;
@@ -42,59 +42,63 @@ x-otel-env: &otel-env
   OTEL_METRICS_EXPORTER: none
   OTEL_LOGS_EXPORTER: none
 
-# Liveness for the QingdaoU sandboxes, shared by both instances.
-#
-# The image ships `python3 /code/service.py` as its HEALTHCHECK — QingdaoU's heartbeat, which POSTs
-# to BACKEND_URL /api/judge_server_heartbeat/ and exits 1 on any answer not shaped like QingdaoU's
-# backend, so both sandboxes reported (unhealthy) forever while judging perfectly. Ask the sandbox
-# itself instead — /ping is its own liveness endpoint and returns live cpu/memory/judger_version.
-# Auth is sha256(TOKEN) in X-Judge-Server-Token, computed inline because the sandbox stores the
-# digest, not the raw token. Over mutual TLS (sub-project 10): the sandbox verified against the CA as
-# localhost (in every SAN), presenting the sandbox's own certificate, since the server requires one.
-# The sandboxes cannot reach submission-service anyway (sandbox-net):
-# judge-worker relays each /ping to the judge-server registry instead (SANDBOX_HEARTBEAT_URL).
-# Overridden in docker-compose.mock.yml: the mock only implements /judge.
+# Liveness for the sandboxes, shared by both instances: the image's own `judge-server healthcheck` (the image declares
+# no HEALTHCHECK). It dials 127.0.0.1:8080 over mutual TLS, verifying the server certificate for os.Hostname() and
+# presenting the sandbox's own certificate (CN judge-server, both key usages; Ping admits any CA-signed client), sends
+# the token when TOKEN is set, and exits 0 only when Ping answers. So each sandbox's compose `hostname:` must stay equal
+# to the name in its certificate (pki/identities.txt). start_period covers the Go build-cache warm-up that runs
+# before the server listens. The sandboxes cannot reach submission-service anyway (sandbox-net): judge-worker
+# relays each gRPC Ping to the judge-server registry instead (SANDBOX_HEARTBEAT_URL).
+# The mock overlay (docker-compose.mock.yml) keeps this check: `healthcheck` works against `mock` too.
 x-sandbox-health: &sandbox-health
-  test:
-    - CMD
-    - python3
-    - -c
-    - 'import hashlib,os,ssl,urllib.request as u; c=ssl.create_default_context(cafile="/etc/oj/tls/ca.crt"); c.load_cert_chain("/etc/oj/tls/tls.crt","/etc/oj/tls/tls.key"); t=hashlib.sha256(os.environ["TOKEN"].encode()).hexdigest(); u.urlopen(u.Request("https://localhost:8080/ping",data=b"{}",headers={"X-Judge-Server-Token":t,"Content-Type":"application/json"}),timeout=3,context=c)'
+  test: ["CMD", "/usr/local/bin/judge-server", "healthcheck"]
   interval: 15s
   timeout: 5s
   retries: 3
-  start_period: 20s
+  start_period: 60s
 
-# The QingdaoU sandboxes run contestants' code, so they get the least the judger needs.
-# - No `privileged`: the judger isolates a run with setrlimit + its own seccomp filter + setuid to an
-#   unprivileged user — no cgroups, no device access. Proven on 2026-10-05 by judging the same
-#   programs (AC/WA/TLE/RE/CE in C, C++, Java, Python 3) on a privileged and on this configuration:
-#   identical verdicts, and 8 judges in parallel.
-# - Capabilities: CHOWN/FOWNER/DAC_OVERRIDE to prepare each run directory for the compiler and run
-#   users, SETUID/SETGID to drop to them, KILL to stop a run over its time limit. Nothing else.
-# - Read-only root filesystem; /judger (sources and binaries, so `exec`) and /tmp (compiler scratch)
-#   are size-capped tmpfs. Docker's default seccomp and AppArmor profiles apply again.
+# The judge-server sandboxes (the Go gRPC server, ../judge-server) run contestants' code, so they get the least the
+# sandbox needs (spec docs/superpowers/specs/2026-11-08-go-judge-server-design.md, sections 5.3 and 6).
+# - No `privileged`: every program starts through a small static C shim (judge-runner) that applies setrlimit, drops to
+#   the unprivileged users (the compiler 12001, the checker 12003 and one run user per job slot, 12100-12107), sets
+#   oom_score_adj and loads its seccomp filter before execve: no cgroups, no device access.
+# - Six capabilities: CHOWN/FOWNER/DAC_OVERRIDE to prepare each job directory for the run users and read the worker's
+#   0700 bundles, SETUID/SETGID to drop to them, KILL to stop a run over its time limit. Nothing else.
+# - `init: true`, kept, redundant since the image's entrypoint is `tini -s`: a killed run can leave grandchildren (a compiler's
+#   helpers, a forked process) that nobody waits for, and an init reaps them so they never pile up as zombies against pids_limit.
+#   With both, docker's init is PID 1 and the image's tini (a subreaper) runs below it.
+# - Read-only root filesystem; /work and /tmp are size-capped tmpfs, counted inside mem_limit. /work holds the job directories
+#   (so `exec`: sources and compiled programs live there and run from it) and the compiler's scratch, `<job>/tmp`; runs and
+#   checkers use /tmp for their TMPDIR (the server's `TMP_DIR`, a separate tmpfs so a run that fills its temporary files never
+#   fills /work). The server needs both mounts. Docker's default seccomp and AppArmor profiles apply again.
+# - 1.5 GiB and 2 CPUs per sandbox (3 GiB for both; qduoj had 3 GiB + 1.25 GiB of tmpfs each): the server bounds the cases it runs at once
+#   (RUN_POOL_BUDGET_BYTES, 1 GiB) instead of running them all in parallel. README "Go sandbox".
 # - Only sandbox-net: no route to Kafka, Redis, the databases, MinIO or the internet — whatever a
 #   submission's language does or does not filter at the syscall level.
-# - The API on 8080 is mutual TLS (sub-project 10, x-sandbox-env): only a client presenting a certificate
-#   from our CA gets an HTTP answer (on sandbox-net, the worker). The key stays root's: gunicorn runs as
-#   root, while compiling and running a submission drop to the users compiler, code and spj (12001-12003),
-#   which cannot enter the 0700 root-owned /etc/oj/tls (checked through the judger itself on 2026-10-20).
+# - The API on 8080 is gRPC over mutual TLS (x-sandbox-env): only a client with a certificate from our CA gets an
+#   answer, and Judge only for the CNs in JUDGE_ALLOWED_CLIENTS (on sandbox-net, the workers). The key stays root's: the
+#   server runs as root, while compiling and running a submission drop to the compiler, the per-slot run users and spj
+#   (12001, 12100-12107, 12003), which cannot enter the 0700 root-owned /etc/oj/tls.
+# - stop_grace_period 130 s: on SIGTERM the server stops admitting jobs and finishes the ones in hand, for at most 120 s.
 x-sandbox: &sandbox
-  image: docker.io/qduoj/judge-server@sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e
+  image: ${OJ_REGISTRY:-docker.io/thanhtuanle}/judge-server:${OJ_SANDBOX_TAG:-${OJ_TAG:-main}}
   logging: *logging
+  build:
+    context: ../judge-server
+    target: release
+  init: true
   restart: always
-  shm_size: 256m
-  mem_limit: 3g
-  cpus: 6
+  stop_grace_period: 130s
+  mem_limit: 1536m
+  cpus: 2
   pids_limit: 1024
   cap_drop: [ALL]
   cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID, KILL]
   security_opt: ["no-new-privileges:true"]
   read_only: true
   tmpfs:
-    - /judger:exec,mode=755,size=1g
-    - /tmp:size=256m
+    - /work:exec,mode=755,size=512m
+    - /tmp:size=64m
   # sandbox/java.policy: Java submissions run under the security manager with this policy (the java language row).
   configs:
     - source: java-policy
@@ -105,13 +109,21 @@ x-sandbox: &sandbox
       condition: service_completed_successfully
   networks: [sandbox-net]
 
-# Each sandbox's environment. gunicorn 20.0.4 reads GUNICORN_CMD_ARGS beside the image's own flags (workers, threads,
-# log, timeout, bind: none overlap): 8080 serves TLS with the certificate of the sandbox's tls subpath, and
-# --cert-reqs=2 (ssl.CERT_REQUIRED) refuses a client without one signed by ca.crt. A missing file stops gunicorn at
-# start, never plaintext.
+# Each sandbox's environment (the other settings are the server's defaults, README "Go sandbox"). The server reads the
+# certificate of the sandbox's tls subpath from TLS_DIR and refuses to start without the three files, never plaintext:
+# it requires a client certificate signed by ca.crt on every call and admits Judge only for the CNs of
+# JUDGE_ALLOWED_CLIENTS. TOKEN is additive: the worker sends sha256(TOKEN) as well.
+# MAX_QUEUE 0 (the server's own default is 4): a Judge call that finds both slots taken answers RESOURCE_EXHAUSTED at once
+# instead of waiting in the server's queue. The worker's deadline covers a queued call's wait as well, and DEADLINE_EXCEEDED
+# is not retried, so a call that queued behind slow jobs would end as SYSTEM_ERROR; RESOURCE_EXHAUSTED makes the worker try the
+# other sandbox and then back off 2, 4, 8 s (judge lane up to 300 s, run lane 30 s). Each worker process counts sandboxes on its
+# own, so several workers can land on the same one while the other is idle.
 x-sandbox-env: &sandbox-env
   TOKEN: ${JUDGE_SERVER_TOKEN}
-  GUNICORN_CMD_ARGS: --certfile=/etc/oj/tls/tls.crt --keyfile=/etc/oj/tls/tls.key --ca-certs=/etc/oj/tls/ca.crt --cert-reqs=2
+  TLS_DIR: /etc/oj/tls
+  JUDGE_ALLOWED_CLIENTS: judge-worker,run-worker
+  LOG_FORMAT: json
+  MAX_QUEUE: "0"
 
 # The JVM services' options: the OpenTelemetry agent, heap sizing, and DNS caching. The JDK keeps a resolved address
 # 30 s and a failed lookup 10 s by default, so a stopped container's old address took connections until the cache
@@ -990,11 +1002,11 @@ services:
     # the 6 submission.requested partitions across the instances. A fixed name would block scaling.
     restart: unless-stopped
     # SIGTERM lets the worker finish the submission in hand, publish and commit it before exiting (judge-worker/shutdown.py):
-    # a judgement takes up to JUDGE_TIMEOUT + the checker compile (50 s) plus the verdict publish, so docker's 10 s default
-    # would SIGKILL it. 2 min matches the K3s terminationGracePeriodSeconds.
-    stop_grace_period: 2m
-    # Group 12003 is qduoj's spj, the user that runs a problem's checker. The worker gives a checker bundle's directory
-    # and inputs to that group (0750, 0640), so the checker reads them and a submission (code, 12002) does not; the
+    # the deadline of a judgement scales with the bundle and stops at JUDGE_TIMEOUT_MAX_SECONDS (300 s), then comes the
+    # verdict publish, so docker's 10 s default would SIGKILL it. 6 min matches the K3s terminationGracePeriodSeconds (360).
+    stop_grace_period: 6m
+    # Group 12003 is the sandbox image's spj, the user that runs a problem's checker. The worker gives a checker bundle's directory
+    # and inputs to that group (0750, 0640), so the checker reads them and a submission (a per-slot run user, 12100-12107) does not; the
     # expected outputs stay the worker's (0600), and a bundle without a checker stays 0700.
     group_add: ["12003"]
     volumes:
@@ -1033,9 +1045,11 @@ services:
       # submission-service over mutual TLS, and /metrics on 9100 over HTTPS for clients with a CA-signed certificate.
       OJ_TLS_DIR: /etc/oj/tls
       JUDGE_SERVER_TOKEN: ${JUDGE_SERVER_TOKEN}
-      # Both sandboxes, round-robin with failover, over mutual TLS (the worker's certificate; the names are the sandboxes'
-      # SANs). A third sandbox: add a service like judge-server-2, its id to pki/identities.txt, and its URL here.
-      JUDGE_SERVER_URL: https://judge-server:8080,https://judge-server-2:8080
+      # Both sandboxes (gRPC), round-robin with failover, over mutual TLS (the worker's certificate; the names are the
+      # sandboxes' SANs; the worker takes `host:port` or `https://host:port`, TLS comes from OJ_TLS_DIR). A third sandbox: add
+      # a service like judge-server-2, its id to pki/identities.txt, and its address here. MAX_POLL_INTERVAL_MS is the
+      # worker's default (900000): two sandboxes at the 300 s deadline cap plus the MinIO budget fit, three do not.
+      JUDGE_SERVER_URL: judge-server:8080,judge-server-2:8080
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       # MinIO over TLS (verified against the CA, tls.minio_http_client), with the worker's own key: read-only in the
       # test-case bucket (minio/policies/worker-ro.json).
@@ -1058,7 +1072,7 @@ services:
     logging: *logging
     build: ../judge-worker
     restart: unless-stopped
-    stop_grace_period: 2m  # SIGTERM lets the run-worker finish its run (worker/shutdown.py); same as the judge-worker
+    stop_grace_period: 6m  # SIGTERM lets the run-worker finish its run (worker/shutdown.py); same as the judge-worker
     deploy:
       # One replica judges one run at a time (the sandbox runs a run's cases in parallel, not runs): two answer about
       # 20-40 runs inside submission-service's 45 s wait, which its in-flight cap (RUN_MAX_INFLIGHT, 20) assumes.
@@ -1086,7 +1100,7 @@ services:
       OTEL_SERVICE_NAME: run-worker
       OJ_TLS_DIR: /etc/oj/tls
       JUDGE_SERVER_TOKEN: ${JUDGE_SERVER_TOKEN}
-      JUDGE_SERVER_URL: https://judge-server:8080,https://judge-server-2:8080
+      JUDGE_SERVER_URL: judge-server:8080,judge-server-2:8080
       KAFKA_BROKERS: ${KAFKA_BROKERS}
       REQUESTED_TOPIC: run.requested
       JUDGED_TOPIC: run.judged
@@ -1096,21 +1110,17 @@ services:
     networks: [oj-net, sandbox-net]
 
   judge-server:
-    # Official QingdaoU sandbox on Docker Hub (qduoj account) — the canonical
-    # registry.cn-hangzhou.aliyuncs.com/onlinejudge/judge_server is unreachable outside China.
-    # Overridden by docker-compose.mock.yml for offline runs.
+    # The Go sandbox, built from ../judge-server (stage `release`); see x-sandbox. docker-compose.mock.yml runs the same
+    # image with `mock`.
     <<: *sandbox
     container_name: oj-judge-server
-    # The registry is keyed by hostname; without a fixed one every recreate added a row (18 by 2026-10-05).
+    # Its certificate is issued for this name and the healthcheck verifies the server certificate against the hostname;
+    # the registry is keyed by hostname too, so without a fixed one every recreate added a row (18 by 2026-10-05).
     hostname: judge-server
-    # Map form (not list) so docker-compose.mock.yml can override image
-    # while inheriting these values via Compose's environment merge.
-    environment:
-      <<: *sandbox-env
-      SERVICE_URL: https://judge-server:8080
+    # Map form (not list) so docker-compose.mock.yml can merge its own variables into these.
+    environment: *sandbox-env
     volumes:
       - test_case_cache:/test_case:ro
-      - js1log:/log
       - type: volume
         source: tls
         target: /etc/oj/tls
@@ -1119,18 +1129,14 @@ services:
           subpath: judge-server
 
   judge-server-2:
-    # Second QingdaoU sandbox. The worker round-robins across the JUDGE_SERVER_URL comma-list with
-    # failover (T1-3), so a second sandbox adds judging throughput and survives one sandbox dying.
-    # Each sandbox needs its OWN writable /log (they can't share one), hence a dedicated volume.
+    # Second sandbox. The worker round-robins across the JUDGE_SERVER_URL comma-list with failover (T1-3), so a second
+    # sandbox adds judging throughput and survives one sandbox dying.
     <<: *sandbox
     container_name: oj-judge-server-2
     hostname: judge-server-2
-    environment:
-      <<: *sandbox-env
-      SERVICE_URL: https://judge-server-2:8080
+    environment: *sandbox-env
     volumes:
       - test_case_cache:/test_case:ro
-      - js2log:/log
       - type: volume
         source: tls
         target: /etc/oj/tls
@@ -1241,8 +1247,6 @@ volumes:
   problemdata:
   submissiondata:
   redisdata:
-  js1log:
-  js2log:
   miniodata:
   test_case_cache:
   promdata:

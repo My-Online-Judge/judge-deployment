@@ -5,7 +5,7 @@
 set -uo pipefail
 root=${OJ_ROOT:-$(dirname "$(cd "$(dirname "$0")/.." && pwd)")}
 fail=0
-for r in judge-portal judge-worker oj-common oj-api-gateway oj-identity-service oj-problem-service oj-submission-service; do
+for r in judge-portal judge-worker judge-server oj-common oj-api-gateway oj-identity-service oj-problem-service oj-submission-service; do
   d="$root/$r"
   if [ ! -d "$d" ]; then echo "FAIL $r: missing"; fail=1; continue; fi
   top=$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)

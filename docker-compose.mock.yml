@@ -1,54 +1,32 @@
-# Override: swap the real (Docker-Hub-pulled) qduoj sandboxes for the protocol-faithful Python
-# mock. Use offline, in CI, or wherever the real judger cannot run.
+# Override: run the sandboxes as the scripted mock instead of the real judge. Use offline, in CI, or wherever the real
+# engine cannot run (the real one needs the host's kernel for seccomp and rlimits; the mock needs nothing from it).
 #
 #   docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d --build
 #
-# image/build/healthcheck change, and as the mock speaks plain HTTP, SERVICE_URL and the worker's
-# JUDGE_SERVER_URL go back to http:// (the base file serves the real sandboxes over mutual TLS). TOKEN,
-# the hardening (x-sandbox: no caps beyond the judger's, read-only root) and sandbox-net are inherited
-# from the base services; the inherited GUNICORN_CMD_ARGS and certificate mount mean nothing to the mock.
-# The mock answers /ping with a server_info dict, so judge-worker's status relay reports both sandboxes online. It
-# answers a submission with as many results as the bundle has cases (it reads <id>/info from the shared test_case cache,
-# as the real server does), which judge-worker checks against test_case_number.
+# Both sandboxes run the SAME image as the base file (the Go judge-server, built from ../judge-server) with the `mock`
+# subcommand: the same gRPC API over the same mutual TLS, the same TOKEN and JUDGE_ALLOWED_CLIENTS, the same
+# healthcheck (`judge-server healthcheck` works against `mock`), the same hardening and sandbox-net, so the workers' addresses
+# do not change and nothing but the command differs. The Python mock that used to live in mock-judge-server/ is gone.
+# The mock answers Ping like the real server (judge-worker's status relay reports both sandboxes online) and a Judge call
+# with as many results as the bundle has cases (it reads <id>/info from the shared test_case cache, as the real server does),
+# which judge-worker checks against test_case_number. The verdict follows markers in the submitted source: TRIGGER_CE is a
+# compile error, TRIGGER_SLOW makes the call wait first, and TRIGGER_SE/WA/TLE/MLE/RE give the second case (the first when
+# there is one) that result; any other source is accepted (judge-server/internal/mock).
+#
+# MOCK_SLOW_SECONDS: how long a TRIGGER_SLOW source pauses (default 3; empty means the default, a value that is not a
+# number from 0 to 86400 stops the mock with exit status 2). The 3 below is that default, written down.
 #
 # BOTH sandboxes are overridden: the worker round-robins across judge-server AND judge-server-2.
 # Mocking only the first left every other submission going to a real sandbox — which is exactly what
 # this file exists to avoid.
 
-# The base healthcheck calls /ping over mutual TLS (the real server's); the mock speaks plain HTTP and the
-# cheapest honest check is that the listener is accepting connections (a POST /judge would run a fake submission
-# every 15s).
-x-mock-health: &mock-health
-  test:
-    - CMD
-    - python3
-    - -c
-    - 'import socket; socket.create_connection(("localhost", 8080), 3).close()'
-  interval: 15s
-  timeout: 5s
-  retries: 3
-  start_period: 10s
-
 services:
   judge-server:
-    image: mock-judge-server
-    build: ./mock-judge-server
-    healthcheck: *mock-health
+    command: ["mock"]
     environment:
-      SERVICE_URL: http://judge-server:8080
+      MOCK_SLOW_SECONDS: "3"
 
   judge-server-2:
-    image: mock-judge-server
-    build: ./mock-judge-server
-    healthcheck: *mock-health
+    command: ["mock"]
     environment:
-      SERVICE_URL: http://judge-server-2:8080
-
-  judge-worker:
-    environment:
-      JUDGE_SERVER_URL: http://judge-server:8080,http://judge-server-2:8080
-
-  # The run lane talks to the same mock sandboxes (it answers one result per inline case).
-  run-worker:
-    environment:
-      JUDGE_SERVER_URL: http://judge-server:8080,http://judge-server-2:8080
+      MOCK_SLOW_SECONDS: "3"
