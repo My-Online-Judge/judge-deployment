@@ -35,7 +35,7 @@ jobs:
           exit $fail
 
   # The stack on a real K3s (k3d) with the mock sandbox (the judge-server image running `mock`): every pod ready, Prometheus scraping every
-  # target, a backup that restores. By hand (Actions > ci > Run workflow): it pulls the service images from Docker Hub (only MinIO is on GHCR) and needs about 6 GB. The judge-server image must be published first: that repo has no CI yet. The offline k3s tests above
+  # target, a backup that restores. By hand (Actions > ci > Run workflow): it pulls the service images from Docker Hub (only MinIO is on GHCR) and needs about 6 GB. The judge-server image must be on Docker Hub first: its CI pushes it on a push to that repo's main, once its branch is merged and the Docker Hub secrets are set. The offline k3s tests above
   # already run on every push.
   k3s-live:
     if: github.event_name == 'workflow_dispatch'

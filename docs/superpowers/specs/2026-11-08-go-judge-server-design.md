@@ -450,8 +450,11 @@ cannot talk to qduoj either. The compose switch, the worker image and the submis
 live together, in one `docker compose up -d`: merge and deploy the four repositories (judge-deployment, judge-worker,
 oj-submission-service, judge-server) as one release, or pin `OJ_WORKER_TAG`, `OJ_SUBMISSION_TAG` and `OJ_SANDBOX_TAG` to the
 pre-cut-over images until the switch, because each repository's CI pushes `:main` on merge and a floating tag would move one of the
-three early. The sandbox image is not published (judge-server has no CI): build it from a checkout, or `docker push` it by hand
-before `docker compose pull` or any k3s apply. The runbook is README "Go sandbox", sections Cut-over and Rollback.
+three early. judge-server's CI (GitHub Actions: unit, sandbox suite on x86_64, smoke, Trivy scan) pushes the multi-arch image
+`docker.io/thanhtuanle/judge-server:<sha>` and `:main` on a push to `main`, but only once its branch is merged and the repository has the
+secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`; until then the image is not published: build it from a checkout, or `docker push` it by hand
+before `docker compose pull` or any k3s apply. The CI `sandbox` job is the first x86_64 run of the seccomp filters; it does not replace
+`scripts/sandbox-test.sh` on the server, because seccomp and cgroup behaviour depend on the host kernel. The runbook is README "Go sandbox", sections Cut-over and Rollback.
 
 The two migrations:
 

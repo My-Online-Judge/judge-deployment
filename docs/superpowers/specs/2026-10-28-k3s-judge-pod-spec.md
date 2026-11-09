@@ -75,5 +75,5 @@ Thay `qduoj/judge-server` bằng sandbox Go (`../judge-server`, gRPC `oj.judge.v
   sandbox, tức tên pod, nên registry có một row mỗi pod, `service_url` `localhost:8080`; `judged_by` vẫn là `POD_NAME`. Cần image judge-server từ
   `e505bee`: image cũ bỏ qua biến này và mọi probe fail. (Trước đó pod từng đặt `hostname: judge-server` và các judge pod dùng chung một row.)
 - `/work`: emptyDir của pod là 0777 (fsGroup thêm setgid) nên init container `sandbox-work-perms` chạy `chmod 0755 /work` trước sandbox (compose: tmpfs `mode=755`); `tests/k3s-judge.test.sh` kiểm tra bước này.
-- Mở: image `docker.io/thanhtuanle/judge-server` chưa tồn tại (repo judge-server chưa có CI); đến lúc đó phải build và push/import tay (`k3s/README.md`).
+- Mở: CI của judge-server đẩy `docker.io/thanhtuanle/judge-server:main` và `:<sha>` khi có push lên `main`, nhưng chỉ sau khi nhánh `feat/go-judge-server` được merge và repo có secret `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`; cho đến lần push đầu tiên đó image chưa tồn tại, nên phải build và push/import tay (`k3s/README.md`).
 - Đóng: compose chạy sandbox với `init: true` để dọn tiến trình con của lần chạy bị kill; pod không có tương đương, nhưng image có `tini -s` làm entrypoint từ judge-server `8308e4d` nên pod cũng dọn được (`k3s/README.md`). Compose vẫn giữ `init: true`, thừa nhưng vô hại.

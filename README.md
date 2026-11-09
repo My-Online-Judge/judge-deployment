@@ -425,10 +425,12 @@ time on this host), then `docker compose up -d --no-build`. For CI's images, run
   alike `OJ_TAG=<shared tag> docker compose up -d`.
 - **Logs** of every container rotate: json-file, 3 files of 10 MB (`x-logging`).
 - **The sandbox** is the Go `judge-server`, built locally by compose from `../judge-server` (`target: release`); `OJ_SANDBOX_TAG` pins
-  its tag alone. It is not on Docker Hub: `judge-server` has no CI workflow yet, so `docker.io/thanhtuanle/judge-server` does not
-  exist, and `docker compose pull`, the K3s manifests and the `k3s-live` CI job cannot fetch it. Once that repo gets a workflow it
-  will push `:<commit sha>` and `:main` like the other services. Rolling back to the previous sandbox is in
-  [Go sandbox](#go-sandbox-sub-project-16). Its image is about 1.7 GB on disk (435 MB compressed).
+  its tag alone. `judge-server`'s own CI pushes `docker.io/thanhtuanle/judge-server:<commit sha>` and `:main` (amd64 and arm64) on every push
+  to its `main`, once that repository has the secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` ([Go sandbox](#go-sandbox-sub-project-16)).
+  Until its `feat/go-judge-server` branch is merged to `main` and the secrets exist, that image is not on Docker Hub, and `docker compose pull`,
+  the K3s manifests and the `k3s-live` CI job cannot fetch it: build it from the sibling checkout, and `docker push` it by hand if a server or
+  cluster has to pull it. Rolling back to the previous sandbox is in [Go sandbox](#go-sandbox-sub-project-16). Its image is about 1.7 GB on disk
+  (435 MB compressed).
 - **The previous sandbox** (rollback only): `docker.io/qduoj/judge-server@sha256:a580a1643277b4ec5a103a46fe1dbfe8537c437996955f82a5a22801ec73239e`
   (the 2020-07-09 image, 2.25 GB, pinned by digest at its source; it was `x-sandbox.image` until the Go sandbox). To keep a copy that a
   Docker Hub outage cannot take away, mirror it into the org's GHCR (needs a GitHub token with `write:packages`; run it yourself):
@@ -562,6 +564,14 @@ mutual TLS instead of HTTP. `docker-compose.yml` changed (`x-sandbox`, `x-sandbo
 workers' address and grace period), `docker-compose.mock.yml` now runs the same image as `judge-server mock`, and `mock-judge-server/`
 was removed in favour of that subcommand. It goes live as one release with the worker and submission-service ([Cut-over](#cut-over)).
 
+`judge-server`'s CI (GitHub Actions, `.github/workflows/ci.yml` in that repository) runs on every pull request and every push to its `main`: the
+unit tests, the sandbox suite (`scripts/sandbox-test.sh` on an x86_64 runner, the first run of the seccomp filters off arm64), the smoke test over
+mutual TLS, and a Trivy scan of the image (a CRITICAL vulnerability with a fix fails it). Only a push to `main` that passes all four then pushes
+`docker.io/thanhtuanle/judge-server:<commit sha>` and `:main`, multi-arch (amd64 and arm64); that step needs the repository secrets
+`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`. Until that branch is merged and the secrets exist, no such image is on Docker Hub and compose builds the
+sandbox from `../judge-server`. The `sandbox` job is the x86_64 verification the [Cut-over](#cut-over) prerequisites ask for, but it does not
+replace a run on the real server: seccomp and cgroup behaviour depend on the host kernel, and a GitHub runner's kernel is not the server's.
+
 ### Memory and CPU
 
 | | qduoj (before) | Go sandbox |
@@ -662,7 +672,7 @@ scripts/parity-run.sh --latency-worst 3                                # a progr
 
 Result of 2026-11-09 (every run with the committed script), Docker Desktop on Apple Silicon (arm64, 6 CPUs, 15.6 GiB), sandbox image
 `docker.io/thanhtuanle/judge-server:main` = `sha256:5d3172abc51a62965d68d95a5d960743c192ea16f75a91ba6ffb3c058ce513bc` (`judge-server` 31df07a,
-exported from git, built locally, linux/arm64; it is not on Docker Hub), worker image `sha256:95cf3452412037ef8ff285d27fb526e6d62efab8bcc05b50ae52e5d1cc9bca54`
+exported from git, built locally, linux/arm64: this is the image that was measured, tagged `:main` on this machine and not pulled from Docker Hub), worker image `sha256:95cf3452412037ef8ff285d27fb526e6d62efab8bcc05b50ae52e5d1cc9bca54`
 (`judge-worker` 6040471):
 
 | Check | Result |
@@ -680,14 +690,19 @@ that carries migration `V11` (`oj-submission-service`) and the sandbox image (`j
 live together (spec section 7).
 
 - **Prerequisites.**
-  1. `judge-server/scripts/sandbox-test.sh` passes on the x86_64 server (everything so far ran on arm64).
-  2. The sandbox image is built from `judge-server` `31df07a` or later. It is not published (`judge-server` has no CI workflow): build it from
-     a checkout (`docker compose build judge-server`), or `docker push` it by hand before `docker compose pull` or any K3s apply.
+  1. `judge-server/scripts/sandbox-test.sh` passes on the x86_64 server (everything so far ran on arm64). The `sandbox` job of `judge-server`'s CI
+     runs the same script on an x86_64 GitHub runner and is the first x86_64 verification, once it has passed; it does not replace this run, because
+     seccomp and cgroup behaviour depend on the host kernel and the runner's kernel is not the server's.
+  2. The sandbox image is the one `judge-server`'s CI publishes from its `main` (`docker.io/thanhtuanle/judge-server:main` or `:<commit sha>`, once the
+     branch is merged and the Docker Hub secrets are set), or a local build of the same commit (`docker compose build judge-server`, then `docker push`
+     it by hand before any K3s apply that has to pull it). Until the first publish nothing can pull it. The worker on this branch judges with
+     `JudgeStream`, which `judge-server` has from `d386921`; an older sandbox answers UNIMPLEMENTED and the worker falls back to `Judge` (spec section
+     13), so use `d386921` or later.
   3. When an x86_64 host is available, run `scripts/parity-run.sh --baseline qduoj` once against the old stack ([Parity and
      memory](#parity-and-memory)). Not on a production host: the script leaves `parity_1`..`parity_8` and the `parity-*` problems behind.
 - **Ordering hazards.** `V11` offers JavaScript and PHP from the next start of submission-service; on the qduoj stack every submission in
   them fails. The gRPC worker cannot talk to qduoj: every judgement waits 300 s, then ends as SYSTEM_ERROR. CI pushes `:main` for `judge-worker`
-  and `oj-submission-service` on every merge, and compose and `overlays/vps` default to `main`, so a merge in one repository can reach the server
+  and `oj-submission-service` on every merge (and for `judge-server` once its Docker Hub secrets are set), and compose and `overlays/vps` default to `main`, so a merge in one repository can reach the server
   before the others. Either pin `OJ_WORKER_TAG` and `OJ_SUBMISSION_TAG` in `.env` to the images that run now until the switch (CI tags an image
   with the full 40-digit commit sha; the last commits before the cut-over work were `judge-worker` `b0f41d9` and `oj-submission-service`
   `19d767a`), and `OJ_SANDBOX_TAG` to the sandbox image you tested (no Go image existed before; the old compose file names the qduoj sandbox by
@@ -696,11 +711,14 @@ live together (spec section 7).
 
   ```bash
   docker compose build judge-server                                    # the tested sandbox, built from ../judge-server
-  docker compose pull judge-worker run-worker submission-service       # by name: a bare `pull` cannot fetch the unpublished sandbox
+  docker compose pull judge-worker run-worker submission-service       # by name: a bare `pull` also asks for judge-server:main
   docker compose up -d --no-build                                      # sandboxes, both workers and submission-service (V11) at once
   ```
 
-  K3s follows the same order: push the sandbox image, pin the tags (`k3s/scripts/pin-images.sh`, or per image in `overlays/vps/kustomization.yaml`),
+  A bare `pull` fails for the sandbox until CI has published it, and afterwards it would replace the local build under the same tag. With the image
+  from `judge-server`'s CI instead, skip the `build` and run a bare `docker compose pull`.
+
+  K3s follows the same order: have the sandbox image on Docker Hub (CI's push, or your own `docker push`), pin the tags (`k3s/scripts/pin-images.sh`, or per image in `overlays/vps/kustomization.yaml`),
   and change the judge pods and submission-service in one `kubectl apply -k k3s/overlays/vps`, so `V11` and the gRPC worker arrive together.
 - **Verify.** Both sandboxes are `healthy` in `docker compose ps`; `min by (sandbox) (oj_sandbox_up)` is 1 for both; `scripts/parity-run.sh` ends with
   exit 0 (it leaves 8 `parity_*` users and four public `parity-*` problems: remove or hide them afterwards); one real submission in each of the eight languages, JavaScript and PHP included, gets its
@@ -742,7 +760,7 @@ two languages (step 3) so no new ones arrive; do not rejudge JavaScript or PHP s
    `git checkout 502958c -- k3s/base/judge/judge.yaml k3s/overlays k3s/scripts` and `kubectl apply -k k3s/overlays/vps`, with the worker and
    submission-service tags pinned to the earlier images (`k3s/scripts/pin-images.sh <sha>` sets all seven to one tag; edit
    `overlays/vps/kustomization.yaml` for one image). Not `k3s/` as a whole: `k3s/base/data/init-scripts.yaml` also holds the unrelated Kafka ACLs
-   (`48dd270`). If no cluster has applied the new manifests (the sandbox image is unpublished), K3s was not cut over and there is nothing to revert.
+   (`48dd270`). If no cluster has applied the new manifests (a cluster pulls the sandbox image from Docker Hub, where it exists only once `judge-server`'s CI has published it or someone pushed it by hand), K3s was not cut over and there is nothing to revert.
 
 Sandboxes recreated on their own later: see [Recreating a sandbox](#recreating-a-sandbox).
 

@@ -113,9 +113,11 @@ compose's.
   root, no capabilities) runs `chmod 0755 /work` before the sandbox starts, and `tests/k3s-judge.test.sh` fails without it. The server is
   to do the same itself (chmod its work root 0755 and its tmp root 0711 at start); the init step stays as the pod's own guarantee until
   that is released and measured on the server.
-- **Open item: the sandbox image is not published.** `judge-server` has no CI workflow yet, so `docker.io/thanhtuanle/judge-server` does
-  not exist: `base/judge/judge.yaml`, the vps overlay and the `k3s-live` CI job point at an image nobody has pushed. Until that repo
-  publishes `:main` and `:<commit sha>`, build it (`docker compose build judge-server`) and push it by hand (`docker push`) for the server, or load it into
+- **Open item: the sandbox image is published only once `judge-server`'s CI is live.** `judge-server`'s CI pushes
+  `docker.io/thanhtuanle/judge-server:main` and `:<commit sha>` (amd64 and arm64) on every push to its `main`, once that repository has the
+  secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`. Until its `feat/go-judge-server` branch is merged and the first such push has run, the image
+  does not exist: `base/judge/judge.yaml`, the vps overlay and the `k3s-live` CI job point at an image nobody has pushed. Until then, build it
+  (`docker compose build judge-server`) and push it by hand (`docker push`) for the server, or load it into
   k3d with `scripts/k3d-up.sh import` (which imports every local `thanhtuanle/` image); `pin-images.sh <sha>` can only pin a sha that exists.
 - **What a pod cannot do that compose's `sandbox-net` did.** The containers of a pod share one network namespace, so the
   contestant's code is on the worker's network. The pod therefore has no ServiceAccount token, the sandbox container does not get
