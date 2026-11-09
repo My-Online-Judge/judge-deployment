@@ -561,3 +561,42 @@ Cut-over is a compose change plus the worker image; rollback is reverting both. 
 - Mock rewritten in Go inside the new repo; Python mock removed (§8).
 - Same `JUDGE_SERVER_URL` env with scheme optional, rather than a new variable (§8).
 - No metrics endpoint on the sandbox in v1 (§5.6).
+
+## 13. Per-case progress: `JudgeStream` and `submission.progress` (added 2026-11-08, after the cut-over)
+
+The portal's product promise is a verdict that "streams live, test by test"; with the unary `Judge` the sandbox answered
+all cases at once, so the portal only ever showed every tile at the end, and with the bounded pool a 20-case bundle
+takes 15-30 s (§11.1) — longer than the portal's 20 s silence fallback. This section adds the per-case path. It is
+additive: `Judge`, `JudgeResponse`, `submission.judged` and §2's non-goals are unchanged; an old worker or an old
+sandbox keeps today's behaviour.
+
+- **Proto** (`oj-common`): `rpc JudgeStream(JudgeRequest) returns (stream JudgeEvent)`. `JudgeEvent` is a oneof: `case`
+  (a `CaseResult` as it finishes, in finishing order, with `output` empty) then exactly one `done` (the `JudgeResponse`
+  the unary call would return, cases in bundle order, output included). A compile error sends only `done`. A failed
+  call ends with its status code and no `done`; the client must not use the cases it saw.
+- **Server** (`judge-server`): `judge.Request.OnCase` is called by `runCases` from the pool goroutines after each case;
+  `api.Server.JudgeStream` serialises the sends and returns `done` after the engine returns. `AuthStreamInterceptor`
+  applies the token and CN checks to streams (the unary interceptor alone would have let a stream skip them). The mock
+  implements `JudgeStream` too and spreads a `TRIGGER_SLOW` pause over the cases, so the dev stack shows the ladder
+  filling.
+- **Worker** (`judge-worker`): a submission is judged with `JudgeStream`; each `case` event is published to the new
+  advisory topic `submission.progress` (key = submissionId; `testCase`, `result`, `error`, `cpuTime`, `realTime`,
+  `memory`, `total` = the bundle's case count or null, `rejudgeCount` when the request had one; never the output).
+  `UNIMPLEMENTED` from an old sandbox falls back to `Judge` on the same sandbox. A sandbox that dies mid-stream fails
+  over as before; the cases it reported are not retracted (the portal counts distinct case names and the verdict
+  replaces everything). The run lane keeps `Judge`: a run has no ladder and no submission row.
+- **submission-service**: `SubmissionProgressConsumer` (group `submission-progress`) forwards each record, without a
+  database read or write, to the Redis channel `oj.judging`; `SubmissionStartedConsumer` publishes a `started` marker
+  on the same channel after its commit. `JudgingPubSub` hands both to `SubmissionSseRegistry.send`, which writes a
+  named SSE event (`started` with `{status: 7}`, `progress` with the fields above) to every open stream of the id
+  without completing it; the verdict path (`oj.verdicts`, `VerdictPush`, `complete`) is unchanged. A subscriber that
+  finds the row already JUDGING gets `started` at once. No generation check on progress: it only flows while a
+  generation is judged and a stream closes with its verdict. A record of either advisory topic the consumer gives up
+  on is dropped, not dead-lettered.
+- **Deployment**: ACLs for `submission.progress` (judge-worker Write/Describe/Create; submission-service
+  Read/Describe/Create/Alter/DescribeConfigs and group `submission-progress` Read) in `kafka/acls.sh`, the K3s
+  init-scripts copy and `tests/kafka-acls.test.sh`. The topic bean lives in submission-service's `KafkaTopicConfig`.
+  Nothing changes at the edge: the gateway has no response timeout on the stream and Caddy flushes SSE.
+- **Portal**: `useSubmissionStream` accepts `started` and `progress`, resets its 20 s silence timer on each, and the
+  console fills the ladder live. See `judge-portal/DESIGN.md` (Test Ladder) and `PRODUCT.md`.
+

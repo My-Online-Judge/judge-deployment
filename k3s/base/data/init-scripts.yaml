@@ -66,12 +66,21 @@ data:
     User:judge-worker Topic submission.started Write
     User:judge-worker Topic submission.started Describe
     User:judge-worker Topic submission.started Create
+    User:judge-worker Topic submission.progress Write
+    User:judge-worker Topic submission.progress Describe
+    User:judge-worker Topic submission.progress Create
     User:submission-service Topic submission.started Read
     User:submission-service Topic submission.started Describe
     User:submission-service Topic submission.started Create
     User:submission-service Topic submission.started Alter
     User:submission-service Topic submission.started DescribeConfigs
     User:submission-service Group submission-started Read
+    User:submission-service Topic submission.progress Read
+    User:submission-service Topic submission.progress Describe
+    User:submission-service Topic submission.progress Create
+    User:submission-service Topic submission.progress Alter
+    User:submission-service Topic submission.progress DescribeConfigs
+    User:submission-service Group submission-progress Read
     User:submission-service Topic run.requested Write
     User:submission-service Topic run.requested Describe
     User:submission-service Topic run.requested Create

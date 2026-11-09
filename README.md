@@ -976,7 +976,8 @@ some local quirks worth recording:
   certificate from the private CA required). Tools run inside the container (`docker exec oj-kafka …`, the
   healthcheck, the bench drain) use the PLAINTEXT listener `LOCAL` on `127.0.0.1:9092`, which nothing else can reach.
   A client's principal is its certificate's CN, and each service may use only its own topics and consumer group: the
-  one-shot `kafka-init` writes those ACLs from `kafka/acls.sh` on every `up`. A new topic or client needs a rule there;
+  one-shot `kafka-init` writes those ACLs from `kafka/acls.sh` on every `up`. A new topic or client needs a rule there
+  (`submission.progress`, the worker's per-case progress for the portal's live ladder, was the last one added);
   deleting a rule does not revoke it (`docker exec oj-kafka /opt/kafka/bin/kafka-acls.sh --bootstrap-server 127.0.0.1:9092 --remove …`).
 - **MinIO serves TLS only** (`https://minio:9000`; the console on `https://127.0.0.1:9001`), with the `minio` certificate
   from the private CA. problem-service (read, write, delete) and the worker (read only) each use their own key from
