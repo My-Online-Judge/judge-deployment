@@ -614,11 +614,14 @@ it raised. `judge-worker` and `run-worker` have `stop_grace_period: 6m` (one 300
 
 A worker keeps one gRPC channel per sandbox address for the life of its process and looks the name up again only after a long pause, so after a
 sandbox is recreated (a new image, a changed `x-sandbox`) it can keep dialing the old address: it failed every call with
-`Peer name judge-server is not in peer certificate` for over a minute when both sandboxes were recreated and swapped addresses. After
-recreating a sandbox, recreate the workers (`docker compose up -d --force-recreate judge-worker run-worker`), or recreate the sandboxes one at a time
-(`docker compose up -d --no-deps judge-server`, wait until it is `healthy`, then `judge-server-2`). The judge lane waits it out within its 300 s
-budget; the run lane answers SYSTEM_ERROR "Judge infrastructure unavailable" after 30 s. Delete this note once the judge-worker image contains the commit
-`fix(dispatcher): re-resolve the sandbox address within a second ...` (it sets `grpc.dns_min_time_between_resolutions_ms=1000`).
+`Peer name judge-server is not in peer certificate` for over a minute when both sandboxes were recreated and swapped addresses. A failure
+that names a certificate is permanent to the worker (an `UNAVAILABLE` whose details contain `ssl` or `certificate` is not retried), so a
+submission that meets the stale address now ends as SYSTEM_ERROR `UNAVAILABLE: ... Peer name judge-server is not in peer certificate` at
+once, on the judge lane and the run lane alike, instead of stalling inside the retry budget. After recreating a sandbox, recreate the workers
+(`docker compose up -d --force-recreate judge-worker run-worker`) once no submission is in flight, or recreate the sandboxes one at a time
+(`docker compose up -d --no-deps judge-server`, wait until it is `healthy`, then `judge-server-2`). Once the judge-worker image contains the commit
+`fix(dispatcher): re-resolve the sandbox address within a second ...` (it sets `grpc.dns_min_time_between_resolutions_ms=1000`) the stale
+address lasts about a second instead of over a minute: trim this note to that second and keep the order (sandboxes first, then workers).
 
 ### Parity and memory
 
@@ -650,7 +653,7 @@ scripts/parity-run.sh --latency-worst 3                                # a progr
   and the cgroup's high-water mark, `docker exec oj-judge-server cat /sys/fs/cgroup/memory.peak` (a sample every 2 s misses a compile that
   lasts a fraction of a second; the peak does not). Recreate the sandboxes before a run so the peak starts at zero, and recreate the workers
   after them: a worker keeps the sandbox's old address (after both sandboxes were recreated and swapped addresses, a worker logged
-  `Peer name judge-server is not in peer certificate` for over a minute until it was restarted).
+  `Peer name judge-server is not in peer certificate` for over a minute until it was restarted, and the submissions in flight ended as SYSTEM_ERROR).
 - **What the corpus cannot show through the gateway.** submission-service's source policy refuses seven programs with HTTP 400 before they are
   queued (`c/socket.c`, `python3/fork.py`, `java/exec.java`, `java/socket.java`, and `cpp/rtle.cpp`, `cpp/rtle_busy.cpp` (both REAL_TLE) and
   `cpp/tle_wait.cpp` (CPU_TLE after a wait), which include `<linux/futex.h>`), so they never reach a sandbox. The script prints them as `REFUSED` and lists them in
