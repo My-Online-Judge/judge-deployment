@@ -178,7 +178,7 @@ SYSTEM_ERROR` with the fixed user-facing message it already has, `results → re
 | `INVALID_ARGUMENT` | malformed request: unknown seccomp rule, `src_name`/`exe_name` absolute, containing `..`, or resolving outside the job dir (a relative sub-path such as `__pycache__/x.pyc` is fine), `test_case_id` not `<slug>__<hash>`, empty command, inline input over the cap | raise, no failover; the worker's existing path turns it into SYSTEM_ERROR with the status message |
 | `NOT_FOUND` | the bundle directory or its `info` does not exist | raise, no failover; SYSTEM_ERROR "test-case bundle <id> not on this sandbox" (today this is a generic SE; the message now says which) |
 | `RESOURCE_EXHAUSTED` | `running_jobs == MAX_JOBS` **and** the wait queue (`MAX_QUEUE`) is full; with the deployment's `MAX_QUEUE=0`, as soon as every slot is taken | try the next sandbox; do **not** mark this one down. When every sandbox is full, `infra_errors.transient_reason` classifies it as transient `"sandbox"` and the worker's existing infra backoff (2,4,8…60 s, 300 s total; 30 s for run-worker) retries the dispatch. The job ends as SYSTEM_ERROR "Judge infrastructure unavailable" only when that window is exhausted. |
-| `UNAVAILABLE`, `INTERNAL`, connection errors | server not up, TLS handshake failed, judger failure before any case ran | fail over and mark down (today's 5xx/connection rule); when every sandbox failed, the worker retries within its window, except an `UNAVAILABLE` whose details name `ssl` or `certificate`, which is a permanent TLS failure and ends the submission at once (§8) |
+| `UNAVAILABLE`, `INTERNAL`, connection errors | server not up, TLS handshake failed, judger failure before any case ran | fail over and mark down (today's 5xx/connection rule); when every sandbox failed, the worker retries within its window, except an `UNAVAILABLE` whose details name `ssl` or `certificate`, which is a permanent TLS failure and ends the submission at once, with a fixed message and no details (§8) |
 | `DEADLINE_EXCEEDED` (client-side) | the worker's deadline passed while the sandbox judges | no failover (today's read-timeout rule). The server observes the call's context: when the client goes away it kills the running children, frees the slot and discards the job, so an abandoned job never holds a slot. |
 
 Admission: a `Judge` call takes a slot when one is free, otherwise waits in a FIFO of at most `MAX_QUEUE` (default 4)
@@ -500,8 +500,12 @@ Worker (`judge-worker`)
   therefore workers are recreated after sandboxes (README, "Recreating a sandbox"). Known limit: under TLS 1.3 a client
   certificate the sandbox rejects reaches the worker after the handshake as only `Socket closed`, the same as a
   restarting sandbox, so it is waited out. The message that reaches the submitter for a non-transient failure is
-  `infra_errors.describe(exc)`: one line, `<CODE>: <details>` for an RPC error, capped at 500 characters, the full
-  exception in the log. The gRPC channel uses `grpc.initial_reconnect_backoff_ms=1000` and
+  `infra_errors.describe(exc)`: one line, `<CODE>: <details>` for an RPC error (the details are server-written, e.g.
+  "unknown seccomp rule"), capped at 500 characters, the full exception in the log. The one exception is `UNAVAILABLE`, which
+  reaches `describe` only as a TLS failure: its details are gRPC's and OpenSSL's own text with the
+  sandbox's internal address (`ipv4:10.0.0.5:8080: Ssl handshake failed ...`), so the submitter reads the fixed line
+  `UNAVAILABLE: the judge sandbox's TLS certificate check failed` (`infra_errors.TLS_FAILURE_MESSAGE`) and the address
+  and error text stay in the worker's log. The gRPC channel uses `grpc.initial_reconnect_backoff_ms=1000` and
   `grpc.max_reconnect_backoff_ms=5000` so a restarted sandbox is retried within seconds. The shared code/details
   helpers live in `grpc_errors.py` with `RETRYABLE_CODES`, used by both the dispatcher and `infra_errors`.
 - Deadline: today a flat `JUDGE_TIMEOUT_SECONDS` (30 s) because qduoj runs all cases at once. With a bounded pool a

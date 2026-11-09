@@ -616,8 +616,8 @@ A worker keeps one gRPC channel per sandbox address for the life of its process 
 sandbox is recreated (a new image, a changed `x-sandbox`) it can keep dialing the old address: it failed every call with
 `Peer name judge-server is not in peer certificate` for over a minute when both sandboxes were recreated and swapped addresses. A failure
 that names a certificate is permanent to the worker (an `UNAVAILABLE` whose details contain `ssl` or `certificate` is not retried), so a
-submission that meets the stale address now ends as SYSTEM_ERROR `UNAVAILABLE: ... Peer name judge-server is not in peer certificate` at
-once, on the judge lane and the run lane alike, instead of stalling inside the retry budget. After recreating a sandbox, recreate the workers
+submission that meets the stale address now ends as SYSTEM_ERROR `UNAVAILABLE: the judge sandbox's TLS certificate check failed` (the
+address and the `Peer name judge-server is not in peer certificate` text are in the worker's log only) at once, on the judge lane and the run lane alike, instead of stalling inside the retry budget. After recreating a sandbox, recreate the workers
 (`docker compose up -d --force-recreate judge-worker run-worker`) once no submission is in flight, or recreate the sandboxes one at a time
 (`docker compose up -d --no-deps judge-server`, wait until it is `healthy`, then `judge-server-2`). Once the judge-worker image contains the commit
 `fix(dispatcher): re-resolve the sandbox address within a second ...` (it sets `grpc.dns_min_time_between_resolutions_ms=1000`) the stale
