@@ -270,8 +270,8 @@ check "volume-init: alpine one-shot that gives the test_case_cache volume to own
   "(lambda x: {k: val for k, val in x.items() if k not in ('logging', 'command')} == {'image': 'alpine:3.24', 'restart': 'no', 'network_mode': 'none', 'volumes': [{'type': 'volume', 'source': 'test_case_cache', 'target': '/test_case', 'volume': {}}], 'entrypoint': ['/bin/sh', '-c', 'chown -R 10001 /test_case']})(s.get('volume-init', {}))"
 check "judge-worker waits for volume-init to complete" \
   "s['judge-worker']['depends_on'].get('volume-init', {}).get('condition') == 'service_completed_successfully'"
-# A checker bundle's directory and inputs go to group 12003, the sandbox image's spj, which runs the checker; a submission (code,
-# 12002) is not in it (sp13). The worker can give its files only to a group it is in.
+# A checker bundle's directory and inputs go to group 12003, the sandbox image's spj, which runs the checker; a submission (a per-slot
+# run user, 12100-12107) is not in it (sp13). The worker can give its files only to a group it is in.
 check "judge-worker joins group 12003 (the sandbox image's spj) and nothing else, as uid 10001 (its image's user)" \
   "s['judge-worker'].get('group_add') == ['12003'] and 'user' not in s['judge-worker']"
 

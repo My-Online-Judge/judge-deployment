@@ -194,7 +194,9 @@ today, so `JUDGE_SERVER_TOKEN` keeps its value).
 Implementation notes (2026-11-08): an empty allow-list is a start-up error (fail closed, never "allow all"). `Ping` is
 exempt from the CN check but not from the token, so the `healthcheck` subcommand can call it with the sandbox's own
 certificate (CN `judge-server`), verifying the server certificate against `os.Hostname()`; the compose `hostname` and
-the certificate SAN must therefore agree, as they do today. The worker must raise gRPC's default 4 MiB receive limit
+the certificate SAN must therefore agree, as they do today, unless `HEALTHCHECK_SERVER_NAME` (§5.5, added 2026-11-08)
+names the SAN to verify instead: on k3s the pod's host name is the pod's own and in no SAN, so the manifests can drop
+the forced `hostname: judge-server` once they set it. The worker must raise gRPC's default 4 MiB receive limit
 (`grpc.max_receive_message_length`) since many cases × 64 KiB of output can exceed it.
 
 ### 4.3 Semantics preserved from qduoj
@@ -206,8 +208,8 @@ the certificate SAN must therefore agree, as they do today. The worker must rais
   `stripped_output_md5`; mismatch → WA. For inline cases the expected md5 is computed from `output` the same way.
   **Intended divergence from qduoj**, which only `rstrip()`s the user's output: a CRLF-printing program is WA today
   and AC tomorrow, and the two sides of the comparison finally use the same rule.
-- stderr never affects the verdict **(owner)**: it goes to a separate `N.err` file whose first 4 KiB is logged for RE
-  diagnosis. **Intended divergence from qduoj**, which points stderr at the same file as stdout, so a stray debug
+- stderr never affects the verdict **(owner)**: a run's stderr goes to `/dev/null` (§5.1a; compile and checker
+  stderr are captured). **Intended divergence from qduoj**, which points stderr at the same file as stdout, so a stray debug
   print to stderr is WA today.
 - Checker: compiled once per sandbox per `spj_version` into a cache dir and reused; run as
   `exe in_file user_out_file`; exit 0 → AC, exit 1 → WA, anything else → `error = -11` (SPJ_ERROR, i.e. SYSTEM_ERROR).
@@ -229,10 +231,10 @@ Subcommands: `serve` (default), `healthcheck` (performs `Ping` against itself ov
 `mock` (see §8).
 
 Per request: `Job` = one `Judge` call. A job has a private directory under the work tmpfs (`/work/jobs/<job-id>/`,
-root-owned 0711) with `compile.out` (both compiler streams through one fd), `src/` (root:compiler 0775: the source
-and the compiled artifact, `{exe_dir}`), `in/` (root-owned 0755: a Run's inline inputs), `out/` (root-owned 0755, not
-writable by the run uid: the per-case `N.out`/`N.err`, created by the shim as root and written through the already-open
-fd), and `tmp/` (1777, `TMPDIR`). The checker cache `<WorkDir>/spj/<version>/` is compiled to a temp name and renamed
+root:<slotgid> 0710, §5.1a) with `compile.out` (both compiler streams through one fd, deleted once read), `src/`
+(the source and the compiled artifact, `{exe_dir}`), `in/` (a Run's inline inputs), `out/` (the per-case `N.out`,
+created by the shim as root and written through the already-open fd, deleted once the case is judged), and `tmp/`
+(the compiler's `TMPDIR`, deleted before the runs); modes and owners per §5.1a. The checker cache `<WorkDir>/spj/<version>/` is compiled to a temp name and renamed
 into place as a root-owned 0555 binary, so a half-written binary from a crash is never a cache hit; both `jobs/` and
 `spj/` are wiped at start-up. `/work` itself is root-owned and not
 writable by any judge uid. The directory is removed when the response is sent, success or failure, and on
@@ -256,26 +258,51 @@ read the other job's files through `/proc/<pid>/cmdline`, kill or trace its prog
   so a child that escaped the process group with `setsid` dies with the job. `RLIMIT_NPROC` is then per slot.
 - Output: the program's stderr goes to `/dev/null` for runs (it never affects the verdict, §4.3; compile and
   checker stderr are still captured). `N.out` is deleted as soon as the case is judged, so a job holds at most
-  `pool × OUTPUT_FILE_CAP_BYTES` on `/work`. `OUTPUT_FILE_CAP_BYTES` defaults to 16 MiB and `config.Validate`
-  refuses a configuration where `MAX_JOBS × 8 × OUTPUT_FILE_CAP_BYTES + GOCACHE_CAP_BYTES` exceeds the size of the
+  `pool × OUTPUT_FILE_CAP_BYTES` on `/work`. `OUTPUT_FILE_CAP_BYTES` defaults to 16 MiB and `Serve`
+  refuses (after the work dir exists) a configuration where `MAX_JOBS × 8 × OUTPUT_FILE_CAP_BYTES + GOCACHE_CAP_BYTES` exceeds the size of the
   `/work` filesystem. The seccomp open rules for `c_cpp`/`general` also deny `O_CREAT`, `O_TRUNC` and `O_TMPFILE`,
-  so those runs cannot create files at all.
+  and `general` additionally denies `mkdir(at)`, `mknod(at)`, `symlink(at)`, `link(at)`, `rename(at,at2)`, `truncate`
+  and `memfd_create`, so a filtered run cannot create or rename filesystem entries (`c_cpp` is an allow-list and never
+  could).
 - The output comparison streams the file through the normaliser into md5 (no whole-file buffers), reading only
   `OUTPUT_RESPONSE_CAP_BYTES + 1` bytes for the response.
+- Refinements settled during implementation: the checker runs as `(12003, <slotgid>)` with supplementary group
+  12003 (shim flag `--groups`), because the worker installs checker bundles as group 12003 (`test_case_sync.py`);
+  `src/` is 0770 only while compiles run and is closed to 0750 before the first run; `in/` and `out/` are setgid so
+  files the shim creates belong to the slot group (chmod before chown: the container has no CAP_FSETID), created
+  0640; the compiler's `TMPDIR`/`HOME` are `<job>/tmp` on `/work` (deleted before the runs), only runs and the checker
+  use `/tmp/jobs/<id>`; the server chmods its tmp root (`TMP_DIR`, default `/tmp`, new §5.5 setting) to 0711 at
+  start; `compile.out` is deleted once read; the uid sweep spares processes whose session leader is a live shim
+  (shims start as session leaders and `Run` keeps a registry of live shim pids), kills by pidfd, is bounded (~1 s),
+  and also runs at job end; the checker's two stream files (trusted) are outside the disk formula.
+- Implementation notes (W2, 2026-11-08): the disk check runs in `Serve` after the work dir exists (`statfs`), not in
+  `config.Validate`; the checker's compile also runs as `(12003, <slotgid>)` with supplementary group 12003; `TMP_DIR`
+  must differ from `WORK_DIR`; the Go cache warm-up sets its own `TMPDIR` because the tmp root is 0711; compose must
+  keep a small tmpfs at `/tmp` (and, until the image carried tini, `init: true`); detached children of the compiler (12001) and checker (12003) are not
+  swept — the accepted residual above.
+- Follow-up (2026-11-08): a Java run under the closed tmp root as production has it (`TMP_DIR=/tmp`, 0711) is tested
+  (engine test `TestEngineJavaTmpRootClosed`, which closes the test container's `/tmp` for its duration; `make smoke`
+  judges `ac.java` too). HotSpot's perf-data directory `/tmp/hsperfdata_<user>` is compiled in, not taken from `TMPDIR`,
+  so a run user cannot create it under a closed `/tmp`; HotSpot falls back to anonymous memory, the program runs and
+  nothing is created there. A `TMP_DIR` of its own under an open `/tmp` would not exercise that. The sweep's log line is
+  `job: cleaned up processes of the slot's uid after a step` at Info: it cannot tell a `setsid` escape from a group-killed
+  grandchild that was still dying, so it no longer claims "stray".
 - Residual, accepted: uids 12001 (compiler) and 12003 (checker) are shared by both sandbox containers and by both
-  slots; they run only trusted tools on contestant-controlled input, bounded by compile limits.
+  slots; they run only trusted tools on contestant-controlled input, bounded by compile limits. The slot uids are
+  also the same numbers in both sandbox containers, so `RLIMIT_NPROC` for slot N is shared host-wide between the two
+  sandboxes during a run; the sweep shortens the window, a per-container uid base would close it.
 
 ### 5.2 Job pipeline
 
 1. Validate (§4.2 `INVALID_ARGUMENT` rules), resolve the bundle (`/test_case/<id>/info`, `NOT_FOUND`), admit the job
    (`RESOURCE_EXHAUSTED` when full).
-2. Write `src_name` into the job dir, owned by `compiler`.
+2. Write `src_name` into `src/` (root:<slotgid> 0640, §5.1a).
 3. Compile (if `compile_command` non-empty) as `compiler` with the compile limits (§6), seccomp off (compilers fork),
    network already absent at the container level. Non-zero exit → `compile_error`.
 4. If a checker is requested and `spj_cache/<version>` is absent: compile it the same way as `spj`; failure →
    `spj_compile_error`.
 5. Run the cases through a worker pool of size `pool(max_memory)` (§6). Each case: fork/exec the run command as
-   `code` with stdin from `N.in`, stdout to `N.out` (`RLIMIT_FSIZE` capped), stderr to `N.err` (capped); limits and
+   `code` with stdin from `N.in`, stdout to `N.out` (`RLIMIT_FSIZE` capped), stderr to `/dev/null` (§5.1a); limits and
    seccomp per §5.3; wait with `wait4` for rusage; derive `result` per §5.4; compare or run the checker.
 6. Build `CaseResults` in case order; attach `output` (capped, `output_truncated` flagged) when requested.
 
@@ -297,8 +324,8 @@ for correctness.
 ### 5.3 Isolation of one process (the same idea as qduoj's Judger)
 
 In the child before `execve`: `chdir(job dir)`; `setrlimit`: `RLIMIT_STACK` = 128 MiB (qduoj's `max_stack`, kept for
-parity), `RLIMIT_CPU` = ceil(max_cpu_time/1000)+1 s, `RLIMIT_AS` = 2 × `max_memory` unless
-`memory_limit_check_only`, `RLIMIT_FSIZE` = output cap (§6), `RLIMIT_NPROC` = 64 for the run user (compilers get 256),
+parity), `RLIMIT_CPU` = max_cpu_time/1000 + 1 s (integer division, as qduoj), `RLIMIT_AS` = 2 × `max_memory` unless
+`memory_limit_check_only`, `RLIMIT_FSIZE` = output cap (§6), `RLIMIT_NPROC` = 256 for every role (per slot uid, §5.1a),
 `RLIMIT_CORE` = 0; `dup2` the three streams; `setgid/setuid` to the role user; `prctl(PR_SET_NO_NEW_PRIVS)`; write
 `1000` to `/proc/self/oom_score_adj` so the kernel's OOM killer, if the container cap is hit, kills the submission and
 never the server; load the seccomp filter; `execve` with the configured env plus `PATH`.
@@ -317,9 +344,11 @@ enforced inside the shim (a timer that `SIGKILL`s only the program, as qduoj's k
 still reports its cpu time and memory and derives per §5.4 (CPU TLE when the CPU budget was also spent, else real TLE).
 The Go server keeps a backstop kill of the whole process group at `max_real_time + 1 s` and runs the same group kill on
 context cancellation (those two paths report cpu and memory 0). The server must run under
-an init (`init: true` in compose, so killed grandchildren are reaped). `RLIMIT_NPROC` counts every process and thread
-of the run uid across concurrent cases, so the run limit is 256, not 64; fork bombs are stopped by seccomp under
-`general`/`c_cpp` and by the container's `pids_limit`.
+an init so that killed grandchildren are reaped: since 2026-11-08 the image's entrypoint is `tini -s`, so that holds
+wherever it runs (k3s has no `init: true`); compose's `init: true` is redundant but harmless. `RLIMIT_NPROC` counts every process and thread
+of the run uid across concurrent cases, so the run limit is 256, not 64; with per-slot uids (§5.1a) the count is per
+slot. Fork bombs are stopped by seccomp under `general`/`c_cpp`, by the container's `pids_limit`, and detached children
+by the per-slot uid sweep.
 
 Filter notes from the first full-language run (2026-11-08): under `general`, `socket(AF_UNIX)` returns `EACCES` instead
 of killing the process, because glibc's NSS probes the nscd socket when `HOME` is unset and Python 3 died before its
@@ -362,7 +391,8 @@ checks; that was wrong and was corrected after reading the upstream source.)
 `WORK_DIR=/work`, `MAX_JOBS=2`, `MAX_QUEUE=4`, `RUN_POOL_BUDGET_BYTES=1 GiB`, `COMPILE_MAX_MEMORY_BYTES=512 MiB`
 (a ceiling over the request's compile `max_memory` when that is positive; see §6 for `-1`), `GOCACHE_CAP_BYTES=128 MiB`,
 `OUTPUT_FILE_CAP_BYTES=16 MiB`, `OUTPUT_RESPONSE_CAP_BYTES=64 KiB`, `COMPILE_MESSAGE_CAP_BYTES=64 KiB`,
-`INLINE_INPUT_CAP_BYTES=1 MiB` (sum over a Run's cases), `LOG_FORMAT=json`.
+`INLINE_INPUT_CAP_BYTES=1 MiB` (sum over a Run's cases), `TMP_DIR=/tmp`, `HEALTHCHECK_SERVER_NAME` (empty = this host's
+name; the name the `healthcheck` subcommand verifies the server certificate for; no whitespace), `LOG_FORMAT=json`.
 
 ### 5.6 Observability
 
@@ -376,7 +406,7 @@ counters. `PingResponse.running_jobs/max_jobs` is the load signal.
 | | Today (qduoj) | New |
 |---|---|---|
 | Container cap per sandbox | 3 GiB + 1.25 GiB tmpfs | 1.5 GiB (tmpfs counted inside it) |
-| Both sandboxes at peak | ~8.5 GiB | 3 GiB |
+| Both sandboxes at peak | 2 × (3 GiB + 1.25 GiB tmpfs) nominal, ~6 GiB real (tmpfs is inside the cgroup) | 3 GiB |
 | CPUs per sandbox | 6 | 2 |
 | Work tmpfs | 1 GiB `/judger` + 256 MiB `/tmp` | 512 MiB `/work` (exec) + 64 MiB `/tmp`; a job's files are wiped when it ends |
 | Compile cap | 1 GiB | min(request, 512 MiB) virtual when the row gives a positive `compile_max_memory`; **no `RLIMIT_AS`** when it is `-1` (Java, Go: V3 records that the Go toolchain fails under any address-space limit up to 1 GiB, and javac's JVM reserves similarly) |
@@ -403,7 +433,7 @@ judging latency a bounded pool costs (§11.1). On the 8 GB floor VPS from the si
 Base `ubuntu:22.04` (it still packages Python 2.7, which Debian 12 dropped). The resulting image is about 1.7 GB on disk (435 MB compressed): the JDK, the Go toolchain and
 Node dominate; the Go server and shim are a few MB. Installed, at the exact paths the rows
 name: `gcc`/`g++` 11, `openjdk-17-jdk-headless` (javac + java), `python2` with `/usr/bin/python` → python2,
-`python3` (3.10), `golang-go` (1.18) with `/usr/bin/go`, `nodejs` with `/usr/bin/node`, `php8.1-cli` with `/usr/bin/php`.
+`python3` (3.10), `golang-go` (1.18) with `/usr/bin/go`, `nodejs` with `/usr/bin/node`, `php8.1-cli` with `/usr/bin/php`. `tini` is the image entrypoint (`tini -s`), so stray children are reaped even where no `init` is available (k3s).
 Users 12001-12003. `/opt/oj/java.policy` is still mounted by compose for the Java row. The Go binary is built in a
 separate stage and copied in; the image has no shell needs beyond the compilers.
 
@@ -471,7 +501,7 @@ pins it); `init: true` (the shim kills only the program, so a killed run's grand
 `/work:exec,mode=755,size=512m` and `/tmp:size=64m`; no `shm_size` and no `/log` volumes; same `cap_add`, `read_only`,
 `no-new-privileges`, `sandbox-net`; env `TOKEN`, `TLS_DIR`, `JUDGE_ALLOWED_CLIENTS`, `LOG_FORMAT` (the rest are the defaults of 5.5);
 healthcheck `["CMD", "/usr/local/bin/judge-server", "healthcheck"]` with `start_period: 60s`, which needs each service's
-compose `hostname:` to stay equal to its certificate name. Worker `JUDGE_SERVER_URL: judge-server:8080,judge-server-2:8080`,
+compose `hostname:` to stay equal to its certificate name (or `HEALTHCHECK_SERVER_NAME` set to it). Worker `JUDGE_SERVER_URL: judge-server:8080,judge-server-2:8080`,
 `stop_grace_period: 6m` on both workers. `pki/identities.txt` unchanged (same CNs). `README.md` ("Go sandbox"), the K3s manifests
 (`k3s/scripts/gen_services.py`, the local overlay's `mock` patch, `overlays/vps` pinning the image) and the k3s spec row 5
 (`cpu 2, memory 1.5Gi`) are updated to the new budget; the mock runs the same image (`docker-compose.mock.yml`, `command: ["mock"]`).
@@ -512,7 +542,7 @@ Cut-over is a compose change plus the worker image; rollback is reverting both. 
    (pool 4 at 128 MiB) and ~30 s in Java (pool 2), where qduoj took ~3 s. The owner chose the 1.5 GiB cap with a
    1 GiB run pool over the designer's 1 GiB / 640 MiB proposal to keep that cost down; both sandboxes stay ≤ 3 GiB.
    The worker's deadline scales with the bundle (§8).
-2. **stderr and the verdict.** A program's stderr never affects the verdict (separate `N.err`, §4.3).
+2. **stderr and the verdict.** A program's stderr never affects the verdict (run stderr discarded (`/dev/null`), §4.3).
 
 ## 12. Calls the designer made (for the owner to check)
 

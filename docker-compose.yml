@@ -60,22 +60,25 @@ x-sandbox-health: &sandbox-health
 # The judge-server sandboxes (the Go gRPC server, ../judge-server) run contestants' code, so they get the least the
 # sandbox needs (spec docs/superpowers/specs/2026-11-08-go-judge-server-design.md, sections 5.3 and 6).
 # - No `privileged`: every program starts through a small static C shim (judge-runner) that applies setrlimit, drops to
-#   the unprivileged users compiler/code/spj (12001-12003), sets oom_score_adj and loads its seccomp filter before
-#   execve: no cgroups, no device access.
+#   the unprivileged users (the compiler 12001, the checker 12003 and one run user per job slot, 12100-12107), sets
+#   oom_score_adj and loads its seccomp filter before execve: no cgroups, no device access.
 # - Six capabilities: CHOWN/FOWNER/DAC_OVERRIDE to prepare each job directory for the run users and read the worker's
 #   0700 bundles, SETUID/SETGID to drop to them, KILL to stop a run over its time limit. Nothing else.
 # - `init: true`: a killed run can leave grandchildren (a compiler's helpers, a forked process) that nobody waits
-#   for; docker's tini reaps them so they never pile up as zombies against pids_limit.
-# - Read-only root filesystem; /work (job directories, so `exec`: programs are compiled and run from it) and /tmp (compiler
-#   scratch) are size-capped tmpfs, counted inside mem_limit. Docker's default seccomp and AppArmor profiles apply again.
+#   for; an init reaps them so they never pile up as zombies against pids_limit. The server needs it kept: the image's own
+#   entrypoint is tini too (`-s`, a subreaper), which then runs below docker's init and reaps them itself.
+# - Read-only root filesystem; /work and /tmp are size-capped tmpfs, counted inside mem_limit. /work holds the job directories
+#   (so `exec`: sources and compiled programs live there and run from it) and the compiler's scratch, `<job>/tmp`; runs and
+#   checkers use /tmp for their TMPDIR (the server's `TMP_DIR`, a separate tmpfs so a run that fills its temporary files never
+#   fills /work). The server needs both mounts. Docker's default seccomp and AppArmor profiles apply again.
 # - 1.5 GiB and 2 CPUs per sandbox (3 GiB for both; qduoj had 3 GiB + 1.25 GiB of tmpfs each): the server bounds the cases it runs at once
 #   (RUN_POOL_BUDGET_BYTES, 1 GiB) instead of running them all in parallel. README "Go sandbox".
 # - Only sandbox-net: no route to Kafka, Redis, the databases, MinIO or the internet — whatever a
 #   submission's language does or does not filter at the syscall level.
 # - The API on 8080 is gRPC over mutual TLS (x-sandbox-env): only a client with a certificate from our CA gets an
 #   answer, and Judge only for the CNs in JUDGE_ALLOWED_CLIENTS (on sandbox-net, the workers). The key stays root's: the
-#   server runs as root, while compiling and running a submission drop to the users compiler, code and spj
-#   (12001-12003), which cannot enter the 0700 root-owned /etc/oj/tls.
+#   server runs as root, while compiling and running a submission drop to the compiler, the per-slot run users and spj
+#   (12001, 12100-12107, 12003), which cannot enter the 0700 root-owned /etc/oj/tls.
 # - stop_grace_period 130 s: on SIGTERM the server stops admitting jobs and finishes the ones in hand, for at most 120 s.
 x-sandbox: &sandbox
   image: ${OJ_REGISTRY:-docker.io/thanhtuanle}/judge-server:${OJ_SANDBOX_TAG:-${OJ_TAG:-main}}
@@ -997,7 +1000,7 @@ services:
     # verdict publish, so docker's 10 s default would SIGKILL it. 6 min matches the K3s terminationGracePeriodSeconds (360).
     stop_grace_period: 6m
     # Group 12003 is the sandbox image's spj, the user that runs a problem's checker. The worker gives a checker bundle's directory
-    # and inputs to that group (0750, 0640), so the checker reads them and a submission (code, 12002) does not; the
+    # and inputs to that group (0750, 0640), so the checker reads them and a submission (a per-slot run user, 12100-12107) does not; the
     # expected outputs stay the worker's (0600), and a bundle without a checker stays 0700.
     group_add: ["12003"]
     volumes:
