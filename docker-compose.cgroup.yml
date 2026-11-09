@@ -1,0 +1,34 @@
+# Job cgroups for the Go sandboxes (judge-server spec section 14): each sandbox puts every job's compile, checker and runs into a
+# cgroup of its own, whose memory.max, pids.max and cpu.max the kernel enforces, and ends the job with one write. Without this
+# file the sandboxes use setrlimit and the container's cap alone.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cgroup.yml up -d
+#
+# Needs the host side first: host/systemd/oj-judge-server.slice and oj-judge-server-2.slice, started (README "Job cgroups").
+# Each sandbox mounts its own slice read-write at /oj-cgroup, which is all of the cgroup file system it sees; the container
+# stays unprivileged, with the same six capabilities. The jobs run in that slice, outside the container's cgroup: the slice's
+# MemoryMax, TasksMax and CPUQuota replace the container's mem_limit, cpus and pids_limit for them, and the server refuses a
+# slice that lacks them. Docker creates a missing directory on first start (a mkdir inside the cgroup file system makes a
+# cgroup, without delegation or limits, which the server then refuses).
+#
+# OJ_CGROUP_MODE: `auto` (default) uses the cgroups when the host gave them and otherwise runs as before, with one WARN line at
+# start that says why; `required` refuses to start without them and never falls back; `off` ignores the mount. The server
+# checks all of it before it opens its port, so a sandbox that is up is in the mode that was asked for.
+services:
+  judge-server:
+    environment:
+      CGROUP_MODE: ${OJ_CGROUP_MODE:-auto}
+      CGROUP_ROOT: /oj-cgroup
+    volumes:
+      - type: bind
+        source: /sys/fs/cgroup/oj-judge-server.slice
+        target: /oj-cgroup
+
+  judge-server-2:
+    environment:
+      CGROUP_MODE: ${OJ_CGROUP_MODE:-auto}
+      CGROUP_ROOT: /oj-cgroup
+    volumes:
+      - type: bind
+        source: /sys/fs/cgroup/oj-judge-server-2.slice
+        target: /oj-cgroup

@@ -61,7 +61,7 @@ x-sandbox-health: &sandbox-health
 # sandbox needs (spec docs/superpowers/specs/2026-11-08-go-judge-server-design.md, sections 5.3 and 6).
 # - No `privileged`: every program starts through a small static C shim (judge-runner) that applies setrlimit, drops to
 #   the unprivileged users (the compiler 12001, the checker 12003 and one run user per job slot, 12100-12107), sets
-#   oom_score_adj and loads its seccomp filter before execve: no cgroups, no device access.
+#   oom_score_adj and loads its seccomp filter before execve: no device access. Per-job cgroups are opt-in (docker-compose.cgroup.yml, README "Job cgroups"): the container itself stays unprivileged.
 # - Six capabilities: CHOWN/FOWNER/DAC_OVERRIDE to prepare each job directory for the run users and read the worker's
 #   0700 bundles, SETUID/SETGID to drop to them, KILL to stop a run over its time limit. Nothing else.
 # - `init: true`, kept, redundant since the image's entrypoint is `tini -s`: a killed run can leave grandchildren (a compiler's

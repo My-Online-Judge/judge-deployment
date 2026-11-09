@@ -619,6 +619,26 @@ inline count. The worst stretch without a Kafka poll is then MinIO 3 x 60 s plus
 `MAX_POLL_INTERVAL_MS` is the worker's new default, 900000 (15 minutes), and compose does not set it; a third sandbox adds up to 300 s and needs
 it raised. `judge-worker` and `run-worker` have `stop_grace_period: 6m` (one 300 s judgement plus the publish; K3s: `terminationGracePeriodSeconds: 360`).
 
+### Job cgroups
+
+`docker-compose.cgroup.yml` gives each sandbox a cgroup v2 per job, enforced by the kernel (judge-server README "Job cgroups", spec §14): `memory.max`,
+`pids.max` and `cpu.max` over everything a job runs, and one write ends it. Without the overlay the sandboxes use `setrlimit` and the container's cap alone.
+
+1. **Host, once** (cgroup v2 host, systemd): `sudo cp host/systemd/oj-judge-server*.slice /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl start
+   oj-judge-server.slice oj-judge-server-2.slice`. Check `cat /sys/fs/cgroup/oj-judge-server.slice/cgroup.subtree_control` lists `cpu memory pids`.
+   The slices carry the limits of `x-sandbox` (`MemoryMax=1536M`, `TasksMax=1024`, `CPUQuota=200%`): **the jobs run in the slice, outside the container's cgroup, so
+   these replace the container's `mem_limit`, `cpus` and `pids_limit` for them.** Change both places together. One slice per sandbox.
+2. **Start**: `docker compose -f docker-compose.yml -f docker-compose.cgroup.yml up -d`. Each sandbox mounts its slice read-write at `/oj-cgroup` and nothing else
+   of the cgroup file system; the container stays unprivileged, with the same six capabilities. The log line `judge-server listening` shows `cgroup_isolation=true`.
+3. **Mode**: `OJ_CGROUP_MODE=auto` (default) uses the cgroups when the host gave them and otherwise runs as before, with one `WARN` ("cgroup isolation is off ...
+   reason=...") that says why. After a release on the real host with `auto`, set `OJ_CGROUP_MODE=required` in `.env`: the sandbox then refuses to start
+   without them and never falls back, so a sandbox that is up has the isolation. A slice without `memory.max`, `pids.max` or `cpu.max`, a missing
+   controller, or a slice shared by two sandboxes is refused by the server, not used.
+4. **Restart**: the server removes the empty job cgroups a crash left. A job cgroup that still has live processes belongs to another server: the sandbox
+   refuses to start (`required`) or runs without cgroups (`auto`) and ends nothing.
+
+K3s: not done. The `oj` namespace enforces Pod Security `baseline`, which forbids the `hostPath` a delegated slice needs; see `k3s/README.md`, "Job cgroups".
+
 ### Recreating a sandbox
 
 A worker keeps one gRPC channel per sandbox address for the life of its process and looks the name up again only after a long pause, so after a

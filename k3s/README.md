@@ -142,6 +142,16 @@ compose's.
   (`cases`, judge pod only) may grow to 8Gi before the kubelet evicts the pod, which would kill the judgement in flight; the worker sweeps
   bundles unused for 6 hours (`TEST_CASE_CACHE_TTL_SECONDS`, default 24 h), so the cache ages out well before the cap on a normal disk.
 
+## Job cgroups (not enabled)
+
+The judge-server's per-job cgroups (judge-server spec §14, `docker-compose.cgroup.yml`) are not wired into these manifests, so the Judge Pod and the Run Pod
+run their sandboxes with `CGROUP_MODE` unset (off): `setrlimit` and the container's cap. The server needs a cgroup v2 subtree delegated to it and mounted
+read-write, and in a pod that means a `hostPath` of a systemd slice (`host/systemd/oj-judge-server.slice` style, one directory per pod through `subPathExpr` since
+KEDA runs several replicas on a node). The `oj` namespace enforces Pod Security `baseline`, which forbids `hostPath`, so this needs a decision first: judge pods in a
+namespace of their own at `privileged` (and the NetworkPolicies and service names that move with them), or an admission exemption for that one volume. The
+jobs would also leave the container's cgroup, so the slice must carry the limits the pod's `resources` have now (the server refuses one that does not). Nothing here has
+been run on a cluster.
+
 ## Autoscaling (`base/keda`, `platform/keda.yaml`)
 
 KEDA scales `judge` (1 to 4 pods) and `run-judge` (1 to 2) with the Kafka lag of their consumer groups: one more pod per 5 records
