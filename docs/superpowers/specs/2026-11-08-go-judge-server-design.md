@@ -43,7 +43,7 @@ Non-goals
 - Changing the bundle format, the `SubmissionRequestedEvent`, the `JudgedEvent`, or any verdict code.
 - cgroup-based limits. Neither compose nor the k3s pod gives the sandbox a writable cgroup fs without privilege;
   limits are `setrlimit` + the container cap, as today. A cgroup backend can be added later behind the same
-  interface.
+  interface; §14 is its design.
 - Short-circuiting after the first failing case. The worker requires one result per case and the portal shows
   every case; keep judging them all.
 - Java without the security-manager policy. JDK 17 still honours `java.policy`; its retirement is tied to a JDK
@@ -261,8 +261,11 @@ read the other job's files through `/proc/<pid>/cmdline`, kill or trace its prog
   `in/` and `out/` `root:<slotgid> 0750` (files 0640, created by the shim as root); the job's `TMPDIR` is
   `/tmp/jobs/<id>` (`root:<slotgid> 0770`) on the separate 64 MiB `/tmp` tmpfs, so temporary files can never fill
   `/work`. Another slot's processes cannot traverse any of it.
-- After every run, and on cancellation, the server kills every process whose uid is the slot's (a `/proc` sweep),
-  so a child that escaped the process group with `setsid` dies with the job. `RLIMIT_NPROC` is then per slot.
+- After every compile, run and checker run, and on cancellation, the server kills every process whose uid or gid is the slot's
+  (a `/proc` sweep; the compile and the checker run as the shared users `compiler` and `spj` but with the slot's gid, and a
+  stray of theirs would keep the group access to the next job's directory on that slot), so a child that escaped the process
+  group with `setsid` dies with the job. `RLIMIT_NPROC` is then per slot for runs; the compiler's and the checker's is shared
+  by all slots (§14).
 - Output: the program's stderr goes to `/dev/null` for runs (it never affects the verdict, §4.3; compile and
   checker stderr are still captured). `N.out` is deleted as soon as the case is judged, so a job holds at most
   `pool × OUTPUT_FILE_CAP_BYTES` on `/work`. `OUTPUT_FILE_CAP_BYTES` defaults to 16 MiB and `Serve`
@@ -636,4 +639,92 @@ sandbox keeps today's behaviour.
   Nothing changes at the edge: the gateway has no response timeout on the stream and Caddy flushes SSE.
 - **Portal**: `useSubmissionStream` accepts `started` and `progress`, resets its 20 s silence timer on each, and the
   console fills the ladder live. See `judge-portal/DESIGN.md` (Test Ladder) and `PRODUCT.md`.
+
+## 14. Per-job resource isolation: a cgroup v2 backend (design addendum, 2026-11-09, not built)
+
+Written after a review of the shipped sandbox. Nothing here is implemented; it is the design to approve first.
+
+### 14.1 The gap
+
+The limits are `setrlimit` per process plus the container's own cap. They do not bound a job as a whole:
+
+- `RLIMIT_AS` is per process and `RLIMIT_NPROC` per uid. Go, Java, Node, PHP and every compiler run with `SeccompNone` and may
+  fork, so one submission can hold many processes that are each inside their limit and together far past the memory
+  the engine reserved for the job. The reservation (§6) is bookkeeping in the Go server; no kernel object enforces it.
+- When the container's 1.5 GiB cap is hit, the OOM killer picks by badness among processes that all have `oom_score_adj` 1000,
+  so it may take an innocent job's process (a wrong MLE or RE for that job), not the one that caused the pressure.
+- The CPU is shared by all jobs; only the wall-clock limit bounds a spinning job.
+- The compiler (uid 12001) and the checker (uid 12003) are shared by every slot, so their `RLIMIT_NPROC` of 256 is one
+  count across slots: a fork bomb in one compile can make every other slot's compile fail to fork.
+
+What bounds the damage today: the container cap, `oom_score_adj` 1000 on every job process, the container's `pids_limit`, seccomp
+where a language has a filter, the shim's own real-time kill and the sweep by slot id (§5.1a). Hence the verdict on the review
+finding: real, bounded, and the reason the spec listed cgroups as a later backend (§2).
+
+### 14.2 Goal and non-goals
+
+Goal: the kernel enforces, per job, a memory ceiling, a process/thread ceiling and a CPU share over everything the job
+runs (compile, runs, checker), and ends all of it with one write when the job ends or is cancelled.
+Non-goals: namespaces, a change of the verdict rules (§4.3, §5.4), a change to the proto, a per-case cgroup.
+
+### 14.3 Design
+
+- **One cgroup per job**, `<root>/job-<id>`, `<root>` being the delegated subtree (14.4). Every program of the job starts in it:
+  Go's `SysProcAttr{UseCgroupFD: true, CgroupFD: fd}` starts the shim with `clone3(CLONE_INTO_CGROUP)`, so there is no window in
+  which the shim runs outside it and nothing to move. Children inherit the cgroup.
+- **Limits**, written before the first program starts and rewritten when the job's reservation changes:
+  `memory.max` = what the job holds from the budget at that moment (the engine's existing reservation, times the pool for
+  concurrent cases), `memory.swap.max` = 0, `memory.oom.group` = 1 (an OOM kills the whole job's cgroup and no other),
+  `pids.max` = 256 for the job (the rlimit stays, as the inner bound), `cpu.max` = one CPU per job (`100000 100000`) so
+  a job cannot take more than a slot's share of the container's two.
+- **Ending a job:** write `1` to `cgroup.kill` (Linux 5.14+), wait for `cgroup.events` `populated 0`, `rmdir`. This replaces the
+  sweep for that job and catches compiler and checker strays without relying on their gid. Where `cgroup.kill` is missing it
+  falls back to the sweep by slot id, which stays in the code either way.
+- **Verdicts:** `memory.events` `oom_kill` > 0 for the job means MLE for the case that was running. The shim's `ru_maxrss` rule
+  (§5.4) stays as it is: cgroups add a ceiling, they do not replace the measurement.
+- **Restart:** at start the server removes every `<root>/job-*` left by its previous life (`cgroup.kill`, wait, `rmdir`)
+  before it accepts a job, as it already cleans `/work` and the job directories.
+- **Seam:** a small `internal/cgroup` package (`Open(root)`, `Job.Limit(...)`, `Job.FD()`, `Job.Kill()`, `Job.Close()`) and one
+  optional field on `sandbox.Spec`. With no backend the engine behaves exactly as today.
+- **The server's own place:** the "no internal processes" rule means the server moves itself into `<root>/server` before it
+  enables `+memory +pids +cpu` in `<root>/cgroup.subtree_control`.
+
+### 14.4 What it needs from the deployment (the real cost)
+
+A cgroup v2 host (`stat -fc %T /sys/fs/cgroup` says `cgroup2fs`) and a subtree the container may write. An unprivileged container
+gets `/sys/fs/cgroup` read-only, and neither compose nor the k3s pod makes it writable without `privileged`, which §5.1a rejects.
+The option that keeps the container unprivileged: the host gives a systemd slice with `Delegate=yes`
+(`/sys/fs/cgroup/oj-judge.slice`) and the container bind-mounts that one directory read-write (compose `volumes` bind, k3s
+`hostPath`). The container can then write only inside that subtree. The caps do not change (writing cgroup files is plain file access,
+and `DAC_OVERRIDE` is already there), but the host and the manifest must change together, and the Docker Desktop dev stack has no
+such slice. Both therefore need a mode:
+
+`CGROUP_MODE` = `off` (today), `auto` (use it when the probe passes, else rlimits plus sweep and one WARN line at start), `required`
+(the server does not start without it). Recommended: `auto` while it is introduced, `required` in production once it is verified.
+
+### 14.5 Tests
+
+The sandbox suite gets a cgroup-capable test container (the delegated subtree bind-mounted). Tests: a job's fork bomb stops at
+`pids.max` and another slot's compile still forks; a process tree over `memory.max` is killed and only that job's, and is reported as
+MLE; `cgroup.kill` ends a `setsid` stray of the compiler and of the checker; a restart removes leftover job cgroups; `auto` falls
+back with the WARN line when the subtree is read-only; `required` refuses to start. Then the stress test of
+section 14.6 and a run of the whole suite on x86_64 and arm64, the real cluster's kernel included.
+
+### 14.6 Stress test (also useful before this exists)
+
+Many concurrent submissions that fork, allocate, spin and `setsid`; cancellation in the middle of each phase; the same slot reused
+straight away. Pass criteria: no process of a finished job survives, no job's verdict changes because of another's, the container
+is not OOM-killed, and the budget returns to its start value.
+
+### 14.7 Decisions for the owner
+
+1. Accept the host-side delegation (slice plus bind mount) for production, or stay on rlimits for now?
+2. If yes: `auto` or `required` as the default?
+3. The shared compiler and checker users: let `pids.max` per job replace the idea of per-slot users (recommended, no new image
+   users), or add per-slot compiler and checker users anyway?
+4. If no: the cheaper stop-gap is a per-slot RSS sum, taken in the sweep loop that already walks `/proc`, killing the slot's
+   processes when it passes the reservation. It is weaker (polling, not enforcement) and needs no deployment change.
+
+Recommendation: yes to 1, `auto` then `required`, `pids.max` for 3. Estimated cost: the `internal/cgroup` package, one `Spec`
+field, the engine wiring, the config and probe, the deployment change and the tests above.
 
