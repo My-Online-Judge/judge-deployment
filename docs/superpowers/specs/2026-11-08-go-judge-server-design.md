@@ -225,7 +225,8 @@ the forced `hostname: judge-server` once they set it. The worker must raise gRPC
 
 One static Go binary, `judge-server`, running as root inside the container (it needs the same six capabilities qduoj
 uses: CHOWN/DAC_OVERRIDE/FOWNER to prepare job dirs for the unprivileged users, SETUID/SETGID to drop to them, KILL to
-stop a run). Users `compiler` (12001), `code` (12002), `spj` (12003) exist in the image, as today.
+stop a run). The image has the users `compiler` (12001) and `spj` (12003) as today, and the per-slot run users `code0`..`code7`
+(12100-12107, §5.1a); `code` (12002) is still created but the engine no longer runs anything as it.
 
 Subcommands: `serve` (default), `healthcheck` (performs `Ping` against itself over mTLS; used by the compose/k8s probe),
 `mock` (see §8).
@@ -434,7 +435,7 @@ Base `ubuntu:22.04` (it still packages Python 2.7, which Debian 12 dropped). The
 Node dominate; the Go server and shim are a few MB. Installed, at the exact paths the rows
 name: `gcc`/`g++` 11, `openjdk-17-jdk-headless` (javac + java), `python2` with `/usr/bin/python` → python2,
 `python3` (3.10), `golang-go` (1.18) with `/usr/bin/go`, `nodejs` with `/usr/bin/node`, `php8.1-cli` with `/usr/bin/php`. `tini` is the image entrypoint (`tini -s`), so stray children are reaped even where no `init` is available (k3s).
-Users 12001-12003. `/opt/oj/java.policy` is still mounted by compose for the Java row. The Go binary is built in a
+Users `compiler` 12001, `spj` 12003 and the per-slot run users `code0`..`code7` (12100-12107; `code`, 12002, stays in the image, unused). `/opt/oj/java.policy` is still mounted by compose for the Java row. The Go binary is built in a
 separate stage and copied in; the image has no shell needs beyond the compilers.
 
 Two Flyway migrations in submission-service, both safe on qduoj as well as on the Go sandbox so that ordering and

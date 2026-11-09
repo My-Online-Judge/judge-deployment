@@ -576,8 +576,10 @@ was removed in favour of that subcommand.
 | Stop | docker's 10 s | `stop_grace_period: 130s` (the server's graceful stop is 120 s); `init: true` reaps a killed run's grandchildren |
 
 `pids_limit` (1024), the six capabilities, `read_only`, `no-new-privileges`, `sandbox-net` and the Java policy mount are unchanged. A big
-bundle now takes longer than under qduoj (a 20-case C++ problem with a 1 s limit takes up to about 15 s, Java about 30 s, where qduoj took
-about 3 s; measured in [Parity and memory](#parity-and-memory)): the owner accepted that for the memory (spec section 11), and the worker's deadline scales with it (below). x86_64 is
+bundle now takes longer than under qduoj. The pool arithmetic of spec section 11 estimates a 20-case problem with a 1 s limit at up to about 15 s
+in C++ (a pool of 4 at 128 MiB) and about 30 s in Java (a pool of 2 at 256 MiB), where qduoj took about 3 s; of these only the C++ figure was measured
+(15.2 s, [Parity and memory](#parity-and-memory)), Java's and qduoj's were not. The owner accepted the cost for the memory (spec section 11), and the
+worker's deadline scales with it (below). x86_64 is
 unverified: everything was run on arm64 (Docker Desktop on Apple Silicon); the first x86_64 run is the server, where
 `judge-server/scripts/sandbox-test.sh` must pass before the cut-over counts as done.
 
@@ -620,12 +622,17 @@ languages, plus the five checker programs one after the other on one problem, `p
 docker compose build judge-server && docker compose up -d --no-build   # the stack, as in Run
 scripts/parity-run.sh > parity-go.txt                                  # the corpus, one submission at a time
 scripts/parity-run.sh --parallel 8 --passes 2                          # 8 submissions at once, twice (memory)
-scripts/parity-run.sh --latency 6                                      # cpp/ac.cpp on a 20-case problem, six times
+scripts/parity-run.sh --latency 6                                      # cpp/ac.cpp on a 20-case problem, six times (each must be AC)
+scripts/parity-run.sh --latency-worst 3                                # a program over the CPU limit on all 20 cases (each must be CPU_TLE)
 ```
 
-- **Against qduoj** (an x86_64 host): start the stack from `git show 502958c:docker-compose.yml` with the pre-gRPC worker image, run the script,
-  `diff` its table with the Go sandbox's. Only the lines of `cpp/crlf.cpp` and `cpp/stderr.cpp` may differ (qduoj WA, Go sandbox AC: design spec
-  4.3); the script lists exactly those two as accepted divergences, `got WA, expected AC`.
+- **Against qduoj** (an x86_64 host): start the stack from `git show 502958c:docker-compose.yml` with the pre-gRPC worker image, then
+  `scripts/parity-run.sh --baseline qduoj > parity-qduoj.txt` and
+  `diff <(grep -Ev '^(javascript|php) ' parity-go.txt) parity-qduoj.txt`. Only the lines of `cpp/crlf.cpp` and `cpp/stderr.cpp` may differ
+  (qduoj WA, Go sandbox AC: design spec 4.3). `--baseline qduoj` does two things. It skips the eight JavaScript and PHP programs: the qduoj image
+  has neither runtime, and migration `V11` (which offers them) belongs to the Go image, so on qduoj they would fail whatever the sandbox does
+  (disable them by hand as in Rollback, or let the run skip them). And it makes the exceptions file accept `WA->AC` for those two programs; without
+  the switch only the `REFUSED->...` lines apply, so a Go sandbox that answers WA there is a mismatch (exit 1), not an accepted divergence.
 - **Memory:** compose runs one `judge-worker`, which judges one submission at a time, so 8 parallel submissions reach the sandboxes one by one.
   Scale it first, `docker compose up -d --no-deps --no-build --scale judge-worker=6 judge-worker` (the topic has 6 partitions), and read
   `docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' oj-judge-server oj-judge-server-2` every 2 s, `docker inspect -f '{{.State.OOMKilled}}'`
@@ -634,12 +641,12 @@ scripts/parity-run.sh --latency 6                                      # cpp/ac.
   after them: a worker keeps the sandbox's old address (after both sandboxes were recreated and swapped addresses, a worker logged
   `Peer name judge-server is not in peer certificate` for over a minute until it was restarted).
 - **What the corpus cannot show through the gateway.** submission-service's source policy refuses seven programs with HTTP 400 before they are
-  queued (`c/socket.c`, `python3/fork.py`, `java/exec.java`, `java/socket.java` and the three real-time-limit programs `cpp/rtle*.cpp`,
-  `cpp/tle_wait.cpp`, which include `<linux/futex.h>`), so they never reach a sandbox. The script prints them as `REFUSED` and lists them in
+  queued (`c/socket.c`, `python3/fork.py`, `java/exec.java`, `java/socket.java`, and `cpp/rtle.cpp`, `cpp/rtle_busy.cpp` (both REAL_TLE) and
+  `cpp/tle_wait.cpp` (CPU_TLE after a wait), which include `<linux/futex.h>`), so they never reach a sandbox. The script prints them as `REFUSED` and lists them in
   `parity-exceptions.txt`; `judge-server`'s in-image tests (`scripts/run-all.sh`) are what judge them. A real-time limit (`REAL_TLE`) was
   checked by hand with a Python 3 and a JavaScript program that sleep for 5 s: verdict `REAL_TLE` on every case after 6 s.
 
-Result of 2026-11-08 (the parallel run: 2026-11-09), Docker Desktop on Apple Silicon (arm64, 6 CPUs, 15.6 GiB), sandbox image
+Result of 2026-11-09 (every run with the committed script), Docker Desktop on Apple Silicon (arm64, 6 CPUs, 15.6 GiB), sandbox image
 `docker.io/thanhtuanle/judge-server:main` = `sha256:5d3172abc51a62965d68d95a5d960743c192ea16f75a91ba6ffb3c058ce513bc` (`judge-server` 31df07a,
 exported from git, built locally, linux/arm64; it is not on Docker Hub), worker image `sha256:95cf3452412037ef8ff285d27fb526e6d62efab8bcc05b50ae52e5d1cc9bca54`
 (`judge-worker` 6040471):
@@ -647,10 +654,10 @@ exported from git, built locally, linux/arm64; it is not on Docker Hub), worker 
 | Check | Result |
 |---|---|
 | Verdicts, one at a time | 56 lines (50 corpus programs plus 6 checker runs): the 49 that reach the sandbox match `corpus.json` (including `cpp/crlf.cpp` and `cpp/stderr.cpp`: AC); 7 `REFUSED`; exit 0 |
-| Verdicts, 8 at once, 2 passes | both passes identical, line by line (cases included), to the sequential table; 98 judgements, never more than 2 at once on a sandbox (`MAX_JOBS`), none refused |
+| Verdicts, 8 at once, 2 passes | both passes identical, line by line (cases included), to the sequential table; 98 judgements, never more than 2 at once on a sandbox (`MAX_JOBS`), none refused; exit 0 |
 | qduoj baseline | **not runnable on arm64**: qduoj's `libjudger` under Rosetta fails every run that has a memory limit (`rosetta error: mmap_anonymous_rw mmap failed`, RE) or the `c_cpp` filter (SE), whatever the program. Verdicts are compared with `corpus.json` only; the baseline and the diff are for an x86_64 host |
-| Memory, both sandboxes | sampled every 2 s: at most 430 MiB together (0.42 GiB). Cgroup high-water marks: 583 MiB and 60 MiB (sum 644 MiB, under the 3 GiB and each far under its 1.5 GiB cap); `OOMKilled=false`, 0 restarts, on both. The peak is a Java or Go compile (`-1`: no address-space limit, the whole pool) |
-| Latency, 20-case C++ problem, 1 s limit | AC program: 0.28 s median from submit to verdict (6 runs, 0.28-0.34 s). Worst case, every case over the CPU limit: 15.3 s (a pool of 4 cases at once, five batches of about 3 s), the 15 s of Memory and CPU above. qduoj: not measured (arm64); about 3 s according to design spec section 11 |
+| Memory, both sandboxes | sampled every 2 s: at most 85 MiB together (0.08 GiB). Cgroup high-water marks over the whole run: 588 MiB and 78 MiB (sum 666 MiB, under the 3 GiB, and each far under its 1.5 GiB cap); `OOMKilled=false`, 0 restarts, on both. A 2 s sample misses sub-second spikes, so the peak is the figure that counts; which job caused it was not recorded |
+| Latency, 20-case C++ problem, 1 s limit | AC program (`--latency 6`): 0.29 s median from submit to verdict (0.28-0.38 s). Worst case (`--latency-worst 3`, over the CPU limit on every case): 15.2 s median (15.15-15.31 s), a pool of 4 cases at once. qduoj: not measured (arm64); about 3 s is the figure of design spec section 11 |
 
 ### Rollback
 

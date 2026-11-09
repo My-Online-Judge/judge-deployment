@@ -64,9 +64,9 @@ x-sandbox-health: &sandbox-health
 #   oom_score_adj and loads its seccomp filter before execve: no cgroups, no device access.
 # - Six capabilities: CHOWN/FOWNER/DAC_OVERRIDE to prepare each job directory for the run users and read the worker's
 #   0700 bundles, SETUID/SETGID to drop to them, KILL to stop a run over its time limit. Nothing else.
-# - `init: true`: a killed run can leave grandchildren (a compiler's helpers, a forked process) that nobody waits
-#   for; an init reaps them so they never pile up as zombies against pids_limit. The server needs it kept: the image's own
-#   entrypoint is tini too (`-s`, a subreaper), which then runs below docker's init and reaps them itself.
+# - `init: true`, kept, redundant since the image's entrypoint is `tini -s`: a killed run can leave grandchildren (a compiler's
+#   helpers, a forked process) that nobody waits for, and an init reaps them so they never pile up as zombies against pids_limit.
+#   With both, docker's init is PID 1 and the image's tini (a subreaper) runs below it.
 # - Read-only root filesystem; /work and /tmp are size-capped tmpfs, counted inside mem_limit. /work holds the job directories
 #   (so `exec`: sources and compiled programs live there and run from it) and the compiler's scratch, `<job>/tmp`; runs and
 #   checkers use /tmp for their TMPDIR (the server's `TMP_DIR`, a separate tmpfs so a run that fills its temporary files never
