@@ -1,0 +1,28 @@
+# How the Vault Secrets Operator reaches Vault: over TLS, trusting the stack's CA (the ca.crt of tls-vault), logging in with Kubernetes auth
+# as the ServiceAccount vso, whose Vault role (k3s/scripts/vault.sh configure) may only read kv/data/*.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vso
+automountServiceAccountToken: false
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultConnection
+metadata:
+  name: vault
+spec:
+  address: https://vault.oj.svc.cluster.local:8200
+  caCertSecretRef: tls-vault
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: vault
+spec:
+  vaultConnectionRef: vault
+  method: kubernetes
+  mount: kubernetes
+  kubernetes:
+    role: vso
+    serviceAccount: vso
+    audiences: [vault]

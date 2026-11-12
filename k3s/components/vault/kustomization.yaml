@@ -1,0 +1,12 @@
+# The stack's Secrets kept in HashiCorp Vault (docs/superpowers/specs/2026-11-12-vault-secrets-design.md). A component: overlays/vps adds it,
+# so the server reads its secrets from Vault, while the base and overlays/local (k3d, CI) keep k3s/scripts/env-to-secrets.sh.
+#
+# Vault runs as one node with Raft storage and TLS from the stack's CA; the Vault Secrets Operator (k3s/platform) logs in with Kubernetes
+# auth and writes each Secret under the name and keys the pods already read, so no workload changes. Setup, unsealing after a restart and
+# rotation: k3s/README.md "Secrets in Vault".
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - vault.yaml
+  - operator.yaml
+  - secrets.yaml

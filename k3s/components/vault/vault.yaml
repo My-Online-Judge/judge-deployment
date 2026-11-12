@@ -1,0 +1,201 @@
+# One Vault node: Raft storage on a claim, TLS from the stack's CA (Certificate vault -> Secret tls-vault). It starts sealed and is Ready only once
+# unsealed (k3s/README.md "Secrets in Vault"); while it is sealed the Secrets the operator already wrote stay, only new syncs wait.
+# Pod Security baseline allows no IPC_LOCK, so mlock is off (HashiCorp's advice for Raft storage anyway); run as non-root, the image's
+# entrypoint neither chowns nor setcaps.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault
+---
+# Vault checks the operator's ServiceAccount tokens with the TokenReview API, as its own ServiceAccount.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vault-auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: vault
+    namespace: oj
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+data:
+  vault.hcl: |
+    ui            = false
+    disable_mlock = true
+    api_addr      = "https://vault.oj.svc.cluster.local:8200"
+    cluster_addr  = "https://vault-0.vault-internal.oj.svc.cluster.local:8201"
+
+    listener "tcp" {
+      address         = "0.0.0.0:8200"
+      cluster_address = "0.0.0.0:8201"
+      tls_cert_file   = "/vault/tls/tls.crt"
+      tls_key_file    = "/vault/tls/tls.key"
+    }
+
+    storage "raft" {
+      path    = "/vault/data"
+      node_id = "vault-0"
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+spec:
+  selector:
+    app: vault
+  ports:
+    - name: https
+      port: 8200
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-internal
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: vault
+  ports:
+    - name: https
+      port: 8200
+    - name: cluster
+      port: 8201
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vault
+spec:
+  serviceName: vault-internal
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vault
+  template:
+    metadata:
+      labels:
+        app: vault
+    spec:
+      serviceAccountName: vault
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vault
+          image: hashicorp/vault:2.2.2
+          args: [server]   # the image's entrypoint adds -config=/vault/config, the directory vault-config is mounted on
+          env:
+            # for `kubectl exec vault-0 -- vault ...` (k3s/scripts/vault.sh)
+            - name: VAULT_ADDR
+              value: https://127.0.0.1:8200
+            - name: VAULT_CACERT
+              value: /vault/tls/ca.crt
+          ports:
+            - name: https
+              containerPort: 8200
+            - name: cluster
+              containerPort: 8201
+          readinessProbe:
+            httpGet:
+              path: /v1/sys/health
+              port: 8200
+              scheme: HTTPS
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /vault/config
+              readOnly: true
+            - name: tls
+              mountPath: /vault/tls
+              readOnly: true
+            - name: data
+              mountPath: /vault/data
+      volumes:
+        - name: config
+          configMap:
+            name: vault-config
+        - name: tls
+          secret:
+            secretName: tls-vault
+            defaultMode: 0440
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vault
+spec:
+  secretName: tls-vault
+  commonName: vault
+  dnsNames:
+    - vault
+    - vault.oj.svc
+    - vault.oj.svc.cluster.local
+    - localhost
+  ipAddresses:
+    - 127.0.0.1
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  duration: 8760h
+  renewBefore: 720h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+    rotationPolicy: Always
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: oj-ca
+---
+# Only the operator reaches Vault; the setup script uses `kubectl exec` (the apiserver, not the network). default-deny-ingress covers the rest.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-vault
+spec:
+  podSelector:
+    matchLabels:
+      app: vault
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vault-secrets-operator-system
+      ports:
+        - port: 8200

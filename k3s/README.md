@@ -9,7 +9,7 @@ Kustomize: `base/` is what runs, `overlays/local` is k3d on a laptop (mock sandb
 scripts/k3d-up.sh up            # a K3s cluster `oj` in Docker; https://localhost:18443 and http://localhost:18080 are Traefik
 scripts/local-stack.sh build    # the images (arm64 Macs: see the README's "Run it on one machine")
 scripts/k3d-up.sh import        # load them into the cluster
-kubectl apply -k k3s/platform   # once per cluster: cert-manager and KEDA, installed by K3s's Helm controller
+kubectl apply -k k3s/platform   # once per cluster: cert-manager, KEDA and the Vault Secrets Operator, installed by K3s's Helm controller
 k3s/scripts/wait-for-crds.sh    # the Helm controller installs them a minute later; a bare `kubectl wait` fails on a CRD that does not exist yet
 kubectl apply -k k3s/overlays/local
 k3s/scripts/env-to-secrets.sh   # the compose .env files as Secrets (pods wait for them; run it again after a change)
@@ -28,7 +28,8 @@ cert-manager signs one Certificate per identity of `pki/identities.txt` (`k3s/ba
 Secret `tls-<identity>` (keys `tls.crt`, `tls.key`, `ca.crt`). A renewal happens 30 days ahead and makes a new key; a deleted
 Secret is issued again within seconds. **A renewed Secret does not reach a running process:** Postgres, Kafka (which builds its keystore in an init
 container), Redis, MinIO and the JVMs read their key at start. The leaves last a year, so about every eleven months, after the renewal
-(`kubectl -n oj get certificate` shows a new `NOT AFTER`), run `kubectl -n oj rollout restart deploy,sts` once; `TlsCertificateExpiringSoon`
+(`kubectl -n oj get certificate` shows a new `NOT AFTER`), run `kubectl -n oj rollout restart deploy,sts` once (on the server this restarts
+`vault-0` too, which comes back sealed: unseal it, "Secrets in Vault"); `TlsCertificateExpiringSoon`
 watches the certificates the Java services have loaded and fires first if it is forgotten. The databases, Kafka, Redis and MinIO are not watched
 by it: put the restart in your calendar when you take over the server (compose needed the same manual step). The signing CA is the Secret `oj-ca`:
 
@@ -50,7 +51,8 @@ what compose runs and from `kafka/` and `minio/`; the test fails when a committe
 
 - **Kafka is capped**: heap `-Xmx512M -Xms512M`, 512Mi requested, 1Gi limit.
 - **Secrets**: `k3s/scripts/env-to-secrets.sh` turns the `.env*` files into the Secrets the pods read (`--dry-run` lists names and
-  keys). MinIO's root account goes only to MinIO and `minio-init`; the backup reads the bucket with the read-only worker key.
+  keys). MinIO's root account goes only to MinIO and `minio-init`; the backup reads the bucket with the read-only worker key. On the
+  server (`overlays/vps`) the same Secrets come from Vault instead: "Secrets in Vault".
 - **Init Jobs** `kafka-init` (ACLs, `kafka/acls.sh`) and `minio-init` (bucket, policies, users) retry until their service
   answers and are removed ten minutes after they finish, so the next `kubectl apply` runs them again. To run one sooner, or
   after changing its script, delete it first (`kubectl -n oj delete job kafka-init minio-init`): a Job's spec cannot change.
@@ -225,6 +227,43 @@ Service names are compose's, so every static scrape job is unchanged.
 - Trying `JudgePodOOMKilled` without the sandbox: a throwaway pod in `oj` with a container named `sandbox` and a memory limit it exceeds
   (`python -c "b=bytearray(200*1024*1024)"` under `limits.memory: 48Mi`) restarts as OOMKilled and the alert fires within two minutes.
 
+## Secrets in Vault (`components/vault`, `platform/vault-secrets-operator.yaml`)
+
+On the server (`overlays/vps`, and `vps-stage1` through it) the Secrets of `env-to-secrets.sh` come from HashiCorp Vault: one node, `vault-0`
+(Raft storage on a 1Gi claim, TLS with `tls-vault` from `oj-ca`), keeps each at `kv/<Secret name>`, and the Vault Secrets Operator writes it
+back as the Secret of that name with the same keys, so no workload changed. `base` and `overlays/local` (k3d, CI) keep `env-to-secrets.sh`.
+Both read one table, `k3s/scripts/secret_map.py`; `components/vault/secrets.yaml` is generated from it (`python3 k3s/scripts/gen_vault.py >
+k3s/components/vault/secrets.yaml`) and `tests/k3s-vault.test.sh` fails when they drift. Spec: `docs/superpowers/specs/2026-11-12-vault-secrets-design.md`.
+
+```bash
+k3s/scripts/wait-for-crds.sh 300 crd/certificates.cert-manager.io crd/issuers.cert-manager.io crd/scaledobjects.keda.sh \
+  crd/vaultconnections.secrets.hashicorp.com crd/vaultauths.secrets.hashicorp.com crd/vaultstaticsecrets.secrets.hashicorp.com
+kubectl apply -k k3s/overlays/vps-stage1     # vault-0 starts sealed (0/1); the pods wait for their Secrets
+k3s/scripts/vault.sh init                    # once: five unseal key shares (any three unseal) and the root token, printed once, kept nowhere
+kubectl -n oj exec -it vault-0 -- vault operator unseal   # three times, one share each: it asks, nothing goes on a command line
+read -rs VAULT_TOKEN && export VAULT_TOKEN   # the root token
+k3s/scripts/vault.sh configure               # audit log, kv/, Kubernetes auth, the operator's role (idempotent)
+k3s/scripts/vault.sh seed                    # the .env files into kv/<Secret> (--dry-run lists names and keys); the Secrets follow within a minute
+```
+
+- **Keep the five shares apart and offline**, with the root token. Once `configure` and `seed` have run, revoke it (`vault token revoke -self`
+  inside `vault-0`) and make a new one only when needed with `vault operator generate-root` (three shares).
+- **Sealed after every restart of `vault-0`**: a reboot, the yearly certificate restart, a node drain. Unseal with three shares. While it is
+  sealed the Secrets already written stay and running pods keep going; only changes wait, and `seed` stops at the first Secret ("Vault is
+  sealed"). There is no auto-unseal: it needs a cloud KMS or a second Vault.
+- **Vault is the source after the seed.** Rotate inside the pod: `kubectl -n oj exec -it vault-0 -- sh`, then `read -rs VAULT_TOKEN; export
+  VAULT_TOKEN; vault kv patch -mount=kv env-identity GOOGLE_CLIENT_SECRET=-` (the value on stdin, then Ctrl-D). Within a minute the operator
+  rewrites the Secret and restarts the Deployments that read it (`RESTART` in `gen_vault.py`). Never a database or MinIO: a changed
+  `POSTGRES_PASSWORD` or `MINIO_ROOT_PASSWORD` does not change the stored password, so change that in the database first. **`seed` writes
+  every value of `.env` again**: put a rotation into `.env` too, or the next `seed` reverts it.
+- **Who reaches what.** Only the operator's namespace reaches Vault (NetworkPolicy `allow-to-vault`, 8200); `vault.sh` goes through `kubectl
+  exec` and passes the token and every value on stdin. Role `vso` (ServiceAccount `vso` of `oj`, audience `vault`) may read `kv/data/*` and
+  nothing else. The audit log is Vault's stdout (`kubectl -n oj logs vault-0`, values HMAC'd). The operator's ClusterRole reads and writes
+  Secrets in every namespace, and the Secrets are still base64 in etcd: Vault adds one store, rotation and an audit trail, not encryption at
+  rest (K3s `--secrets-encryption` is a separate step).
+- **Backup.** Vault's data is not in the nightly snapshot. The way back is the `.env*` copy "Backup and restore" already asks you to keep: a
+  fresh Vault, `init`, `configure`, `seed`. That is one more reason to put every rotation into `.env`.
+
 ## Backup and restore (`base/backup`, `k3s/backup/`)
 
 A CronJob `backup` runs at 03:00 (Asia/Ho_Chi_Minh, as `backup/systemd/oj-backup.timer`): `dump` writes the three Postgres dumps and the
@@ -234,7 +273,7 @@ weekly, 6 monthly). One of them failing stops the night: a snapshot is only take
 retry. The scripts are `k3s/backup/*.sh` (shellchecked), carried into the ConfigMap by `k3s/scripts/gen_backup.py`.
 
 - **The repository is off the cluster's disk by design.** The base names none: `RESTIC_REPOSITORY`, `RESTIC_PASSWORD` and, for S3 or B2,
-  their keys come from `.env` through `env-to-secrets.sh` into the Secret `restic` (see `.env.example`). Without a repository and a password
+  their keys come from `.env` through `env-to-secrets.sh` (on the server `vault.sh seed`) into the Secret `restic` (see `.env.example`). Without a repository and a password
   the job stops with a message instead of skipping the night. Keep a copy of the password elsewhere: without it the snapshots are unreadable.
   On k3d, `scripts/local-stack.sh init` sets `RESTIC_REPOSITORY=/repo` and the local overlay mounts the claim `restic-repo` there.
 - **A repository is only created on purpose.** `restic.sh` runs `restic init` only when `RESTIC_INIT_IF_MISSING` is set (the local overlay sets
@@ -260,17 +299,18 @@ Compose stays whole and in charge until the DNS change, so every step before it 
 by the same script: once early as a rehearsal, and again at the end after compose has stopped taking submissions. The second copy is of
 everything (all three databases and the bucket, replaced exactly), so nothing written on compose in between can be left behind.
 
-1. **Install K3s** with `--kubelet-arg=pod-max-pids=2048`, then `kubectl apply -k k3s/platform` and wait for the CRDs (see the top of this
-   file). The platform also sets Traefik's Service to `externalTrafficPolicy: Local`, so the gateway sees the real client address (it bans by
+1. **Install K3s** with `--kubelet-arg=pod-max-pids=2048`, then `kubectl apply -k k3s/platform` and wait for the CRDs, the Vault Secrets
+   Operator's included ("Secrets in Vault"). The platform also sets Traefik's Service to `externalTrafficPolicy: Local`, so the gateway sees the real client address (it bans by
    it); after the DNS change check that the gateway logs a visitor's own address, not the node's.
 2. **Secrets, the public name and the image tags.** Copy the `.env*` files and `pki/out` to the machine that runs kubectl; `k3s/scripts/ca-from-pki.sh` (the
    Secret `oj-ca`, so the leaves keep the CA the clients already trust); put `RESTIC_REPOSITORY` (an S3 or B2 bucket, off this host) and
-   `RESTIC_PASSWORD` (copy it elsewhere) in `.env`; `k3s/scripts/env-to-secrets.sh`; edit `k3s/overlays/vps/host.env` (the public host and the
+   `RESTIC_PASSWORD` (copy it elsewhere) in `.env` (they reach the cluster through Vault at step 3, not `env-to-secrets.sh`); edit `k3s/overlays/vps/host.env` (the public host and the
    ACME email); pin the images to the commit you tested with `k3s/scripts/pin-images.sh <sha>` (the overlay floats on `main` otherwise, so a
    restarted pod would run whatever was pushed last). Make the repository once: `set -a; . ./.env; set +a; restic init` (the nightly job never creates one, so a mistyped address
    fails instead of starting an empty repository).
 3. **Apply `kubectl apply -k k3s/overlays/vps-stage1`**: everything but the judge pods and KEDA, so compose is still the only consumer of
-   `submission.requested`. Then `k3s/scripts/pg-monitor.sh` once the databases are up. The edge certificate is requested from Let's Encrypt
+   `submission.requested`. Set up Vault ("Secrets in Vault": `init`, unseal, `configure`, `seed`): the pods wait for their Secrets until
+   `seed` has run. Then `k3s/scripts/pg-monitor.sh` once the databases are up. The edge certificate is requested from Let's Encrypt
    (HTTP-01 on port 80) and stays pending until the public name reaches this server; until then browse with a temporary `/etc/hosts` entry
    and accept the self-signed certificate Traefik shows. If compose's `edge` holds 80/443 on this host, run K3s on another IP or stop it at step 6.
 4. **Rehearse the copy:** `k3s/scripts/copy-from-compose.sh` (`--dry-run` prints the plan). It stops the K3s services, streams each database
@@ -292,7 +332,9 @@ everything (all three databases and the bucket, replaced exactly), so nothing wr
    (`restic backup --host oj .env* pki/out` with the repository's variables, again after each change).
 
 Task 10 has not been done. Rehearsed here: the whole data copy from the compose stack into k3d, the backup and the drill, the overlays
-render and have tests. Not rehearsed: Let's Encrypt (the HTTP-01 challenge crossing Traefik's port-80 redirect), an S3/B2 repository,
+render and have tests; Vault on a throwaway k3d cluster (the component, `vault.sh` init, unseal, configure and seed, all 13 Secrets written
+identical to `env-to-secrets.sh`'s, a rotation restarting the Deployment that reads it, sealed after a restart with the Secrets kept, the
+network policy refusing another pod of `oj`). Not rehearsed: Let's Encrypt (the HTTP-01 challenge crossing Traefik's port-80 redirect), an S3/B2 repository,
 the client address behind ServiceLB on a real host, and the judge pods on the real sandbox (task 6).
 
 ## What cannot be done on a laptop

@@ -12,6 +12,8 @@ resources:
 # slice directory (hostPath type Directory). Flip CGROUP_MODE to required in the component once a node is confirmed.
 components:
   - ../../components/cgroup
+  # the stack's Secrets from Vault instead of env-to-secrets.sh (k3s/README.md "Secrets in Vault"); vps-stage1 inherits it
+  - ../../components/vault
 configMapGenerator:
   - name: public-host
     envs: [host.env]
