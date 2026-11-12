@@ -29,7 +29,7 @@ if [[ -f k3s/platform/kustomization.yaml ]]; then
 else bad "k3s/platform/kustomization.yaml exists"; fi
 
 # Kinds that live outside a namespace.
-cluster_scoped='Namespace|ClusterIssuer|ClusterRole|ClusterRoleBinding|CustomResourceDefinition|StorageClass|PriorityClass'
+cluster_scoped='Namespace|ClusterIssuer|ClusterRole|ClusterRoleBinding|CustomResourceDefinition|StorageClass|PriorityClass|RuntimeClass|ValidatingAdmissionPolicy|ValidatingAdmissionPolicyBinding'
 
 for overlay in local vps vps-stage1; do
   dir=k3s/overlays/$overlay

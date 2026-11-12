@@ -1,0 +1,27 @@
+# The apiserver's admission configuration for the cgroup component (k3s/components/cgroup): Pod Security as it is (namespaces opt in through their labels,
+# `oj` enforces baseline), with one exemption, pods of RuntimeClass judge-delegated, whose volumes and privileges the ValidatingAdmissionPolicy of the
+# component then limits. Install on the server node, once:
+#
+#   sudo install -D -m 0644 k3s/host/admission-config.yaml /etc/rancher/k3s/admission-config.yaml
+#   # /etc/rancher/k3s/config.yaml:
+#   #   kube-apiserver-arg:
+#   #     - admission-control-config-file=/etc/rancher/k3s/admission-config.yaml
+#   sudo systemctl restart k3s
+apiVersion: apiserver.config.k8s.io/v1
+kind: AdmissionConfiguration
+plugins:
+  - name: PodSecurity
+    configuration:
+      apiVersion: pod-security.admission.config.k8s.io/v1
+      kind: PodSecurityConfiguration
+      defaults:
+        enforce: privileged
+        enforce-version: latest
+        audit: privileged
+        audit-version: latest
+        warn: privileged
+        warn-version: latest
+      exemptions:
+        usernames: []
+        namespaces: []
+        runtimeClasses: [judge-delegated]

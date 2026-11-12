@@ -1,0 +1,7 @@
+# Pods of this class are exempt from Pod Security (k3s/host/admission-config.yaml), which is what lets them mount the delegated cgroup subtree;
+# admission-policy.yaml then holds them to what a sandbox needs. Same runtime as every other pod: `runc`, k3s's containerd default.
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: judge-delegated
+handler: runc

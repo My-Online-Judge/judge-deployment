@@ -7,6 +7,13 @@ resources:
   - ../../base
   - edge-certificate.yaml
   - cluster-issuer.yaml
+# Per-job cgroups for the sandboxes (judge-server spec 14.4). It needs the node prepared first (k3s/README.md "Job cgroups": the slice, the admission
+# config); with CGROUP_MODE auto a node that is not prepared still runs the sandbox as before, but the pod will not start without the
+# slice directory (hostPath type Directory). Flip CGROUP_MODE to required in the component once a node is confirmed.
+components:
+  - ../../components/cgroup
+  # the stack's Secrets from Vault instead of env-to-secrets.sh (k3s/README.md "Secrets in Vault"); vps-stage1 inherits it
+  - ../../components/vault
 configMapGenerator:
   - name: public-host
     envs: [host.env]

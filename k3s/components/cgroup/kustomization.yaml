@@ -1,0 +1,64 @@
+# Per-job cgroups for the Go sandboxes on K3s (judge-server spec section 14.4). A component: add `components: [../../components/cgroup]` to an
+# overlay (overlays/vps does) and the Judge Pod and the Run Pod's sandboxes get a delegated cgroup subtree, one directory per pod; the base
+# stays as it is, so the local overlay (the mock) and any cluster that has not done the host side are untouched.
+#
+# The host side, once per node (k3s/README.md "Job cgroups"): k3s/host/oj-judge.slice started under systemd, and the apiserver started with
+# k3s/host/admission-config.yaml, which exempts pods of the RuntimeClass below from Pod Security. The exemption is narrowed again by the
+# ValidatingAdmissionPolicy here: such a pod may mount nothing from the host but /sys/fs/cgroup/oj-judge.slice, and has no host namespace,
+# no privileged container, no host port and no capability beyond the sandbox's six.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - runtimeclass.yaml
+  - admission-policy.yaml
+patches:
+  - target: {kind: Deployment, name: judge}
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: judge
+      spec:
+        template:
+          spec:
+            runtimeClassName: judge-delegated
+            initContainers:
+              - name: sandbox
+                env:
+                  - {name: CGROUP_MODE, value: auto}
+                  - {name: CGROUP_ROOT, value: /oj-cgroup}
+                  - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+                  # The jobs run outside the container's cgroup, in the pod's own directory under the slice, which the kubelet made with
+                  # no limits: the sandbox writes there the budget its pod declares (resources.limits below, TasksMax is compose's pids_limit).
+                  - {name: CGROUP_ROOT_MEMORY_MAX_BYTES, valueFrom: {resourceFieldRef: {resource: limits.memory, divisor: "1"}}}
+                  - {name: CGROUP_ROOT_CPU_MILLIS, valueFrom: {resourceFieldRef: {resource: limits.cpu, divisor: 1m}}}
+                  - {name: CGROUP_ROOT_PIDS_MAX, value: "1024"}
+                volumeMounts:
+                  - {name: oj-cgroup, mountPath: /oj-cgroup, subPathExpr: $(POD_NAME)}
+            volumes:
+              - name: oj-cgroup
+                hostPath: {path: /sys/fs/cgroup/oj-judge.slice, type: Directory}
+  - target: {kind: Deployment, name: run-judge}
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: run-judge
+      spec:
+        template:
+          spec:
+            runtimeClassName: judge-delegated
+            initContainers:
+              - name: sandbox
+                env:
+                  - {name: CGROUP_MODE, value: auto}
+                  - {name: CGROUP_ROOT, value: /oj-cgroup}
+                  - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+                  - {name: CGROUP_ROOT_MEMORY_MAX_BYTES, valueFrom: {resourceFieldRef: {resource: limits.memory, divisor: "1"}}}
+                  - {name: CGROUP_ROOT_CPU_MILLIS, valueFrom: {resourceFieldRef: {resource: limits.cpu, divisor: 1m}}}
+                  - {name: CGROUP_ROOT_PIDS_MAX, value: "1024"}
+                volumeMounts:
+                  - {name: oj-cgroup, mountPath: /oj-cgroup, subPathExpr: $(POD_NAME)}
+            volumes:
+              - name: oj-cgroup
+                hostPath: {path: /sys/fs/cgroup/oj-judge.slice, type: Directory}

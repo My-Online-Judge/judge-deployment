@@ -1,0 +1,22 @@
+# The cgroup v2 subtree the node's sandbox pods use for their job cgroups (judge-server spec section 14.4, k3s/README.md "Job cgroups"). Each pod gets a
+# directory of its own below it (the component mounts it with subPathExpr: $(POD_NAME)), on which the sandbox sets the limits its pod declares.
+#
+#   sudo cp k3s/host/oj-judge.slice /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl start oj-judge.slice
+#   cat /sys/fs/cgroup/oj-judge.slice/cgroup.subtree_control      # must list cpu, memory and pids
+#
+# The limits here are the node's ceiling for all sandbox pods together, KEDA's largest count (judge 4, run-judge 2: six pods) times a pod's limits
+# (1.5 GiB, 2 CPUs, 1024 pids); the pods' own limits are what bound each of them. Delegate= hands the subtree to the pods (systemd enables the three
+# controllers for the slice's children and keeps its hands off what is inside); nothing runs in the slice itself.
+[Unit]
+Description=Delegated cgroup subtree of the judge-server sandbox pods
+
+[Slice]
+Delegate=cpu memory pids
+MemoryAccounting=yes
+CPUAccounting=yes
+TasksAccounting=yes
+MemoryMax=9216M
+MemorySwapMax=0
+TasksMax=6144
+CPUQuota=1200%

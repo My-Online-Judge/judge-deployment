@@ -1,0 +1,24 @@
+# The cgroup v2 subtree of one judge-server sandbox (judge-server spec section 14, judge-deployment README "Job cgroups").
+#
+#   sudo cp host/systemd/oj-judge-server*.slice /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl start oj-judge-server.slice oj-judge-server-2.slice
+#   cat /sys/fs/cgroup/oj-judge-server-2.slice/cgroup.subtree_control      # must list cpu, memory and pids
+#
+# The sandbox's jobs run in this slice, not in its container's cgroup, so the container's own mem_limit, cpus and
+# pids_limit do not bound them: THE LIMITS BELOW ARE THEIR REPLACEMENT, the same numbers as docker-compose.yml's x-sandbox, and
+# the server refuses to use a slice that lacks any of them. Delegate= hands the subtree to the sandbox (systemd enables the three
+# controllers for the slice's children and keeps its hands off what is inside). Nothing runs in the slice itself, which
+# cgroup v2 requires of a cgroup whose children use controllers. One slice per sandbox: two servers on one would remove
+# each other's jobs as stale.
+[Unit]
+Description=Delegated cgroup subtree of the oj-judge-server-2 sandbox's jobs
+
+[Slice]
+Delegate=cpu memory pids
+MemoryAccounting=yes
+CPUAccounting=yes
+TasksAccounting=yes
+MemoryMax=1536M
+MemorySwapMax=0
+TasksMax=1024
+CPUQuota=200%

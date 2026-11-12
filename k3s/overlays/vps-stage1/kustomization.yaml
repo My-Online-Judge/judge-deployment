@@ -34,6 +34,16 @@ patches:
       kind: ScaledObject
       metadata:
         name: run-judge
+  # without the judge pods, a rotation of judge-token or minio-worker in Vault restarts only who is left (tests/k3s-vault.test.sh)
+  - target: {kind: VaultStaticSecret, name: judge-token}
+    patch: |-
+      - op: replace
+        path: /spec/rolloutRestartTargets
+        value: [{kind: Deployment, name: submission-service}]
+  - target: {kind: VaultStaticSecret, name: minio-worker}
+    patch: |-
+      - op: remove
+        path: /spec/rolloutRestartTargets
   - target: {kind: PodDisruptionBudget, name: judge}
     patch: |-
       $patch: delete
