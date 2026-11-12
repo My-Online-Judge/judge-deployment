@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ci: skip (needs ../judge-server and its judge-server:test image)
 # k3s/components/cgroup (judge-server spec 14.4) against a throw-away K3s in Docker: the real apiserver with k3s/host/admission-config.yaml, the component's
 # RuntimeClass and ValidatingAdmissionPolicy, and the Judge Pod of overlays/vps as rendered.
 #
