@@ -1,4 +1,4 @@
-# The certificate the browser sees on https://localhost:18443, signed by the throwaway CA of this overlay (trust it, or accept
+# The certificate the browser sees on https://localhost, signed by the throwaway CA of this overlay (trust it, or accept
 # the warning). Traefik's IngressRoute reads it as the Secret edge-tls.
 apiVersion: cert-manager.io/v1
 kind: Certificate

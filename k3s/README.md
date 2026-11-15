@@ -6,7 +6,7 @@ Kustomize: `base/` is what runs, `overlays/local` is k3d on a laptop (mock sandb
 `docs/superpowers/specs/2026-10-28-k3s-judge-pod-spec.md`.
 
 ```bash
-scripts/k3d-up.sh up            # a K3s cluster `oj` in Docker; https://localhost:18443 and http://localhost:18080 are Traefik
+scripts/k3d-up.sh up            # a K3s cluster `oj` in Docker; https://localhost and http://localhost are Traefik
 scripts/local-stack.sh build    # the images (arm64 Macs: see the README's "Run it on one machine")
 scripts/k3d-up.sh import        # load them into the cluster
 kubectl apply -k k3s/platform   # once per cluster: cert-manager, KEDA and the Vault Secrets Operator, installed by K3s's Helm controller
@@ -18,8 +18,9 @@ bash tests/k3s-pki.test.sh      # certificates.yaml is what k3s/scripts/gen-cert
 scripts/k3d-up.sh down
 ```
 
-The compose stack keeps 80, 443 and 9000, so both can run at once; `K3D_HTTPS_PORT` and `K3D_HTTP_PORT` change the
-cluster's host ports (the script stops, naming the holder, when one is taken).
+The cluster takes 443 and 80, as the compose stack does, so stop compose first; `K3D_HTTPS_PORT` and `K3D_HTTP_PORT` change the
+cluster's host ports (the script stops, naming the holder, when one is taken), and `overlays/local/redirect-port.yaml` must name
+the HTTPS one. `overlays/local` leaves Grafana, Jaeger and the metrics exporters at zero replicas (its `replicas:` block).
 
 ## Certificates
 
@@ -85,7 +86,7 @@ generators, and Traefik's headers and body limits with `edge/Caddyfile`'s. Diffe
 
 Locally the images are the ones `scripts/local-stack.sh build` made, loaded by `scripts/k3d-up.sh import`. Trust the local CA
 with `kubectl -n oj get secret oj-ca -o jsonpath='{.data.tls\.crt}' | base64 -d > oj-local-ca.crt` and use it as
-`curl --cacert oj-local-ca.crt https://localhost:18443/api/v1/languages`.
+`curl --cacert oj-local-ca.crt https://localhost/api/v1/languages`.
 
 ## The Judge Pod and the Run Pod (`base/judge`)
 
@@ -133,7 +134,8 @@ compose's.
   (`t_judge_servers`) is keyed by the hostname the worker relays from the sandbox's Ping, which is `os.Hostname()` in the sandbox container,
   the pod's name (the pod keeps its own hostname, `HEALTHCHECK_SERVER_NAME` carries the certificate's name): one row per judge pod, as with
   qduoj, with `service_url` `localhost:8080`. A pod that is gone leaves its row Offline until someone deletes it.
-- Locally the sandbox is the same image running `mock` (`overlays/local/mock-sandbox.yaml`). A pod-wide process limit is the kubelet's:
+- Locally the sandbox is the real one; without a delegated cgroup it runs on rlimits and the container's cap (`CGROUP_MODE=auto`).
+  On a host that cannot give it its capabilities, enable `overlays/local/mock-sandbox.yaml` (the same image running `mock`). A pod-wide process limit is the kubelet's:
   `scripts/k3d-up.sh` sets `pod-max-pids=2048` (compose gave the sandbox 1024); install K3s on the server with
   `--kubelet-arg=pod-max-pids=2048`. A cluster created before that flag needs `scripts/k3d-up.sh down` and `up`.
 

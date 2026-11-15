@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # A K3s cluster in Docker (k3d) for trying k3s/ on a laptop.
-#   scripts/k3d-up.sh up        create the cluster `oj`; Traefik answers on https://localhost:18443 and http://localhost:18080
+#   scripts/k3d-up.sh up        create the cluster `oj`; Traefik answers on https://localhost and http://localhost
 #   scripts/k3d-up.sh import    load the locally built images into it (scripts/local-stack.sh build makes them)
 #   scripts/k3d-up.sh down      delete the cluster
-# 18443/18080, not 443/80, so the compose stack (scripts/local-stack.sh) can run beside it, and not 8443/8080, which other
-# dev stacks commonly hold.
+# 443/80: https://localhost is the origin the Google OAuth client allows. The compose stack (scripts/local-stack.sh) wants the
+# same ports, so stop it first, or set K3D_HTTPS_PORT / K3D_HTTP_PORT (and the port in k3s/overlays/local/redirect-port.yaml).
 # The node limits every pod to 2048 processes (compose gave the sandbox pids_limit 1024; a pod's limit is the kubelet's, so on
 # the server install K3s with --kubelet-arg=pod-max-pids=2048 too).
 # Environment: K3D_HTTPS_PORT, K3D_HTTP_PORT (the host ports), K3D_MEMORY (the node's memory limit, default 10g),
@@ -14,8 +14,8 @@ set -euo pipefail
 cluster=oj
 k3s_image=${K3S_IMAGE:-rancher/k3s:v1.35.5-k3s1}
 memory=${K3D_MEMORY:-10g}
-https_port=${K3D_HTTPS_PORT:-18443}
-http_port=${K3D_HTTP_PORT:-18080}
+https_port=${K3D_HTTPS_PORT:-443}
+http_port=${K3D_HTTP_PORT:-80}
 
 die() { echo "k3d-up.sh: $*" >&2; exit 1; }
 command -v k3d > /dev/null || die "k3d is not installed (macOS: brew install k3d)"
