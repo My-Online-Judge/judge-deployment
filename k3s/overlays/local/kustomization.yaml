@@ -1,5 +1,5 @@
-# k3d on a laptop: the mock sandbox, the images built by scripts/local-stack.sh and imported into the cluster, a private CA
-# made for the occasion. See k3s/README.md.
+# k3d on a laptop: the real sandbox, the images built by scripts/local-stack.sh and imported into the cluster, a private CA
+# made for the occasion, and no Grafana, Jaeger or metrics exporters. See k3s/README.md.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: oj
@@ -10,5 +10,14 @@ resources:
   - restic-repo.yaml
 patches:
   - path: redirect-port.yaml
-  - path: mock-sandbox.yaml
+  # - path: mock-sandbox.yaml   # the scripted sandbox instead of the real one (a host without the sandbox's capabilities)
   - path: restic-repo-patch.yaml
+# The judge does not need these and a laptop's memory is short; delete an entry to bring it back. Prometheus and Alertmanager stay.
+replicas:
+  - {name: grafana, count: 0}
+  - {name: jaeger, count: 0}
+  - {name: identity-db-exporter, count: 0}
+  - {name: problem-db-exporter, count: 0}
+  - {name: submission-db-exporter, count: 0}
+  - {name: redis-exporter, count: 0}
+  - {name: kafka-exporter, count: 0}

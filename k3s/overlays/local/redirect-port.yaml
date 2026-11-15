@@ -1,4 +1,5 @@
-# Traefik answers on the host's 18443 here (scripts/k3d-up.sh), not 443: the redirect from http must name it.
+# Traefik answers on the host's 443 here (scripts/k3d-up.sh): http://localhost lands on https://localhost, the origin the Google
+# OAuth client allows. A cluster made with another K3D_HTTPS_PORT needs that port here too.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -6,5 +7,5 @@ metadata:
 spec:
   redirectScheme:
     scheme: https
-    port: "18443"
+    port: "443"
     permanent: true

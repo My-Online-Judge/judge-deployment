@@ -2,7 +2,7 @@
 # k3s/base/judge (sub-project 15): the Judge Pod pairs a sandbox with a worker, one to one. The worker's environment and the
 # sandbox's hardening are compared with docker-compose.yml's; the sandbox is a native sidecar (it starts first and stops last,
 # so a judgement in flight finishes); the pod has no ServiceAccount token and may reach only what the worker needs; the local
-# overlay runs the same sandbox image as the mock. Works on a copy of the .example files; prints descriptions.
+# overlay runs the base's sandbox unchanged (the mock is opt-in). Works on a copy of the .example files; prints descriptions.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 yq=mikefarah/yq:4.44.3
@@ -142,18 +142,15 @@ check(cases.get("emptyDir", {}).get("sizeLimit") == "8Gi", "judge: the test-case
 wk = next((c for c in pod(jd)["containers"] if c["name"] == "worker"), {}) if jd else {}
 check({e["name"]: e.get("value") for e in wk.get("env", [])}.get("TEST_CASE_CACHE_TTL_SECONDS") == "21600", "judge: cached bundles unused for 6 hours are swept (the worker's default is 24 h; the cache is capped by size, so it ages out sooner)")
 
-# the local overlay: the same sandbox image running `mock`, everything else (TLS, token, probes, capabilities, the worker's address) the base's
+# the local overlay: the real sandbox, the base's container unchanged (overlays/local/mock-sandbox.yaml is opt-in, commented out)
 for name in ("judge", "run-judge"):
     d, b = find(local, "Deployment", name), find(base, "Deployment", name)
     sb = next((c for c in pod(d).get("initContainers", []) if c["name"] == "sandbox"), None) if d else None
     bsb = next((c for c in pod(b).get("initContainers", []) if c["name"] == "sandbox"), None) if b else None
     wk = next((c for c in pod(d)["containers"] if c["name"] == "worker"), None) if d else None
     bwk = next((c for c in pod(b)["containers"] if c["name"] == "worker"), None) if b else None
-    check(sb and bsb and sb["image"] == bsb["image"] and sb.get("args") == ["mock"] and "DAC_OVERRIDE" in sb["securityContext"]["capabilities"]["add"],
-          f"local {name}: the sandbox is the base's image running `mock` (still able to read the worker's bundles)")
-    check(sb and bsb and {e["name"] for e in sb["env"]} - {e["name"] for e in bsb["env"]} == {"MOCK_SLOW_SECONDS"} and all(sb[k] == bsb[k] for k in ("startupProbe", "readinessProbe", "livenessProbe", "volumeMounts")),
-          f"local {name}: the mock adds MOCK_SLOW_SECONDS to the base's environment and keeps its probes and mounts")
-    check(wk and bwk and wk["env"] == bwk["env"] and literal(wk).get("JUDGE_SERVER_URL") == "localhost:8080", f"local {name}: the worker is untouched: it calls the mock at localhost:8080 over the same mutual TLS")
+    check(sb and bsb and sb == bsb and "args" not in sb, f"local {name}: the sandbox is the base's, unchanged: the real judge-server, not `mock`")
+    check(wk and bwk and wk["env"] == bwk["env"] and literal(wk).get("JUDGE_SERVER_URL") == "localhost:8080", f"local {name}: the worker is untouched: it calls its sandbox at localhost:8080 over the same mutual TLS")
 
 # network: what the judge pods may reach, and who may reach them
 pols = {p["metadata"]["name"]: p["spec"] for p in base if p.get("kind") == "NetworkPolicy"}

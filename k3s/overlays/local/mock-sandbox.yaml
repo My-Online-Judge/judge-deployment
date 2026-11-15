@@ -1,4 +1,4 @@
-# The real sandbox needs the Linux host's kernel (seccomp, rlimits), and its x86_64 build is only verified on the server: locally each
+# Opt-in (kustomization.yaml lists it commented out): for a host that cannot give the real sandbox its capabilities, each
 # Judge Pod runs the same image with `mock`, the server's scripted API (judge-server/internal/mock; compose's docker-compose.mock.yml
 # does the same). Same gRPC over the same mutual TLS, the same token, certificates, probes (`judge-server healthcheck` works against
 # `mock`) and capabilities, so the workers' address stays localhost:8080 and nothing else is patched. The image is the base's
